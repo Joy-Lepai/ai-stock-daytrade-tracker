@@ -186,6 +186,10 @@ CREATE TABLE IF NOT EXISTS paper_trades (
   symbol TEXT NOT NULL,
   name_zh TEXT,
   name_en TEXT,
+  source TEXT NOT NULL DEFAULT 'system',
+  is_manual INTEGER NOT NULL DEFAULT 0,
+  manual_reason TEXT,
+  created_by TEXT,
   side TEXT NOT NULL,
   status TEXT NOT NULL,
   grade TEXT,
@@ -256,6 +260,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _ensure_recommendation_columns(conn)
     _ensure_backtest_columns(conn)
+    _ensure_paper_trade_columns(conn)
     return conn
 
 
@@ -1082,6 +1087,21 @@ def _ensure_recommendation_columns(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE recommendations SET observed_at = first_seen_at WHERE observed_at IS NULL")
     conn.execute("UPDATE recommendations SET lifecycle_status = 'observed' WHERE lifecycle_status IS NULL OR lifecycle_status = ''")
     conn.execute("UPDATE recommendations SET market = 'TW' WHERE market IS NULL OR market = ''")
+
+
+def _ensure_paper_trade_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
+    columns = {
+        "source": "TEXT NOT NULL DEFAULT 'system'",
+        "is_manual": "INTEGER NOT NULL DEFAULT 0",
+        "manual_reason": "TEXT",
+        "created_by": "TEXT",
+    }
+    for name, column_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {name} {column_type}")
+    conn.execute("UPDATE paper_trades SET source = 'system' WHERE source IS NULL OR source = ''")
+    conn.execute("UPDATE paper_trades SET is_manual = 0 WHERE is_manual IS NULL")
 
 
 def _delete_stale_recommendations(

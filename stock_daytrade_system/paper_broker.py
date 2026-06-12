@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, time
+from datetime import datetime
 from typing import Dict, Iterable, Optional
 from zoneinfo import ZoneInfo
 
@@ -10,7 +10,7 @@ from stock_daytrade_system.market_clock import taiwan_market_session, us_market_
 from stock_daytrade_system.paper_config import DEFAULT_PAPER_CONFIG, PaperTradingConfig
 
 
-PAPER_ENGINE_VERSION = "paper_trading_v1_recommendation_lifecycle"
+PAPER_ENGINE_VERSION = "paper_trading_v1_manual_trade"
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,17 @@ def paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[datetime] = 
     captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
     run = run_paper_trading(conn, captured_at)
     accounts = [dict(row) for row in conn.execute("SELECT * FROM paper_accounts ORDER BY market").fetchall()]
-    positions = [dict(row) for row in conn.execute("SELECT * FROM paper_positions ORDER BY market, symbol").fetchall()]
+    positions = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual
+            FROM paper_positions p
+            LEFT JOIN paper_trades t ON t.id = p.trade_id
+            ORDER BY p.market, p.symbol
+            """
+        ).fetchall()
+    ]
     trades = [
         dict(row)
         for row in conn.execute(
@@ -91,14 +101,177 @@ def paper_performance(conn: sqlite3.Connection) -> dict:
     closed = [row for row in rows if row["status"] in {"closed", "stopped", "target_hit", "forced_exit"}]
     wins = [row for row in closed if (row["realized_pnl"] or 0) > 0]
     realized = round(sum(row["realized_pnl"] or 0 for row in closed), 2)
+    accounts = conn.execute("SELECT COALESCE(SUM(unrealized_pnl), 0) AS unrealized FROM paper_accounts").fetchone()
     return {
         "total_trades": len(rows),
         "closed_trades": len(closed),
+        "system_trades": sum(1 for row in rows if (row["source"] or "system") == "system"),
+        "manual_trades": sum(1 for row in rows if row["source"] == "manual"),
         "win_rate": _rate(len(wins), len(closed)),
         "realized_pnl": realized,
+        "unrealized_pnl": round(float(accounts["unrealized"] or 0), 2),
         "by_market": _group_performance(closed, "market"),
+        "by_source": _group_performance(closed, "source"),
         "by_grade": _group_performance(closed, "grade"),
         "by_entry_status": _group_performance(closed, "entry_status"),
+    }
+
+
+def paper_quote(conn: sqlite3.Connection, market: str, symbol: str) -> dict:
+    market = (market or "").strip().upper()
+    symbol = (symbol or "").strip().upper()
+    if market not in {"TW", "US"} or not symbol:
+        return {
+            "ok": False,
+            "market": market,
+            "symbol": symbol,
+            "message": "目前無法取得即時行情，請自行確認虛擬進場價格。",
+        }
+    price_info = _latest_price_map(conn).get((market, symbol))
+    if not price_info:
+        price_info = _symbol_metadata(conn, market, symbol)
+    ok = bool(price_info and price_info.get("price"))
+    return {
+        "ok": ok,
+        "market": market,
+        "symbol": symbol,
+        "latest_price": price_info.get("price") if price_info else None,
+        "vwap": price_info.get("vwap") if price_info else None,
+        "name_zh": (price_info or {}).get("name_zh") or symbol,
+        "name_en": (price_info or {}).get("name_en") or symbol,
+        "sector": (price_info or {}).get("sector") or "",
+        "entry_status": (price_info or {}).get("entry_status") or "",
+        "message": "" if ok else "目前無法取得即時行情，請自行確認虛擬進場價格。",
+    }
+
+
+def create_manual_trade(
+    conn: sqlite3.Connection,
+    payload: dict,
+    now: Optional[datetime] = None,
+    config: PaperTradingConfig = DEFAULT_PAPER_CONFIG,
+) -> dict:
+    captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    market = str(payload.get("market") or "").strip().upper()
+    symbol = str(payload.get("symbol") or "").strip().upper()
+    entry_price = _to_float(payload.get("entry_price"))
+    quantity = _to_float(payload.get("quantity"))
+    stop_loss = _to_float(payload.get("stop_loss"))
+    target_price = _to_float(payload.get("target_price"))
+    entry_reason = str(payload.get("entry_reason") or payload.get("manual_reason") or "手動虛擬交易").strip()
+    with conn:
+        _ensure_accounts(conn, captured_at, config)
+    validation = _validate_manual_trade(conn, market, symbol, entry_price, quantity, stop_loss, target_price, config)
+    if validation:
+        return {"ok": False, "message": validation, "trade": None}
+
+    with conn:
+        price_info = paper_quote(conn, market, symbol)
+        account = _account(conn, market)
+        value = round(entry_price * quantity, 2)
+        timestamp = captured_at.isoformat(timespec="seconds")
+        trade_id = f"manual|{market}|{symbol}|{timestamp.replace(':', '').replace('-', '').replace('+', '').replace('.', '')}"
+        name_zh = str(payload.get("name_zh") or price_info.get("name_zh") or symbol).strip() or symbol
+        name_en = str(payload.get("name_en") or price_info.get("name_en") or symbol).strip() or symbol
+        conn.execute(
+            """
+            INSERT INTO paper_trades (
+              id, account_id, recommendation_id, market, symbol, name_zh, name_en,
+              source, is_manual, manual_reason, created_by, side, status,
+              grade, entry_status, lifecycle_status, entry_time, entry_price, entry_reason,
+              quantity, position_value, stop_loss, target_price, max_favorable_excursion,
+              max_adverse_excursion, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 1, ?, 'user', 'long', 'open',
+                    'manual', 'manual', 'manual', ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+            """,
+            (
+                trade_id,
+                account["id"],
+                trade_id,
+                market,
+                symbol,
+                name_zh,
+                name_en,
+                entry_reason,
+                timestamp,
+                round(entry_price, 2),
+                entry_reason,
+                quantity,
+                value,
+                stop_loss,
+                target_price,
+                timestamp,
+                timestamp,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO paper_positions (
+              id, account_id, trade_id, market, symbol, quantity, entry_price,
+              current_price, market_value, unrealized_pnl, unrealized_pnl_pct,
+              stop_loss, target_price, highest_price_since_entry, lowest_price_since_entry,
+              opened_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                f"{account['id']}|{trade_id}",
+                account["id"],
+                trade_id,
+                market,
+                symbol,
+                quantity,
+                round(entry_price, 2),
+                round(entry_price, 2),
+                value,
+                stop_loss,
+                target_price,
+                round(entry_price, 2),
+                round(entry_price, 2),
+                timestamp,
+                timestamp,
+            ),
+        )
+        conn.execute(
+            "UPDATE paper_accounts SET cash_balance = cash_balance - ?, updated_at = ? WHERE id = ?",
+            (value, timestamp, account["id"]),
+        )
+        _refresh_accounts(conn, captured_at)
+        _record_equity_curve(conn, captured_at)
+    trade = conn.execute("SELECT * FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+    return {
+        "ok": True,
+        "message": f"已建立手動虛擬買進：{symbol}｜{name_zh}",
+        "trade": dict(trade) if trade else None,
+        "quote_warning": price_info.get("message") if not price_info.get("ok") else "",
+    }
+
+
+def close_manual_trade(conn: sqlite3.Connection, payload: dict, now: Optional[datetime] = None) -> dict:
+    captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    trade_id = str(payload.get("trade_id") or "").strip()
+    exit_price = _to_float(payload.get("exit_price"))
+    if not trade_id:
+        return {"ok": False, "message": "trade_id 不可空白", "last_close_trade_status": "failed"}
+    with conn:
+        position = conn.execute("SELECT * FROM paper_positions WHERE trade_id = ?", (trade_id,)).fetchone()
+        if not position:
+            return {"ok": False, "message": "找不到可平倉的 open position", "last_close_trade_status": "failed"}
+        if exit_price <= 0:
+            price_info = _latest_price_map(conn).get((position["market"], position["symbol"]))
+            exit_price = float((price_info or {}).get("price") or position["current_price"] or 0)
+        if exit_price <= 0:
+            return {"ok": False, "message": "平倉價格必須大於 0", "last_close_trade_status": "failed"}
+        _close_position(conn, position, exit_price, "manual_close", captured_at)
+        _refresh_accounts(conn, captured_at)
+        _record_equity_curve(conn, captured_at)
+    trade = conn.execute("SELECT * FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+    return {
+        "ok": True,
+        "message": f"已手動平倉：{trade['symbol']}｜{trade['name_zh']}",
+        "trade": dict(trade) if trade else None,
+        "last_close_trade_status": "success",
     }
 
 
@@ -197,6 +370,40 @@ def empty_paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[dateti
     }
 
 
+def _validate_manual_trade(
+    conn: sqlite3.Connection,
+    market: str,
+    symbol: str,
+    entry_price: float,
+    quantity: float,
+    stop_loss: float,
+    target_price: float,
+    config: PaperTradingConfig,
+) -> str:
+    if market not in {"TW", "US"}:
+        return "市場必須是 TW 或 US"
+    if not symbol:
+        return "股票代號不可空白"
+    if entry_price <= 0:
+        return "進場價格必須大於 0"
+    if quantity <= 0:
+        return "數量必須大於 0"
+    if stop_loss <= 0 or stop_loss >= entry_price:
+        return "停損價必須低於進場價"
+    if target_price <= entry_price:
+        return "停利價必須高於進場價"
+    if _open_position_exists(conn, market, symbol):
+        return "已有同一檔 open position，不能重複開倉"
+    if _open_position_count(conn, market) >= config.max_open_positions:
+        return "同市場持倉已達上限"
+    account = _account(conn, market)
+    if account is None:
+        return "找不到虛擬帳戶"
+    if entry_price * quantity > float(account["cash_balance"] or 0):
+        return "現金餘額不足"
+    return ""
+
+
 def _entry_decision(
     conn: sqlite3.Connection,
     row: sqlite3.Row,
@@ -255,11 +462,11 @@ def _open_trade(
         """
         INSERT INTO paper_trades (
           id, account_id, recommendation_id, market, symbol, name_zh, name_en, side, status,
-          grade, entry_status, lifecycle_status, entry_time, entry_price, entry_reason,
+          source, is_manual, grade, entry_status, lifecycle_status, entry_time, entry_price, entry_reason,
           quantity, position_value, stop_loss, target_price, max_favorable_excursion,
           max_adverse_excursion, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'open', 'system', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
         """,
         (
             trade_id,
@@ -330,9 +537,9 @@ def _insert_skipped_trade(
         """
         INSERT INTO paper_trades (
           id, account_id, recommendation_id, market, symbol, name_zh, name_en, side, status,
-          grade, entry_status, lifecycle_status, skipped_reason, created_at, updated_at
+          source, is_manual, grade, entry_status, lifecycle_status, skipped_reason, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'skipped', ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'skipped', 'system', 0, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING
         """,
         (
@@ -461,6 +668,7 @@ def _close_position(
     value = exit_price * quantity
     pnl = (exit_price - entry) * quantity
     pnl_pct = ((exit_price - entry) / entry * 100) if entry else 0.0
+    status = "closed" if reason == "manual_close" else reason
     conn.execute(
         """
         UPDATE paper_trades
@@ -468,7 +676,7 @@ def _close_position(
             realized_pnl = ?, realized_pnl_pct = ?, updated_at = ?
         WHERE id = ?
         """,
-        (reason, timestamp, round(exit_price, 2), reason, round(pnl, 2), round(pnl_pct, 2), timestamp, position["trade_id"]),
+        (status, timestamp, round(exit_price, 2), reason, round(pnl, 2), round(pnl_pct, 2), timestamp, position["trade_id"]),
     )
     conn.execute("DELETE FROM paper_positions WHERE id = ?", (position["id"],))
     conn.execute(
@@ -580,6 +788,27 @@ def _latest_price_map(conn: sqlite3.Connection) -> Dict[tuple[str, str], dict]:
         ).fetchall():
             result[("US", row["symbol"])] = dict(row)
     return result
+
+
+def _symbol_metadata(conn: sqlite3.Connection, market: str, symbol: str) -> dict:
+    if market == "US":
+        row = conn.execute(
+            "SELECT symbol, name_zh, name_en, sector_zh AS sector FROM us_symbols WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
+        return dict(row) if row else {"symbol": symbol}
+    row = conn.execute(
+        "SELECT symbol, name AS name_zh, name AS name_en, sector FROM symbols WHERE symbol = ?",
+        (symbol,),
+    ).fetchone()
+    return dict(row) if row else {"symbol": symbol}
+
+
+def _to_float(value) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _position_quantity(

@@ -15,6 +15,7 @@ from stock_daytrade_system.paper_broker import (
 def build_paper_dashboard(conn, project_root: Path) -> dict:
     payload = paper_dashboard_payload(conn)
     run = payload.get("run", {})
+    manual_debug = _manual_debug(conn)
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
@@ -28,6 +29,7 @@ def build_paper_dashboard(conn, project_root: Path) -> dict:
         "recommendations_scanned_count": int(run.get("recommendations_scanned", 0)),
         "executable_triggered_count": int(run.get("executable_triggered", 0)),
         "last_error": run.get("last_error", ""),
+        **manual_debug,
     }
     return payload
 
@@ -35,6 +37,7 @@ def build_paper_dashboard(conn, project_root: Path) -> dict:
 def build_empty_paper_dashboard(conn, project_root: Path, last_error: str = "") -> dict:
     payload = empty_paper_dashboard_payload(conn, last_error=last_error)
     run = payload.get("run", {})
+    manual_debug = _manual_debug(conn)
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
@@ -48,6 +51,7 @@ def build_empty_paper_dashboard(conn, project_root: Path, last_error: str = "") 
         "recommendations_scanned_count": int(run.get("recommendations_scanned", 0)),
         "executable_triggered_count": int(run.get("executable_triggered", 0)),
         "last_error": last_error,
+        **manual_debug,
     }
     return payload
 
@@ -72,3 +76,36 @@ def _current_commit_hash(project_root: Path) -> str:
         return completed.stdout.strip()
     except Exception:
         return "unknown"
+
+
+def _manual_debug(conn) -> dict:
+    manual = conn.execute("SELECT COUNT(*) AS total FROM paper_trades WHERE source = 'manual'").fetchone()["total"]
+    system = conn.execute("SELECT COUNT(*) AS total FROM paper_trades WHERE COALESCE(source, 'system') = 'system'").fetchone()["total"]
+    open_manual = conn.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM paper_positions p
+        JOIN paper_trades t ON t.id = p.trade_id
+        WHERE t.source = 'manual'
+        """
+    ).fetchone()["total"]
+    last_manual = conn.execute(
+        "SELECT created_at FROM paper_trades WHERE source = 'manual' ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    last_close = conn.execute(
+        """
+        SELECT exit_reason
+        FROM paper_trades
+        WHERE source = 'manual' AND exit_time IS NOT NULL
+        ORDER BY exit_time DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    return {
+        "manual_trades_count": int(manual or 0),
+        "system_trades_count": int(system or 0),
+        "open_manual_positions_count": int(open_manual or 0),
+        "last_manual_trade_created_at": last_manual["created_at"] if last_manual else "",
+        "last_close_trade_status": last_close["exit_reason"] if last_close else "",
+        "quote_api_status": "ready",
+    }

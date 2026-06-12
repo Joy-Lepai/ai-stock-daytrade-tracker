@@ -22,6 +22,7 @@ from stock_daytrade_system.db import (
     symbol_history,
 )
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
+from stock_daytrade_system.paper_broker import close_manual_trade, create_manual_trade, paper_quote
 from stock_daytrade_system.paper_service import build_empty_paper_dashboard, build_paper_dashboard, build_paper_performance
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
@@ -148,6 +149,13 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/api/paper/dashboard":
             self._send_json(self._paper_dashboard_payload())
             return
+        if path == "/api/paper/quote":
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            market = query.get("market", [""])[0]
+            symbol = query.get("symbol", [""])[0]
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(paper_quote(conn, market, symbol))
+            return
         if path == "/api/paper/trades":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 rows = conn.execute("SELECT * FROM paper_trades ORDER BY COALESCE(entry_time, created_at) DESC, symbol LIMIT 200").fetchall()
@@ -155,7 +163,14 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/paper/positions":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
-                rows = conn.execute("SELECT * FROM paper_positions ORDER BY market, symbol").fetchall()
+                rows = conn.execute(
+                    """
+                    SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual
+                    FROM paper_positions p
+                    LEFT JOIN paper_trades t ON t.id = p.trade_id
+                    ORDER BY p.market, p.symbol
+                    """
+                ).fetchall()
                 self._send_json([dict(row) for row in rows])
             return
         if path == "/api/paper/performance":
@@ -180,6 +195,18 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/refresh":
             self._handle_refresh()
+            return
+        if path == "/api/paper/manual-trade":
+            payload = self._read_json_body()
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                result = create_manual_trade(conn, payload)
+            self._send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if path == "/api/paper/close-trade":
+            payload = self._read_json_body()
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                result = close_manual_trade(conn, payload)
+            self._send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
             return
         self._send_not_found()
 
@@ -206,6 +233,19 @@ class StockWebHandler(BaseHTTPRequestHandler):
 
         run_tracker(DEFAULT_CONFIG, self.web_app.report_dir, "6mo", "1d", "5m", 3)
         self._redirect("/dashboard")
+
+    def _read_json_body(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            length = 0
+        if length <= 0:
+            return {}
+        raw = self.rfile.read(length).decode("utf-8")
+        try:
+            return json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return {}
 
     def _dashboard_html(self) -> str:
         latest = latest_tracker_file(self.web_app.report_dir)
@@ -508,13 +548,65 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
       <div class="session-pill">不串接券商｜不自動下單</div>
     </header>
     <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。</section>
-    <section id="paper-error" class="warn" hidden>虛擬交易資料暫時無法更新。</section>
+    <section id="paper-error" class="warn" hidden>虛擬交易 API 暫時無法更新。</section>
+    <section class="manual-panel" aria-labelledby="manual-trade-title">
+      <div class="section-title-row">
+        <h2 id="manual-trade-title">手動虛擬交易</h2>
+        <span id="manual-quote-status" class="muted">輸入股票代號後可嘗試帶入名稱與參考行情。</span>
+      </div>
+      <form id="manual-trade-form" class="manual-form">
+        <label>市場 market
+          <select id="manual-market" name="market">
+            <option value="US">US</option>
+            <option value="TW">TW</option>
+          </select>
+        </label>
+        <label>股票代號 symbol
+          <input id="manual-symbol" name="symbol" placeholder="NVDA 或 2330.TW" autocomplete="off">
+        </label>
+        <label>中文名稱 name_zh
+          <input id="manual-name-zh" name="name_zh" placeholder="輝達 / 台積電">
+        </label>
+        <label>英文名稱 name_en
+          <input id="manual-name-en" name="name_en" placeholder="NVIDIA Corporation">
+        </label>
+        <label>方向 side
+          <select id="manual-side" name="side" disabled><option value="buy">buy 手動買進</option></select>
+        </label>
+        <label>虛擬進場價格 entry_price
+          <input id="manual-entry-price" name="entry_price" type="number" min="0" step="0.01" placeholder="0.00">
+        </label>
+        <label>數量 quantity
+          <input id="manual-quantity" name="quantity" type="number" min="0" step="0.0001" placeholder="1">
+        </label>
+        <label>停損 stop_loss
+          <input id="manual-stop-loss" name="stop_loss" type="number" min="0" step="0.01" placeholder="低於進場價">
+        </label>
+        <label>停利 target_price
+          <input id="manual-target-price" name="target_price" type="number" min="0" step="0.01" placeholder="高於進場價">
+        </label>
+        <label>帳戶 account
+          <select id="manual-account" name="account">
+            <option value="US">US paper account</option>
+            <option value="TW">TW paper account</option>
+          </select>
+        </label>
+        <label class="manual-reason">進場理由 entry_reason
+          <input id="manual-entry-reason" name="entry_reason" placeholder="例如：測試突破 VWAP 後的虛擬買進">
+        </label>
+        <div class="manual-actions">
+          <button type="submit">建立虛擬買進</button>
+          <button type="button" id="manual-clear">清除表單</button>
+        </div>
+      </form>
+      <div id="manual-form-status" class="manual-status" aria-live="polite"></div>
+    </section>
     <h2>帳戶總覽</h2>
     <section class="summary" id="paper-accounts"></section>
     <h2>目前持倉</h2>
-    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th><th>操作</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
     <h2>今日交易 / 最近交易</h2>
-    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>狀態</th><th>分級</th><th>進場狀態</th><th>進場</th><th>出場</th><th>損益</th><th>原因</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>狀態</th><th>分級</th><th>進場狀態</th><th>進場</th><th>出場</th><th>損益</th><th>原因</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
     <h2>跳過紀錄</h2>
     <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>訊號</th><th>原因</th><th>時間</th></tr></thead><tbody id="paper-skipped"></tbody></table></div>
     <h2>策略績效</h2>
@@ -635,6 +727,21 @@ def us_dashboard_css() -> str:
     .us-header h1 { margin:0 0 4px; font-size:26px; }
     .session-pill { border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 12px; font-weight:700; white-space:nowrap; }
     .notice { margin:12px 0; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
+    .manual-panel { margin:18px 0 10px; padding:14px; background:#fff; border:1px solid var(--line); border-radius:8px; }
+    .section-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .section-title-row h2 { margin:0; }
+    .manual-form { display:grid; grid-template-columns:repeat(4,minmax(160px,1fr)); gap:10px 12px; margin-top:12px; }
+    .manual-form label { margin:0; font-size:12px; color:#344054; }
+    .manual-form input, .manual-form select { width:100%; margin-top:5px; padding:8px 9px; border:1px solid var(--line); border-radius:6px; font:inherit; background:#fff; }
+    .manual-reason { grid-column:span 2; }
+    .manual-actions { display:flex; align-items:end; gap:8px; }
+    .manual-actions button:first-child { background:#175cd3; border-color:#175cd3; color:#fff; }
+    .manual-status { margin-top:10px; min-height:20px; color:var(--muted); }
+    .manual-status.ok { color:#067647; font-weight:700; }
+    .manual-status.fail { color:#b42318; font-weight:700; }
+    .source-pill { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:999px; background:#f8fafc; font-size:12px; font-weight:700; }
+    .close-controls { display:flex; align-items:center; gap:6px; min-width:260px; }
+    .close-controls input { width:92px; margin:0; padding:6px 8px; }
     .debug-block { margin-top:10px; padding:10px 12px; background:#f8fafc; border:1px solid var(--line); border-radius:8px; }
     .table-wrap { overflow-x:auto; }
     table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
@@ -673,7 +780,8 @@ def paper_dashboard_css() -> str:
     .num-up { color:#067647; font-weight:700; }
     .num-down { color:#b42318; font-weight:700; }
     .notes { white-space:normal; min-width:180px; color:var(--muted); }
-    @media (max-width:760px) { .paper-page { padding-left:14px; padding-right:14px; } .paper-header { flex-direction:column; } }
+    @media (max-width:980px) { .manual-form { grid-template-columns:repeat(2,minmax(150px,1fr)); } .manual-reason { grid-column:span 2; } }
+    @media (max-width:760px) { .paper-page { padding-left:14px; padding-right:14px; } .paper-header { flex-direction:column; } .manual-form { grid-template-columns:1fr; } .manual-reason { grid-column:span 1; } .close-controls { min-width:220px; } }
     """
 
 
@@ -820,7 +928,7 @@ def us_dashboard_script() -> str:
 def paper_dashboard_script() -> str:
     return r"""
     (() => {
-      const state = { interval: 300, remaining: 300 };
+      const state = { interval: 300, remaining: 300, quoteTimer: null };
       const $ = (id) => document.getElementById(id);
       const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
       const money = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-";
@@ -831,7 +939,9 @@ def paper_dashboard_script() -> str:
       const cls = (value) => Number(value) > 0 ? "num-up" : Number(value) < 0 ? "num-down" : "";
       const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
       const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
+      const sourceLabel = (value) => value === "manual" ? "手動模擬" : "系統訊號";
       const status = $("paper-refresh-status");
+      const formStatus = $("manual-form-status");
 
       async function loadDashboard() {
         status.textContent = "更新中...";
@@ -846,7 +956,7 @@ def paper_dashboard_script() -> str:
           status.textContent = `上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`;
         } catch (error) {
           $("paper-error").hidden = false;
-          $("paper-error").textContent = `虛擬交易資料暫時無法更新：${error.message}`;
+          $("paper-error").textContent = `虛擬交易 API 暫時無法更新：${error.message}`;
           state.remaining = Math.max(state.interval, 60);
           status.textContent = "更新失敗，稍後自動重試";
         }
@@ -876,25 +986,32 @@ def paper_dashboard_script() -> str:
 
       function renderPositions(items) {
         if (!items.length) {
-          $("paper-positions").innerHTML = '<tr><td colspan="8">尚無持倉，等待 executable / triggered recommendations 產生後開始模擬。</td></tr>';
+          $("paper-positions").innerHTML = '<tr><td colspan="10">目前尚無持倉。你可以等待系統訊號觸發，也可以使用上方手動虛擬交易建立一筆模擬交易。</td></tr>';
           return;
         }
         $("paper-positions").innerHTML = items.map((item) => `<tr>
-          <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}</td>
+          <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
+          <td><span class="source-pill">${sourceLabel(item.source)}</span></td>
           <td>${money(item.entry_price)}</td><td>${money(item.current_price)}</td>
           <td>${money(item.quantity)}</td><td class="${cls(item.unrealized_pnl)}">${money(item.unrealized_pnl)}<br><span class="muted">${pct(item.unrealized_pnl_pct)}</span></td>
           <td>${money(item.stop_loss)}</td><td>${money(item.target_price)}</td>
+          <td><div class="close-controls">
+            <button type="button" class="manual-close-current" data-trade-id="${escapeHtml(item.trade_id)}">手動平倉</button>
+            <input class="manual-close-price" data-trade-id="${escapeHtml(item.trade_id)}" type="number" min="0" step="0.01" placeholder="指定價">
+            <button type="button" class="manual-close-specified" data-trade-id="${escapeHtml(item.trade_id)}">指定價平倉</button>
+          </div></td>
         </tr>`).join("");
       }
 
       function renderTrades(items) {
         const tradable = items.filter((item) => item.status !== "skipped").slice(0, 40);
         if (!tradable.length) {
-          $("paper-trades").innerHTML = '<tr><td colspan="9">今日尚無虛擬交易，等待符合條件的訊號。</td></tr>';
+          $("paper-trades").innerHTML = '<tr><td colspan="10">今日尚無虛擬交易，等待符合條件的訊號，或使用上方手動虛擬交易測試。</td></tr>';
           return;
         }
         $("paper-trades").innerHTML = tradable.map((item) => `<tr>
           <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
+          <td><span class="source-pill">${sourceLabel(item.source)}</span></td>
           <td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.grade)}</td><td>${escapeHtml(item.entry_status)}</td>
           <td>${escapeHtml(item.entry_time)}<br>${money(item.entry_price)}</td>
           <td>${escapeHtml(item.exit_time)}<br>${money(item.exit_price)}</td>
@@ -917,6 +1034,7 @@ def paper_dashboard_script() -> str:
 
       function renderPerformance(performance) {
         const sections = [
+          tableFor("依來源", performance.by_source || [], "source"),
           tableFor("依市場", performance.by_market || [], "market"),
           tableFor("依分級", performance.by_grade || [], "grade"),
           tableFor("依進場狀態", performance.by_entry_status || [], "entry_status"),
@@ -942,12 +1060,128 @@ def paper_dashboard_script() -> str:
         row("skipped count", text(debug.skipped_count)),
         row("recommendations scanned count", text(debug.recommendations_scanned_count)),
         row("executable / triggered count", text(debug.executable_triggered_count)),
+        row("manual trades count", text(debug.manual_trades_count)),
+        row("system trades count", text(debug.system_trades_count)),
+        row("open manual positions count", text(debug.open_manual_positions_count)),
+        row("last manual trade created_at", escapeHtml(debug.last_manual_trade_created_at || "")),
+        row("last close trade status", escapeHtml(debug.last_close_trade_status || "")),
+        row("quote API status", escapeHtml(debug.quote_api_status || "")),
         row("last error", escapeHtml(debug.last_error || "")),
           row("本次開倉", text(run.opened)),
           row("本次平倉", text(run.closed)),
           row("本次跳過", text(run.skipped)),
         ].join("");
       }
+
+      function setFormStatus(message, ok = true) {
+        formStatus.textContent = message || "";
+        formStatus.className = `manual-status ${message ? (ok ? "ok" : "fail") : ""}`;
+      }
+
+      function formPayload() {
+        return {
+          market: $("manual-market").value,
+          symbol: $("manual-symbol").value.trim().toUpperCase(),
+          name_zh: $("manual-name-zh").value.trim(),
+          name_en: $("manual-name-en").value.trim(),
+          side: "buy",
+          entry_price: Number($("manual-entry-price").value),
+          quantity: Number($("manual-quantity").value),
+          stop_loss: Number($("manual-stop-loss").value),
+          target_price: Number($("manual-target-price").value),
+          entry_reason: $("manual-entry-reason").value.trim(),
+        };
+      }
+
+      async function loadQuote() {
+        const market = $("manual-market").value;
+        const symbol = $("manual-symbol").value.trim().toUpperCase();
+        $("manual-account").value = market;
+        if (!symbol) {
+          $("manual-quote-status").textContent = "輸入股票代號後可嘗試帶入名稱與參考行情。";
+          return;
+        }
+        $("manual-quote-status").textContent = "查詢參考行情中...";
+        try {
+          const response = await fetch(`/api/paper/quote?market=${encodeURIComponent(market)}&symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+          const payload = await response.json();
+          if (payload.name_zh && !$("manual-name-zh").value) $("manual-name-zh").value = payload.name_zh;
+          if (payload.name_en && !$("manual-name-en").value) $("manual-name-en").value = payload.name_en;
+          if (payload.latest_price && !$("manual-entry-price").value) $("manual-entry-price").value = Number(payload.latest_price).toFixed(2);
+          const label = `${escapeHtml(symbol)}｜${escapeHtml(payload.name_zh || "")}｜${escapeHtml(payload.name_en || "")}`;
+          $("manual-quote-status").innerHTML = payload.ok
+            ? `${label}｜參考價 ${money(payload.latest_price)}｜VWAP ${money(payload.vwap)}｜${escapeHtml(payload.entry_status || "-")}`
+            : `${label}｜目前無法取得即時行情，請自行確認虛擬進場價格。`;
+        } catch (error) {
+          $("manual-quote-status").textContent = "目前無法取得即時行情，請自行確認虛擬進場價格。";
+        }
+      }
+
+      async function submitManualTrade(event) {
+        event.preventDefault();
+        setFormStatus("建立手動虛擬買進中...", true);
+        try {
+          const response = await fetch("/api/paper/manual-trade", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(formPayload()),
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+          setFormStatus(payload.quote_warning ? `${payload.message}；${payload.quote_warning}` : payload.message, true);
+          await loadDashboard();
+        } catch (error) {
+          setFormStatus(error.message, false);
+        }
+      }
+
+      async function closeTrade(tradeId, exitPrice) {
+        setFormStatus("手動平倉中...", true);
+        try {
+          const response = await fetch("/api/paper/close-trade", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ trade_id: tradeId, exit_price: exitPrice }),
+          });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+          setFormStatus(payload.message, true);
+          await loadDashboard();
+        } catch (error) {
+          setFormStatus(error.message, false);
+        }
+      }
+
+      $("manual-trade-form").addEventListener("submit", submitManualTrade);
+      $("manual-clear").addEventListener("click", () => {
+        $("manual-trade-form").reset();
+        $("manual-market").value = "US";
+        $("manual-account").value = "US";
+        $("manual-quote-status").textContent = "輸入股票代號後可嘗試帶入名稱與參考行情。";
+        setFormStatus("");
+      });
+      $("manual-market").addEventListener("change", loadQuote);
+      $("manual-account").addEventListener("change", () => {
+        $("manual-market").value = $("manual-account").value;
+        loadQuote();
+      });
+      $("manual-symbol").addEventListener("input", () => {
+        window.clearTimeout(state.quoteTimer);
+        state.quoteTimer = window.setTimeout(loadQuote, 450);
+      });
+      $("manual-symbol").addEventListener("blur", loadQuote);
+      $("paper-positions").addEventListener("click", (event) => {
+        const current = event.target.closest(".manual-close-current");
+        const specified = event.target.closest(".manual-close-specified");
+        if (current) {
+          closeTrade(current.dataset.tradeId, null);
+          return;
+        }
+        if (specified) {
+          const input = document.querySelector(`.manual-close-price[data-trade-id="${CSS.escape(specified.dataset.tradeId)}"]`);
+          closeTrade(specified.dataset.tradeId, Number(input?.value || 0));
+        }
+      });
 
       function tick() {
         state.remaining -= 1;

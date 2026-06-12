@@ -22,9 +22,15 @@ class WebTests(unittest.TestCase):
 
         self.assertIn("虛擬交易 Paper Trading", html)
         self.assertIn("/api/paper/dashboard", html)
+        self.assertIn("/api/paper/manual-trade", html)
+        self.assertIn("/api/paper/close-trade", html)
+        self.assertIn("手動虛擬交易", html)
+        self.assertIn("建立虛擬買進", html)
         self.assertIn("不串接券商", html)
         self.assertIn("目前持倉", html)
         self.assertIn("尚無持倉", html)
+        self.assertIn("虛擬交易 API 暫時無法更新", html)
+        self.assertNotIn("虛擬交易資料暫時無法更新", html)
         self.assertNotIn("!response.ok || payload.error", html)
 
 

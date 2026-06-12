@@ -5,7 +5,13 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, save_us_symbols
-from stock_daytrade_system.paper_broker import empty_paper_dashboard_payload, paper_dashboard_payload, run_paper_trading
+from stock_daytrade_system.paper_broker import (
+    close_manual_trade,
+    create_manual_trade,
+    empty_paper_dashboard_payload,
+    paper_dashboard_payload,
+    run_paper_trading,
+)
 from stock_daytrade_system.us_symbols import us_symbol_rows
 
 
@@ -161,6 +167,126 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
 
         self.assertEqual([(row["id"], row["market"], row["currency"]) for row in accounts], [("TW", "TW", "TWD"), ("US", "US", "USD")])
         self.assertEqual((trade["market"], trade["symbol"]), ("US", "NVDA"))
+
+    def test_create_us_manual_trade_opens_position_and_deducts_cash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                result = create_manual_trade(
+                    conn,
+                    {
+                        "market": "US",
+                        "symbol": "NVDA",
+                        "entry_price": 100,
+                        "quantity": 2,
+                        "stop_loss": 98,
+                        "target_price": 104,
+                        "entry_reason": "測試手動買進",
+                    },
+                    US_NOW,
+                )
+                account = conn.execute("SELECT cash_balance FROM paper_accounts WHERE id = 'US'").fetchone()
+                position = conn.execute("SELECT * FROM paper_positions WHERE symbol = 'NVDA'").fetchone()
+                trade = conn.execute("SELECT source, is_manual, name_zh FROM paper_trades WHERE symbol = 'NVDA'").fetchone()
+
+        self.assertTrue(result["ok"])
+        self.assertIn("已建立手動虛擬買進：NVDA｜輝達", result["message"])
+        self.assertEqual(account["cash_balance"], 29_800)
+        self.assertEqual(position["quantity"], 2)
+        self.assertEqual((trade["source"], trade["is_manual"], trade["name_zh"]), ("manual", 1, "輝達"))
+
+    def test_create_tw_manual_trade_opens_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_tw_price(conn, price=100)
+                result = create_manual_trade(
+                    conn,
+                    {
+                        "market": "TW",
+                        "symbol": "2330.TW",
+                        "entry_price": 100,
+                        "quantity": 1000,
+                        "stop_loss": 98,
+                        "target_price": 104,
+                        "entry_reason": "測試台股手動買進",
+                    },
+                    TW_NOW,
+                )
+                account = conn.execute("SELECT cash_balance FROM paper_accounts WHERE id = 'TW'").fetchone()
+                position = conn.execute("SELECT * FROM paper_positions WHERE symbol = '2330.TW'").fetchone()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(account["cash_balance"], 900_000)
+        self.assertEqual(position["quantity"], 1000)
+
+    def test_manual_trade_rejects_invalid_stop_loss(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                result = create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1, "stop_loss": 101, "target_price": 104},
+                    US_NOW,
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "停損價必須低於進場價")
+
+    def test_manual_trade_rejects_invalid_target_price(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                result = create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1, "stop_loss": 98, "target_price": 99},
+                    US_NOW,
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "停利價必須高於進場價")
+
+    def test_manual_trade_rejects_insufficient_cash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                result = create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1000, "stop_loss": 98, "target_price": 104},
+                    US_NOW,
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "現金餘額不足")
+
+    def test_manual_trade_rejects_duplicate_open_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                payload = {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1, "stop_loss": 98, "target_price": 104}
+                first = create_manual_trade(conn, payload, US_NOW)
+                second = create_manual_trade(conn, payload, US_NOW)
+
+        self.assertTrue(first["ok"])
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["message"], "已有同一檔 open position，不能重複開倉")
+
+    def test_close_manual_trade_updates_realized_pnl_and_cash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 2, "stop_loss": 98, "target_price": 104},
+                    US_NOW,
+                )
+                trade_id = conn.execute("SELECT id FROM paper_trades WHERE source = 'manual'").fetchone()["id"]
+                result = close_manual_trade(conn, {"trade_id": trade_id, "exit_price": 110}, US_NOW)
+                account = conn.execute("SELECT cash_balance, realized_pnl FROM paper_accounts WHERE id = 'US'").fetchone()
+                trade = conn.execute("SELECT status, exit_reason, realized_pnl, realized_pnl_pct FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+                positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions").fetchone()["total"]
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(positions, 0)
+        self.assertEqual((trade["status"], trade["exit_reason"]), ("closed", "manual_close"))
+        self.assertEqual(trade["realized_pnl"], 20)
+        self.assertEqual(trade["realized_pnl_pct"], 10)
+        self.assertEqual(account["cash_balance"], 30_020)
+        self.assertEqual(account["realized_pnl"], 20)
 
 
 if __name__ == "__main__":
