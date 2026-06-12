@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 import urllib.parse
+from datetime import datetime
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +22,7 @@ from stock_daytrade_system.db import (
     symbol_history,
 )
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
+from stock_daytrade_system.paper_service import build_paper_dashboard, build_paper_performance
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
 
@@ -97,6 +99,12 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/us/dashboard":
             self._send_html(render_us_dashboard_page(show_logout=self.web_app.require_auth))
             return
+        if path == "/paper":
+            self._redirect("/paper/dashboard")
+            return
+        if path == "/paper/dashboard":
+            self._send_html(render_paper_dashboard_page(show_logout=self.web_app.require_auth))
+            return
         if path.startswith("/symbol/"):
             self._send_html(self._symbol_html(path.removeprefix("/symbol/")))
             return
@@ -136,6 +144,23 @@ class StockWebHandler(BaseHTTPRequestHandler):
                     "timezone": clock.timezone,
                 }
             )
+            return
+        if path == "/api/paper/dashboard":
+            self._send_json(self._paper_dashboard_payload())
+            return
+        if path == "/api/paper/trades":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                rows = conn.execute("SELECT * FROM paper_trades ORDER BY COALESCE(entry_time, created_at) DESC, symbol LIMIT 200").fetchall()
+                self._send_json([dict(row) for row in rows])
+            return
+        if path == "/api/paper/positions":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                rows = conn.execute("SELECT * FROM paper_positions ORDER BY market, symbol").fetchall()
+                self._send_json([dict(row) for row in rows])
+            return
+        if path == "/api/paper/performance":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(build_paper_performance(conn))
             return
         if path.startswith("/reports/"):
             self._send_report(path.removeprefix("/reports/"))
@@ -289,6 +314,31 @@ class StockWebHandler(BaseHTTPRequestHandler):
                 "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。",
             }
 
+    def _paper_dashboard_payload(self) -> dict:
+        try:
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                return build_paper_dashboard(conn, PROJECT_ROOT)
+        except Exception as exc:
+            refresh_interval = 300
+            return {
+                "error": "虛擬交易資料暫時無法更新",
+                "error_detail": str(exc),
+                "generated_at": datetime_now_text(),
+                "refresh_interval_seconds": refresh_interval,
+                "accounts": [],
+                "positions": [],
+                "trades": [],
+                "skipped": [],
+                "performance": {},
+                "debug": {
+                    "app_version": "unknown",
+                    "engine_version": "unavailable",
+                    "generated_at": datetime_now_text(),
+                    "refresh_interval": refresh_interval,
+                },
+                "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。",
+            }
+
     def _send_report(self, name: str) -> None:
         safe_name = Path(name).name
         path = self.web_app.report_dir / safe_name
@@ -395,6 +445,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
       <a href="/us/dashboard">美股追蹤</a>
+      <a href="/paper/dashboard">虛擬交易</a>
       <a href="/api/backtest">回測</a>
       <a href="#debug">Debug</a>
     </div>
@@ -440,6 +491,59 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
 </html>"""
 
 
+def render_paper_dashboard_page(show_logout: bool = False) -> str:
+    logout_link = '<a href="/logout">登出</a>' if show_logout else ""
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>虛擬交易</title>
+  <style>{base_css()}{paper_dashboard_css()}</style>
+</head>
+<body>
+  <nav class="topbar">
+    <strong>股票當沖追蹤器</strong>
+    <div class="nav-links">
+      <a href="/dashboard">台股追蹤</a>
+      <a href="/us/dashboard">美股追蹤</a>
+      <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/api/backtest">回測</a>
+      <a href="#debug">Debug</a>
+    </div>
+    <div class="topbar-actions">
+      <span id="paper-refresh-status" class="refresh-status">準備更新</span>
+      {logout_link}
+    </div>
+  </nav>
+  <main class="paper-page">
+    <header class="paper-header">
+      <div>
+        <h1>虛擬交易 Paper Trading</h1>
+        <p class="meta">依照 recommendations / entry_status 模擬買進、持倉、停損、停利與收盤出場。</p>
+      </div>
+      <div class="session-pill">不串接券商｜不自動下單</div>
+    </header>
+    <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。</section>
+    <section id="paper-error" class="warn" hidden>虛擬交易資料暫時無法更新。</section>
+    <h2>帳戶總覽</h2>
+    <section class="summary" id="paper-accounts"></section>
+    <h2>目前持倉</h2>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
+    <h2>今日交易 / 最近交易</h2>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>狀態</th><th>分級</th><th>進場狀態</th><th>進場</th><th>出場</th><th>損益</th><th>原因</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
+    <h2>跳過紀錄</h2>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>訊號</th><th>原因</th><th>時間</th></tr></thead><tbody id="paper-skipped"></tbody></table></div>
+    <h2>策略績效</h2>
+    <div class="table-wrap" id="paper-performance"></div>
+    <h2 id="debug">Debug</h2>
+    <div class="debug-block"><table><tbody id="paper-debug"></tbody></table></div>
+  </main>
+  <script>{paper_dashboard_script()}</script>
+</body>
+</html>"""
+
+
 def render_shell(content: str, active_file: Optional[str], extra_css: str = "", show_logout: bool = False) -> str:
     file_text = f"<span>{_escape(active_file)}</span>" if active_file else "<span>無資料檔</span>"
     logout_link = '<a href="/logout">登出</a>' if show_logout else ""
@@ -459,6 +563,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
       <a href="/us/dashboard">美股追蹤</a>
+      <a href="/paper/dashboard">虛擬交易</a>
       <a href="/api/backtest">回測</a>
       <a href="#debug">Debug</a>
     </div>
@@ -565,6 +670,27 @@ def us_dashboard_css() -> str:
     .grade-D { color:#475467; background:#f2f4f7; }
     .notes { white-space:normal; min-width:220px; color:var(--muted); }
     @media (max-width:760px) { .us-page { padding-left:14px; padding-right:14px; } .us-header { flex-direction:column; } }
+    """
+
+
+def paper_dashboard_css() -> str:
+    return """
+    .paper-page { padding:0 28px 32px; }
+    .paper-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:24px 0 12px; }
+    .paper-header h1 { margin:0 0 4px; font-size:26px; }
+    .session-pill { border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 12px; font-weight:700; white-space:nowrap; }
+    .notice { margin:12px 0; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
+    .debug-block { margin-top:10px; padding:10px 12px; background:#f8fafc; border:1px solid var(--line); border-radius:8px; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    th, td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
+    th { background:#eef2f6; color:#344054; font-size:12px; }
+    tr:last-child td { border-bottom:0; }
+    h2 { margin:26px 0 10px; font-size:18px; }
+    .num-up { color:#067647; font-weight:700; }
+    .num-down { color:#b42318; font-weight:700; }
+    .notes { white-space:normal; min-width:180px; color:var(--muted); }
+    @media (max-width:760px) { .paper-page { padding-left:14px; padding-right:14px; } .paper-header { flex-direction:column; } }
     """
 
 
@@ -708,6 +834,142 @@ def us_dashboard_script() -> str:
     """
 
 
+def paper_dashboard_script() -> str:
+    return r"""
+    (() => {
+      const state = { interval: 300, remaining: 300 };
+      const $ = (id) => document.getElementById(id);
+      const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
+      const money = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-";
+      const pct = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : "-";
+      const escapeHtml = (value) => text(value)
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      const cls = (value) => Number(value) > 0 ? "num-up" : Number(value) < 0 ? "num-down" : "";
+      const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
+      const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
+      const status = $("paper-refresh-status");
+
+      async function loadDashboard() {
+        status.textContent = "更新中...";
+        $("paper-error").hidden = true;
+        try {
+          const response = await fetch("/api/paper/dashboard", { cache: "no-store" });
+          const payload = await response.json();
+          if (!response.ok || payload.error) throw new Error(payload.error || `HTTP ${response.status}`);
+          render(payload);
+          state.interval = Number(payload.refresh_interval_seconds || 300);
+          state.remaining = state.interval;
+          status.textContent = `上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`;
+        } catch (error) {
+          $("paper-error").hidden = false;
+          $("paper-error").textContent = `虛擬交易資料暫時無法更新：${error.message}`;
+          state.remaining = Math.max(state.interval, 60);
+          status.textContent = "更新失敗，稍後自動重試";
+        }
+      }
+
+      function render(payload) {
+        renderAccounts(payload.accounts || [], payload.performance || {});
+        renderPositions(payload.positions || []);
+        renderTrades(payload.trades || []);
+        renderSkipped(payload.skipped || []);
+        renderPerformance(payload.performance || {});
+        renderDebug(payload.debug || {}, payload.run || {});
+      }
+
+      function renderAccounts(accounts, performance) {
+        $("paper-accounts").innerHTML = accounts.map((account) => [
+          metric(`${escapeHtml(account.market)} 帳戶資金`, `${escapeHtml(account.currency)} ${money(account.equity)}`),
+          metric(`${escapeHtml(account.market)} 現金`, money(account.cash_balance)),
+          metric(`${escapeHtml(account.market)} 已實現損益`, `<span class="${cls(account.realized_pnl)}">${money(account.realized_pnl)}</span>`),
+          metric(`${escapeHtml(account.market)} 未實現損益`, `<span class="${cls(account.unrealized_pnl)}">${money(account.unrealized_pnl)}</span>`),
+          metric(`${escapeHtml(account.market)} 最大回撤`, pct(account.max_drawdown)),
+        ].join("")).join("") + metric("整體勝率", pct(performance.win_rate || 0));
+      }
+
+      function renderPositions(items) {
+        if (!items.length) {
+          $("paper-positions").innerHTML = '<tr><td colspan="8">目前沒有持倉。</td></tr>';
+          return;
+        }
+        $("paper-positions").innerHTML = items.map((item) => `<tr>
+          <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}</td>
+          <td>${money(item.entry_price)}</td><td>${money(item.current_price)}</td>
+          <td>${money(item.quantity)}</td><td class="${cls(item.unrealized_pnl)}">${money(item.unrealized_pnl)}<br><span class="muted">${pct(item.unrealized_pnl_pct)}</span></td>
+          <td>${money(item.stop_loss)}</td><td>${money(item.target_price)}</td>
+        </tr>`).join("");
+      }
+
+      function renderTrades(items) {
+        const tradable = items.filter((item) => item.status !== "skipped").slice(0, 40);
+        if (!tradable.length) {
+          $("paper-trades").innerHTML = '<tr><td colspan="9">目前沒有虛擬交易。</td></tr>';
+          return;
+        }
+        $("paper-trades").innerHTML = tradable.map((item) => `<tr>
+          <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
+          <td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.grade)}</td><td>${escapeHtml(item.entry_status)}</td>
+          <td>${escapeHtml(item.entry_time)}<br>${money(item.entry_price)}</td>
+          <td>${escapeHtml(item.exit_time)}<br>${money(item.exit_price)}</td>
+          <td class="${cls(item.realized_pnl)}">${money(item.realized_pnl)}<br><span class="muted">${pct(item.realized_pnl_pct)}</span></td>
+          <td class="notes">${escapeHtml(item.entry_reason || item.exit_reason || "")}</td>
+        </tr>`).join("");
+      }
+
+      function renderSkipped(items) {
+        if (!items.length) {
+          $("paper-skipped").innerHTML = '<tr><td colspan="5">目前沒有跳過紀錄。</td></tr>';
+          return;
+        }
+        $("paper-skipped").innerHTML = items.slice(0, 40).map((item) => `<tr>
+          <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
+          <td>${escapeHtml(item.grade)} / ${escapeHtml(item.entry_status)} / ${escapeHtml(item.lifecycle_status)}</td>
+          <td>${escapeHtml(item.skipped_reason)}</td><td>${escapeHtml(item.created_at)}</td>
+        </tr>`).join("");
+      }
+
+      function renderPerformance(performance) {
+        const sections = [
+          tableFor("依市場", performance.by_market || [], "market"),
+          tableFor("依分級", performance.by_grade || [], "grade"),
+          tableFor("依進場狀態", performance.by_entry_status || [], "entry_status"),
+        ];
+        $("paper-performance").innerHTML = sections.join("");
+      }
+
+      function tableFor(title, rows, key) {
+        const body = rows.length ? rows.map((item) => `<tr><td>${escapeHtml(item[key])}</td><td>${item.trades}</td><td>${pct(item.win_rate)}</td><td class="${cls(item.realized_pnl)}">${money(item.realized_pnl)}</td></tr>`).join("") : '<tr><td colspan="4">尚無資料。</td></tr>';
+        return `<h3>${title}</h3><table><thead><tr><th>分類</th><th>筆數</th><th>勝率</th><th>已實現損益</th></tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      function renderDebug(debug, run) {
+        $("paper-debug").innerHTML = [
+          row("commit hash", escapeHtml(debug.app_version)),
+          row("engine version", escapeHtml(debug.engine_version)),
+          row("generated_at", escapeHtml(debug.generated_at)),
+          row("refresh interval", `${text(debug.refresh_interval)} 秒`),
+          row("本次開倉", text(run.opened)),
+          row("本次平倉", text(run.closed)),
+          row("本次跳過", text(run.skipped)),
+        ].join("");
+      }
+
+      function tick() {
+        state.remaining -= 1;
+        if (state.remaining <= 0) {
+          loadDashboard();
+          return;
+        }
+        status.textContent = `上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`;
+      }
+
+      loadDashboard();
+      window.setInterval(tick, 1000);
+    })();
+    """
+
+
 def _extract_body(html: str) -> str:
     lower = html.lower()
     start = lower.find("<body>")
@@ -737,3 +999,7 @@ def _escape(value: str) -> str:
         .replace(">", "&gt;")
         .replace('"', "&quot;")
     )
+
+
+def datetime_now_text() -> str:
+    return datetime.now().isoformat(timespec="seconds")

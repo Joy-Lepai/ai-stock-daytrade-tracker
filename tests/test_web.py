@@ -1,6 +1,6 @@
 import unittest
 
-from stock_daytrade_system.web import _extract_body, _extract_style, latest_tracker_file
+from stock_daytrade_system.web import _extract_body, _extract_style, latest_tracker_file, render_paper_dashboard_page
 
 
 class WebTests(unittest.TestCase):
@@ -16,6 +16,14 @@ class WebTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             self.assertIsNone(latest_tracker_file(Path(directory)))
+
+    def test_paper_dashboard_page_has_required_sections(self):
+        html = render_paper_dashboard_page()
+
+        self.assertIn("虛擬交易 Paper Trading", html)
+        self.assertIn("/api/paper/dashboard", html)
+        self.assertIn("不串接券商", html)
+        self.assertIn("目前持倉", html)
 
 
 if __name__ == "__main__":

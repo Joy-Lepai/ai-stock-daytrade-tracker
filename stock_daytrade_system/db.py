@@ -163,6 +163,85 @@ CREATE TABLE IF NOT EXISTS us_candidates (
   market_status TEXT,
   PRIMARY KEY (captured_at, symbol)
 );
+
+CREATE TABLE IF NOT EXISTS paper_accounts (
+  id TEXT PRIMARY KEY,
+  market TEXT NOT NULL,
+  currency TEXT NOT NULL,
+  initial_cash REAL NOT NULL,
+  cash_balance REAL NOT NULL,
+  equity REAL NOT NULL,
+  realized_pnl REAL NOT NULL DEFAULT 0,
+  unrealized_pnl REAL NOT NULL DEFAULT 0,
+  max_drawdown REAL NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_trades (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  recommendation_id TEXT NOT NULL,
+  market TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  name_zh TEXT,
+  name_en TEXT,
+  side TEXT NOT NULL,
+  status TEXT NOT NULL,
+  grade TEXT,
+  entry_status TEXT,
+  lifecycle_status TEXT,
+  entry_time TEXT,
+  entry_price REAL,
+  entry_reason TEXT,
+  quantity REAL,
+  position_value REAL,
+  stop_loss REAL,
+  target_price REAL,
+  exit_time TEXT,
+  exit_price REAL,
+  exit_reason TEXT,
+  realized_pnl REAL,
+  realized_pnl_pct REAL,
+  max_favorable_excursion REAL,
+  max_adverse_excursion REAL,
+  skipped_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_positions (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  trade_id TEXT NOT NULL,
+  market TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  quantity REAL NOT NULL,
+  entry_price REAL NOT NULL,
+  current_price REAL NOT NULL,
+  market_value REAL NOT NULL,
+  unrealized_pnl REAL NOT NULL,
+  unrealized_pnl_pct REAL NOT NULL,
+  stop_loss REAL,
+  target_price REAL,
+  highest_price_since_entry REAL,
+  lowest_price_since_entry REAL,
+  opened_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS paper_equity_curve (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL,
+  market TEXT NOT NULL,
+  captured_at TEXT NOT NULL,
+  cash_balance REAL NOT NULL,
+  position_value REAL NOT NULL,
+  equity REAL NOT NULL,
+  realized_pnl REAL NOT NULL,
+  unrealized_pnl REAL NOT NULL,
+  drawdown REAL NOT NULL
+);
 """
 
 
