@@ -178,7 +178,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("資料狀態", html)
         self.assertIn("失敗標的不納入", html)
 
-    def test_render_marks_legacy_sections_as_reference(self):
+    def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(
             candidates=[],
             alerts=[],
@@ -186,7 +186,12 @@ class TrackerStatusTests(unittest.TestCase):
             market_state="偏多",
             market_notes=[],
             backtest={"recommendation_count": 0, "trackable_count": 0, "target": 0, "stop": 0, "avg_return": 0},
-            recommendation_checklist={},
+            recommendation_checklist={
+                "executable": 1,
+                "wait_volume": 2,
+                "wait_vwap": 3,
+                "high_risk": 4,
+            },
             debug_info={
                 "app_version": "abc123",
                 "scoring_model_version": "long_model_v2_volume_vwap_2026-06-12",
@@ -215,8 +220,10 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("系統版本 / Debug", html)
         self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
         self.assertIn("recommendations count from DB", html)
-        self.assertIn("舊版參考：今日看漲焦點", html)
-        self.assertIn("舊版參考：系統自動選股", html)
+        self.assertIn("executable 可執行", html)
+        self.assertIn("wait_volume 等量能", html)
+        self.assertNotIn("舊版參考：今日看漲焦點", html)
+        self.assertNotIn("舊版參考：系統自動選股", html)
 
 
 if __name__ == "__main__":

@@ -295,8 +295,7 @@ def render_tracker_html(
     manual_rows = [row for row in rows if row.source == "manual"]
     warnings = list(data_warnings)
     statuses = list(data_status)
-    status_counts = _status_counts(rows)
-    bullish_focus = _bullish_focus_rows(auto_rows + manual_rows)
+    checklist = long_summary.recommendation_checklist if long_summary else {}
 
     html = f"""<!doctype html>
 <html lang="zh-Hant">
@@ -432,10 +431,10 @@ def render_tracker_html(
     <h1>股票當沖追蹤器</h1>
     <div class="meta">產生時間：{escape(report_time.strftime('%Y-%m-%d %H:%M:%S'))} ｜ 市場背景：{escape(market_bias.direction)}（{market_bias.score:+.2f}）</div>
     <div class="summary">
-      {_metric('可執行', status_counts.get('可執行', 0))}
-      {_metric('等待確認', status_counts.get('等待確認', 0))}
-      {_metric('風險過高', status_counts.get('風險過高', 0))}
-      {_metric('低優先', status_counts.get('低優先', 0))}
+      {_metric('executable 可執行', int(checklist.get('executable', 0)))}
+      {_metric('wait_volume 等量能', int(checklist.get('wait_volume', 0)))}
+      {_metric('wait_vwap 等VWAP', int(checklist.get('wait_vwap', 0)))}
+      {_metric('high_risk 風險過高', int(checklist.get('high_risk', 0)))}
     </div>
     {_data_status_block(statuses)}
     {_warning_block(warnings)}
@@ -454,12 +453,8 @@ def render_tracker_html(
     <div class="table-wrap">{_market_state_table(long_summary)}</div>
     <h2>每日回測</h2>
     <div class="table-wrap">{_backtest_table(long_summary)}</div>
-    <h2>舊版參考：今日看漲焦點</h2>
-    <div class="table-wrap">{_bullish_focus_table(bullish_focus)}</div>
     <h2>盤前市場指標</h2>
     <div class="table-wrap">{_market_indicator_table(indicators)}</div>
-    <h2>舊版參考：系統自動選股</h2>
-    <div class="table-wrap">{_tracked_table(auto_rows, empty_text='目前沒有符合自動選股條件的標的。')}</div>
     <h2>我的自選追蹤</h2>
     <div class="table-wrap">{_tracked_table(manual_rows, empty_text='目前沒有自選標的。')}</div>
     <h2>訊號績效追蹤</h2>
