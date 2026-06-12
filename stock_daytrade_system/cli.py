@@ -351,6 +351,11 @@ def run_tracker(
             "avoid": sum(1 for item in long_candidates if item.entry_status == "avoid"),
             "recommendations": int(backtest_data.get("recommendation_count", 0)),
             "backtest_trackable": int(backtest_data.get("trackable_count", 0)),
+            "triggered_backtest": int(backtest_data.get("triggered_backtest_count", 0)),
+            "observed": int(backtest_data.get("observed_count", 0)),
+            "triggered": int(backtest_data.get("triggered_count", 0)),
+            "expired": int(backtest_data.get("expired_count", 0)),
+            "closed": int(backtest_data.get("closed_count", 0)),
             "data_missing": data_missing_count,
         }
         debug_info = {

@@ -119,6 +119,85 @@ class DatabaseTests(unittest.TestCase):
             ("2330.TW", "A", "executable"),
         ])
 
+    def test_wait_vwap_triggers_lifecycle_without_losing_entry_status(self):
+        wait_candidate = replace(
+            candidate(grade="B", entry_status="wait_vwap"),
+            last_price=100.5,
+            vwap=100,
+            above_vwap=True,
+            target_price=102,
+            stop_loss=99,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(conn, datetime(2026, 1, 1, 9, 10), [wait_candidate])
+                update_backtests(
+                    conn,
+                    datetime(2026, 1, 1, 9, 15),
+                    {"2330.TW": [bar(1, 101, 100, 100.5), bar(2, 102.5, 100.5, 102)]},
+                )
+                rec = conn.execute("SELECT * FROM recommendations WHERE symbol = ?", ("2330.TW",)).fetchone()
+                result = conn.execute("SELECT * FROM backtest_results WHERE symbol = ?", ("2330.TW",)).fetchone()
+                summary = backtest_summary(conn, datetime(2026, 1, 1).date())
+
+        self.assertEqual(rec["lifecycle_status"], "hit_target")
+        self.assertEqual(rec["entry_status"], "wait_vwap")
+        self.assertEqual(rec["trigger_reason"], "站回VWAP")
+        self.assertIsNotNone(result["trigger_time"])
+        self.assertEqual(result["entry_status"], "wait_vwap")
+        self.assertEqual(summary["trackable_count"], 1)
+        self.assertEqual(summary["by_entry_status"][0]["entry_status"], "wait_vwap")
+        self.assertEqual(summary["by_entry_status"][0]["trackable"], 1)
+
+    def test_wait_volume_triggers_when_volume_ratio_reaches_one(self):
+        wait_candidate = replace(
+            candidate(grade="B", entry_status="wait_volume"),
+            volume_ratio=1.05,
+            target_price=102,
+            stop_loss=99,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(conn, datetime(2026, 1, 1, 9, 10), [wait_candidate])
+                update_backtests(
+                    conn,
+                    datetime(2026, 1, 1, 9, 15),
+                    {"2330.TW": [bar(1, 101, 100, 100.5), bar(2, 101.5, 100.2, 101)]},
+                )
+                rec = conn.execute("SELECT * FROM recommendations WHERE symbol = ?", ("2330.TW",)).fetchone()
+                result = conn.execute("SELECT * FROM backtest_results WHERE symbol = ?", ("2330.TW",)).fetchone()
+
+        self.assertEqual(rec["lifecycle_status"], "triggered")
+        self.assertEqual(rec["entry_status"], "wait_volume")
+        self.assertIn("量比放大", rec["trigger_reason"])
+        self.assertEqual(result["entry_status"], "wait_volume")
+        self.assertEqual(result["expired_without_trigger"], 0)
+
+    def test_observed_recommendation_expires_after_close_without_trigger(self):
+        wait_candidate = replace(
+            candidate(grade="B", entry_status="wait_vwap"),
+            last_price=98,
+            vwap=100,
+            above_vwap=False,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(conn, datetime(2026, 1, 1, 9, 10), [wait_candidate])
+                update_backtests(
+                    conn,
+                    datetime(2026, 1, 1, 14, 0),
+                    {"2330.TW": [bar(40, 99, 97, 98)]},
+                )
+                rec = conn.execute("SELECT * FROM recommendations WHERE symbol = ?", ("2330.TW",)).fetchone()
+                result = conn.execute("SELECT * FROM backtest_results WHERE symbol = ?", ("2330.TW",)).fetchone()
+                summary = backtest_summary(conn, datetime(2026, 1, 1).date())
+
+        self.assertEqual(rec["lifecycle_status"], "expired")
+        self.assertIsNotNone(rec["expired_at"])
+        self.assertEqual(result["expired_without_trigger"], 1)
+        self.assertEqual(summary["trackable_count"], 0)
+        self.assertEqual(summary["expired_count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

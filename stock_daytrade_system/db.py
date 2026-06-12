@@ -71,28 +71,43 @@ CREATE TABLE IF NOT EXISTS recommendations (
   bullish_score REAL NOT NULL,
   risk_score REAL NOT NULL,
   entry_status TEXT NOT NULL,
+  lifecycle_status TEXT NOT NULL DEFAULT 'observed',
+  observed_at TEXT,
+  trigger_time TEXT,
   trigger_price REAL,
+  trigger_reason TEXT,
   stop_loss REAL,
   target_price REAL,
   signal_price REAL,
+  expired_at TEXT,
+  closed_at TEXT,
   PRIMARY KEY (date, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS backtest_results (
   date TEXT NOT NULL,
   symbol TEXT NOT NULL,
+  lifecycle_status TEXT,
+  entry_status TEXT,
+  trigger_time TEXT,
+  trigger_price REAL,
   entry_price REAL,
   max_price_after_signal REAL,
   min_price_after_signal REAL,
+  max_price_after_trigger REAL,
+  min_price_after_trigger REAL,
   close_price REAL,
   same_day_high REAL,
   same_day_low REAL,
   same_day_close REAL,
   max_gain_after_recommend REAL,
   max_drawdown_after_recommend REAL,
+  max_gain_after_trigger REAL,
+  max_drawdown_after_trigger REAL,
   hit_target INTEGER,
   hit_stop INTEGER,
   hit_stop_loss INTEGER,
+  expired_without_trigger INTEGER,
   outcome TEXT,
   return_pct REAL,
   PRIMARY KEY (date, symbol)
@@ -109,6 +124,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _ensure_recommendation_columns(conn)
     _ensure_backtest_columns(conn)
     return conn
 
@@ -202,20 +218,52 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                 ),
             )
             if data["grade"] in {"A", "B"}:
+                lifecycle_status = "triggered" if data["entry_status"] == "executable" else "observed"
+                trigger_time = captured_text if data["entry_status"] == "executable" else None
+                trigger_price = data["last_price"] if data["entry_status"] == "executable" else data["trigger_price"]
+                trigger_reason = "initial_executable" if data["entry_status"] == "executable" else None
                 conn.execute(
                     """
                     INSERT INTO recommendations (
                       date, symbol, first_seen_at, latest_seen_at, grade, bullish_score, risk_score,
-                      entry_status, trigger_price, stop_loss, target_price, signal_price
+                      entry_status, lifecycle_status, observed_at, trigger_time, trigger_price,
+                      trigger_reason, stop_loss, target_price, signal_price
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date, symbol) DO UPDATE SET
                       latest_seen_at=excluded.latest_seen_at,
                       grade=excluded.grade,
                       bullish_score=excluded.bullish_score,
                       risk_score=excluded.risk_score,
-                      entry_status=excluded.entry_status,
-                      trigger_price=excluded.trigger_price,
+                      entry_status=CASE
+                        WHEN recommendations.lifecycle_status = 'observed'
+                         AND recommendations.trigger_time IS NULL
+                         AND excluded.entry_status != 'executable'
+                          THEN excluded.entry_status
+                        ELSE recommendations.entry_status
+                      END,
+                      lifecycle_status=CASE
+                        WHEN recommendations.lifecycle_status IN ('triggered', 'stopped', 'hit_target', 'closed', 'expired')
+                          THEN recommendations.lifecycle_status
+                        WHEN excluded.entry_status = 'executable'
+                          THEN 'triggered'
+                        ELSE recommendations.lifecycle_status
+                      END,
+                      trigger_time=CASE
+                        WHEN recommendations.trigger_time IS NOT NULL THEN recommendations.trigger_time
+                        WHEN excluded.entry_status = 'executable' THEN excluded.trigger_time
+                        ELSE recommendations.trigger_time
+                      END,
+                      trigger_price=CASE
+                        WHEN recommendations.trigger_time IS NOT NULL THEN recommendations.trigger_price
+                        WHEN excluded.entry_status = 'executable' THEN excluded.signal_price
+                        ELSE excluded.trigger_price
+                      END,
+                      trigger_reason=CASE
+                        WHEN recommendations.trigger_reason IS NOT NULL THEN recommendations.trigger_reason
+                        WHEN excluded.entry_status = 'executable' THEN excluded.trigger_reason
+                        ELSE recommendations.trigger_reason
+                      END,
                       stop_loss=excluded.stop_loss,
                       target_price=excluded.target_price
                     """,
@@ -228,7 +276,11 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         data["bullish_score"],
                         data["risk_score"],
                         data["entry_status"],
-                        data["trigger_price"],
+                        lifecycle_status,
+                        captured_text,
+                        trigger_time,
+                        trigger_price,
+                        trigger_reason,
                         data["stop_loss"],
                         data["target_price"],
                         data["last_price"],
@@ -258,13 +310,53 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
             same_day_bars = [bar for bar in bars if bar.timestamp.date() == recommendation_date]
             if not same_day_bars:
                 continue
-            relevant = [
-                bar for bar in same_day_bars
-                if bar.timestamp >= signal_time
-            ]
+            snapshot = _latest_intraday_snapshot(conn, row["symbol"], row["date"], captured_at)
+            lifecycle_status = row["lifecycle_status"] or "observed"
+            trigger_time = _parse_datetime(row["trigger_time"])
+            trigger_price = row["trigger_price"]
+            trigger_reason = row["trigger_reason"]
+            if lifecycle_status == "observed":
+                trigger = _trigger_from_observation(row, snapshot, captured_at)
+                if trigger is not None:
+                    lifecycle_status = "triggered"
+                    trigger_time, trigger_price, trigger_reason = trigger
+                    conn.execute(
+                        """
+                        UPDATE recommendations
+                        SET lifecycle_status = ?, trigger_time = ?, trigger_price = ?,
+                            trigger_reason = ?
+                        WHERE date = ? AND symbol = ?
+                        """,
+                        (
+                            lifecycle_status,
+                            trigger_time.isoformat(timespec="seconds"),
+                            round(trigger_price, 2),
+                            trigger_reason,
+                            row["date"],
+                            row["symbol"],
+                        ),
+                    )
+                elif _is_after_market_close(captured_at, recommendation_date):
+                    lifecycle_status = "expired"
+                    expired_at = captured_at.isoformat(timespec="seconds")
+                    conn.execute(
+                        """
+                        UPDATE recommendations
+                        SET lifecycle_status = ?, expired_at = ?
+                        WHERE date = ? AND symbol = ?
+                        """,
+                        (lifecycle_status, expired_at, row["date"], row["symbol"]),
+                    )
+                    _upsert_expired_backtest(conn, row, lifecycle_status)
+                    continue
+
+            if trigger_time is None:
+                continue
+            trigger_time = trigger_time.replace(tzinfo=None)
+            relevant = [bar for bar in same_day_bars if bar.timestamp >= trigger_time]
             if not relevant:
-                relevant = same_day_bars
-            entry_price = row["signal_price"] or relevant[0].close
+                relevant = [bar for bar in same_day_bars if bar.timestamp >= signal_time] or same_day_bars
+            entry_price = trigger_price or row["signal_price"] or relevant[0].close
             max_price = max(bar.high for bar in relevant)
             min_price = min(bar.low for bar in relevant)
             close_price = same_day_bars[-1].close
@@ -281,24 +373,48 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
             elif hit_stop_loss:
                 outcome = "停損"
             else:
-                outcome = "追蹤中"
+                outcome = "收盤結算" if _is_after_market_close(captured_at, recommendation_date) else "追蹤中"
+            if hit_target:
+                lifecycle_status = "hit_target"
+            elif hit_stop_loss:
+                lifecycle_status = "stopped"
+            elif _is_after_market_close(captured_at, recommendation_date):
+                lifecycle_status = "closed"
+            closed_at = captured_at.isoformat(timespec="seconds") if lifecycle_status in {"hit_target", "stopped", "closed"} else row["closed_at"]
             max_gain = ((max_price - entry_price) / entry_price * 100) if entry_price else 0
             max_drawdown = ((min_price - entry_price) / entry_price * 100) if entry_price else 0
             return_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0
             conn.execute(
                 """
+                UPDATE recommendations
+                SET lifecycle_status = ?, closed_at = ?
+                WHERE date = ? AND symbol = ?
+                """,
+                (lifecycle_status, closed_at, row["date"], row["symbol"]),
+            )
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO backtest_results (
-                  date, symbol, entry_price, max_price_after_signal, min_price_after_signal,
-                  close_price, same_day_high, same_day_low, same_day_close,
+                  date, symbol, lifecycle_status, entry_status, trigger_time, trigger_price,
+                  entry_price, max_price_after_signal, min_price_after_signal,
+                  max_price_after_trigger, min_price_after_trigger, close_price,
+                  same_day_high, same_day_low, same_day_close,
                   max_gain_after_recommend, max_drawdown_after_recommend,
-                  hit_target, hit_stop, hit_stop_loss, outcome, return_pct
+                  max_gain_after_trigger, max_drawdown_after_trigger,
+                  hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row["date"],
                     row["symbol"],
+                    lifecycle_status,
+                    row["entry_status"],
+                    trigger_time.isoformat(timespec="seconds"),
                     round(entry_price, 2),
+                    round(entry_price, 2),
+                    round(max_price, 2),
+                    round(min_price, 2),
                     round(max_price, 2),
                     round(min_price, 2),
                     round(close_price, 2),
@@ -307,9 +423,12 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                     round(close_price, 2),
                     round(max_gain, 2),
                     round(max_drawdown, 2),
+                    round(max_gain, 2),
+                    round(max_drawdown, 2),
                     int(hit_target),
                     int(hit_stop_loss),
                     int(hit_stop_loss),
+                    0,
                     outcome,
                     round(return_pct, 2),
                 ),
@@ -388,28 +507,45 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> di
         where = "WHERE date = ?"
         params.append(day.strftime("%Y-%m-%d"))
     recommendation_count = conn.execute(f"SELECT COUNT(*) AS total FROM recommendations {where}", params).fetchone()["total"]
+    lifecycle_rows = conn.execute(
+        f"SELECT lifecycle_status, COUNT(*) AS total FROM recommendations {where} GROUP BY lifecycle_status",
+        params,
+    ).fetchall()
     rows = conn.execute(f"SELECT * FROM backtest_results {where}", params).fetchall()
     status_rows = conn.execute(
         f"""
         SELECT
           r.entry_status,
+          r.lifecycle_status,
           r.symbol,
           b.outcome,
-          b.return_pct
+          b.return_pct,
+          b.trigger_time,
+          b.expired_without_trigger
         FROM recommendations r
         LEFT JOIN backtest_results b ON b.date = r.date AND b.symbol = r.symbol
         {where.replace("date", "r.date") if where else ""}
         """,
         params,
     ).fetchall()
-    trackable_count = len(rows)
+    trackable_rows = [row for row in rows if row["trigger_time"]]
+    trackable_count = len(trackable_rows)
+    triggered_backtest_count = sum(1 for row in rows if row["trigger_time"])
     target = sum(1 for row in rows if row["outcome"] == "達標")
     stop = sum(1 for row in rows if row["outcome"] == "停損")
-    avg_return = round(sum(row["return_pct"] or 0 for row in rows) / trackable_count, 2) if trackable_count else 0.0
+    avg_return = round(sum(row["return_pct"] or 0 for row in trackable_rows) / trackable_count, 2) if trackable_count else 0.0
+    lifecycle_counts = {row["lifecycle_status"] or "observed": row["total"] for row in lifecycle_rows}
     return {
         "total": recommendation_count,
         "recommendation_count": recommendation_count,
         "trackable_count": trackable_count,
+        "triggered_backtest_count": triggered_backtest_count,
+        "observed_count": int(lifecycle_counts.get("observed", 0)),
+        "triggered_count": int(lifecycle_counts.get("triggered", 0)),
+        "expired_count": int(lifecycle_counts.get("expired", 0)),
+        "closed_count": int(lifecycle_counts.get("closed", 0)),
+        "stopped_count": int(lifecycle_counts.get("stopped", 0)),
+        "hit_target_count": int(lifecycle_counts.get("hit_target", 0)),
         "target": target,
         "stop": stop,
         "avg_return": avg_return,
@@ -424,7 +560,7 @@ def _summarize_by_entry_status(rows: Iterable[sqlite3.Row]) -> List[dict]:
 
     result = []
     for status, items in grouped.items():
-        tracked = [item for item in items if item["outcome"]]
+        tracked = [item for item in items if item["trigger_time"]]
         total = len(items)
         trackable = len(tracked)
         target = sum(1 for item in tracked if item["outcome"] == "達標")
@@ -458,16 +594,42 @@ def _entry_status_order(value: str) -> int:
 def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(backtest_results)").fetchall()}
     columns = {
+        "lifecycle_status": "TEXT",
+        "entry_status": "TEXT",
+        "trigger_time": "TEXT",
+        "trigger_price": "REAL",
         "same_day_high": "REAL",
         "same_day_low": "REAL",
         "same_day_close": "REAL",
+        "max_price_after_trigger": "REAL",
+        "min_price_after_trigger": "REAL",
         "max_gain_after_recommend": "REAL",
         "max_drawdown_after_recommend": "REAL",
+        "max_gain_after_trigger": "REAL",
+        "max_drawdown_after_trigger": "REAL",
         "hit_stop_loss": "INTEGER",
+        "expired_without_trigger": "INTEGER",
     }
     for name, column_type in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE backtest_results ADD COLUMN {name} {column_type}")
+
+
+def _ensure_recommendation_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(recommendations)").fetchall()}
+    columns = {
+        "lifecycle_status": "TEXT NOT NULL DEFAULT 'observed'",
+        "observed_at": "TEXT",
+        "trigger_time": "TEXT",
+        "trigger_reason": "TEXT",
+        "expired_at": "TEXT",
+        "closed_at": "TEXT",
+    }
+    for name, column_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE recommendations ADD COLUMN {name} {column_type}")
+    conn.execute("UPDATE recommendations SET observed_at = first_seen_at WHERE observed_at IS NULL")
+    conn.execute("UPDATE recommendations SET lifecycle_status = 'observed' WHERE lifecycle_status IS NULL OR lifecycle_status = ''")
 
 
 def _delete_stale_recommendations(conn: sqlite3.Connection, date_text: str, eligible_symbols: set[str]) -> None:
@@ -493,3 +655,69 @@ def _parse_datetime(value: str) -> Optional[datetime]:
         return datetime.fromisoformat(value)
     except (TypeError, ValueError):
         return None
+
+
+def _latest_intraday_snapshot(
+    conn: sqlite3.Connection,
+    symbol: str,
+    date_text: str,
+    captured_at: datetime,
+) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT *
+        FROM intraday_snapshots
+        WHERE symbol = ?
+          AND date = ?
+          AND captured_at <= ?
+        ORDER BY captured_at DESC
+        LIMIT 1
+        """,
+        (symbol, date_text, captured_at.isoformat(timespec="seconds")),
+    ).fetchone()
+
+
+def _trigger_from_observation(
+    row: sqlite3.Row,
+    snapshot: Optional[sqlite3.Row],
+    captured_at: datetime,
+) -> Optional[tuple[datetime, float, str]]:
+    entry_status = row["entry_status"]
+    if entry_status == "executable":
+        return captured_at, float(row["signal_price"] or row["trigger_price"] or 0), "initial_executable"
+    if snapshot is None:
+        return None
+
+    last_price = snapshot["last_price"]
+    if last_price is None:
+        return None
+    last_price = float(last_price)
+    vwap = snapshot["vwap"]
+    volume_ratio = snapshot["volume_ratio"]
+    above_vwap = bool(snapshot["above_vwap"]) or (vwap is not None and last_price >= float(vwap))
+
+    if entry_status == "wait_vwap" and above_vwap:
+        return captured_at, last_price, "站回VWAP"
+    if entry_status == "wait_volume" and volume_ratio is not None and float(volume_ratio) >= 1.0:
+        return captured_at, last_price, f"量比放大至 {float(volume_ratio):.2f}x"
+    if entry_status == "wait_pullback" and above_vwap:
+        return captured_at, last_price, "回測VWAP不破"
+    return None
+
+
+def _is_after_market_close(captured_at: datetime, recommendation_date: date) -> bool:
+    if captured_at.date() > recommendation_date:
+        return True
+    return captured_at.date() == recommendation_date and (captured_at.hour, captured_at.minute) >= (13, 30)
+
+
+def _upsert_expired_backtest(conn: sqlite3.Connection, row: sqlite3.Row, lifecycle_status: str) -> None:
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO backtest_results (
+          date, symbol, lifecycle_status, entry_status, expired_without_trigger, outcome
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (row["date"], row["symbol"], lifecycle_status, row["entry_status"], 1, "未觸發過期"),
+    )

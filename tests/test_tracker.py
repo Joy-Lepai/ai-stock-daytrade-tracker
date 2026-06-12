@@ -132,7 +132,18 @@ class TrackerStatusTests(unittest.TestCase):
             sector_heat=[],
             market_state="偏多",
             market_notes=[],
-            backtest={"recommendation_count": 2, "trackable_count": 1, "target": 0, "stop": 0, "avg_return": 0},
+            backtest={
+                "recommendation_count": 2,
+                "trackable_count": 1,
+                "triggered_backtest_count": 1,
+                "observed_count": 1,
+                "triggered_count": 1,
+                "expired_count": 0,
+                "closed_count": 0,
+                "target": 0,
+                "stop": 0,
+                "avg_return": 0,
+            },
             recommendation_checklist={
                 "candidate_total": 3,
                 "grade_a": 1,
@@ -144,6 +155,11 @@ class TrackerStatusTests(unittest.TestCase):
                 "avoid": 2,
                 "recommendations": 2,
                 "backtest_trackable": 1,
+                "triggered_backtest": 1,
+                "observed": 1,
+                "triggered": 1,
+                "expired": 0,
+                "closed": 0,
                 "data_missing": 4,
             },
         )
@@ -156,6 +172,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("high_risk 風險過高", html)
         self.assertIn("avoid 暫不追蹤", html)
         self.assertIn("已寫入 recommendations", html)
+        self.assertIn("observed 觀察中", html)
+        self.assertIn("triggered 已觸發", html)
+        self.assertIn("今日已觸發回測數量", html)
         self.assertIn("<strong>4</strong>", html)
 
     def test_entry_status_messages_explain_wait_states(self):
