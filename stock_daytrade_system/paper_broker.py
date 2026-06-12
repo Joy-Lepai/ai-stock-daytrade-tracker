@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
 from stock_daytrade_system.paper_config import DEFAULT_PAPER_CONFIG, PaperTradingConfig
+from stock_daytrade_system.us_symbols import us_symbol_rows
 
 
 PAPER_ENGINE_VERSION = "paper_trading_v1_manual_trade"
@@ -796,7 +797,17 @@ def _symbol_metadata(conn: sqlite3.Connection, market: str, symbol: str) -> dict
             "SELECT symbol, name_zh, name_en, sector_zh AS sector FROM us_symbols WHERE symbol = ?",
             (symbol,),
         ).fetchone()
-        return dict(row) if row else {"symbol": symbol}
+        if row:
+            return dict(row)
+        for item in us_symbol_rows(datetime.now(ZoneInfo("Asia/Taipei"))):
+            if item["symbol"] == symbol:
+                return {
+                    "symbol": symbol,
+                    "name_zh": item["short_name_zh"],
+                    "name_en": item["name_en"],
+                    "sector": item["sector_zh"],
+                }
+        return {"symbol": symbol}
     row = conn.execute(
         "SELECT symbol, name AS name_zh, name AS name_en, sector FROM symbols WHERE symbol = ?",
         (symbol,),

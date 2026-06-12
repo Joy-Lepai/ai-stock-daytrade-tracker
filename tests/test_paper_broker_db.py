@@ -10,6 +10,7 @@ from stock_daytrade_system.paper_broker import (
     create_manual_trade,
     empty_paper_dashboard_payload,
     paper_dashboard_payload,
+    paper_quote,
     run_paper_trading,
 )
 from stock_daytrade_system.us_symbols import us_symbol_rows
@@ -194,6 +195,15 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
         self.assertEqual(account["cash_balance"], 29_800)
         self.assertEqual(position["quantity"], 2)
         self.assertEqual((trade["source"], trade["is_manual"], trade["name_zh"]), ("manual", 1, "輝達"))
+
+    def test_us_quote_uses_builtin_chinese_name_when_symbol_table_is_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                quote = paper_quote(conn, "US", "NVDA")
+
+        self.assertFalse(quote["ok"])
+        self.assertEqual(quote["name_zh"], "輝達")
+        self.assertEqual(quote["name_en"], "NVIDIA Corporation")
 
     def test_create_tw_manual_trade_opens_position(self):
         with tempfile.TemporaryDirectory() as directory:
