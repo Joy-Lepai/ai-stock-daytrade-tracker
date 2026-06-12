@@ -448,6 +448,8 @@ def render_tracker_html(
     <div class="table-wrap">{_long_candidate_table(long_summary)}</div>
     <h2>今日推薦檢查表</h2>
     <div class="table-wrap">{_recommendation_checklist_table(long_summary)}</div>
+    <h2>B+ 觸發條件追蹤</h2>
+    <div class="table-wrap">{_b_plus_trigger_table(long_summary)}</div>
     <h2>盤中警示</h2>
     <div class="table-wrap">{_alert_table(long_summary)}</div>
     <h2>族群熱度</h2>
@@ -789,6 +791,45 @@ def _entry_status_backtest_table(rows: List[dict]) -> str:
         "<th data-sort=\"number\">達標</th><th data-sort=\"number\">停損</th><th data-sort=\"number\">平均報酬</th>"
         "</tr></thead><tbody>"
         + "".join(body)
+        + "</tbody></table>"
+    )
+
+
+def _b_plus_trigger_table(summary: Optional[LongModelSummary]) -> str:
+    if summary is None or not summary.b_plus_triggers:
+        return "<table><tbody><tr><td>目前沒有 B+ 練習觀察訊號。</td></tr></tbody></table>"
+    rows = []
+    for item in summary.b_plus_triggers:
+        name = f"{item.get('symbol', '')}｜{item.get('name_zh', '')}"
+        if item.get("market") == "US" and item.get("name_en"):
+            name = f"{name}｜{item.get('name_en')}"
+        rows.append(
+            "<tr>"
+            f"<td>{escape(name)}</td>"
+            f"<td>{escape(str(item.get('market', '-')))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('current_price'))}\">{_fmt(item.get('current_price'))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('vwap'))}\">{_fmt(item.get('vwap'))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('volume_ratio'))}\">{_fmt(item.get('volume_ratio'))}x</td>"
+            f"<td>{escape(_entry_status_label(str(item.get('entry_status', ''))))}</td>"
+            f"<td>{escape(str(item.get('lifecycle_status', '-')))}</td>"
+            f"<td>{escape(str(item.get('trigger_condition', '-')))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('trigger_price'))}\">{_fmt(item.get('trigger_price'))}</td>"
+            f"<td>{escape(str(item.get('distance_to_trigger', '-')))}</td>"
+            f"<td>{escape(str(item.get('trigger_readiness_label', item.get('trigger_readiness', '-'))))}</td>"
+            f"<td class=\"notes\">{escape(str(item.get('trigger_next_action', '-')))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('confidence_score'))}\">{_fmt(item.get('confidence_score'))}</td>"
+            f"<td class=\"notes\">{escape(str(item.get('confidence_summary', '')))}</td>"
+            "</tr>"
+        )
+    return (
+        "<table class=\"sortable\"><thead><tr>"
+        "<th data-sort=\"text\">標的</th><th data-sort=\"text\">市場</th><th data-sort=\"number\">現價</th>"
+        "<th data-sort=\"number\">VWAP</th><th data-sort=\"number\">量比</th><th data-sort=\"text\">進場狀態</th>"
+        "<th data-sort=\"text\">生命週期</th><th data-sort=\"text\">觸發條件</th><th data-sort=\"number\">觸發價</th>"
+        "<th data-sort=\"text\">距離觸發</th><th data-sort=\"text\">Readiness</th><th>下一步</th>"
+        "<th data-sort=\"number\">信心分數</th><th>信心摘要</th>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
         + "</tbody></table>"
     )
 

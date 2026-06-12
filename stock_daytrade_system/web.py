@@ -517,6 +517,10 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <div class="table-wrap"><table><tbody id="us-source"></tbody></table></div>
     <h2>指數狀態</h2>
     <div class="table-wrap"><table><tbody id="us-market"></tbody></table></div>
+    <h2>B+ 觸發條件追蹤</h2>
+    <div class="table-wrap">
+      <table><thead><tr><th>標的</th><th>市場</th><th>現價</th><th>VWAP</th><th>量比</th><th>進場狀態</th><th>生命週期</th><th>觸發條件</th><th>距離觸發</th><th>Readiness</th><th>下一步</th><th>信心</th></tr></thead><tbody id="us-b-plus-triggers"></tbody></table>
+    </div>
     <h2>美股候選股</h2>
     <div class="table-wrap">
       <table class="us-table">
@@ -629,6 +633,8 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     </section>
     <h2>帳戶總覽</h2>
     <section class="summary" id="paper-accounts"></section>
+    <h2>等待觸發的 B+ 練習訊號</h2>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>進場狀態</th><th>生命週期</th><th>觸發條件</th><th>距離觸發</th><th>Readiness</th></tr></thead><tbody id="paper-b-plus-waiting"></tbody></table></div>
     <h2>目前持倉</h2>
     <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th><th>操作</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
     <h2>今日交易 / 最近交易</h2>
@@ -918,6 +924,7 @@ def us_dashboard_script() -> str:
         $("us-summary").innerHTML = [
           metric("候選股", summary.candidate_count || 0),
           metric("A級", summary.grade_a || 0),
+          metric("B+練習觀察", summary.grade_b_plus || 0),
           metric("B級", summary.grade_b || 0),
           metric("executable 可執行", summary.executable || 0),
           metric("wait_volume 等量能", summary.wait_volume || 0),
@@ -931,6 +938,8 @@ def us_dashboard_script() -> str:
           metric("指標衝突", summary.conflicts_total || 0),
           metric("常見衝突", escapeHtml(summary.top_conflict || "無明顯衝突")),
           metric("recommendations", summary.recommendations || 0),
+          metric("B+ ready", summary.b_plus_ready || 0),
+          metric("B+ near", summary.b_plus_near || 0),
           metric("triggered 已觸發", summary.triggered || 0),
         ].join("");
         $("us-source").innerHTML = [
@@ -959,6 +968,28 @@ def us_dashboard_script() -> str:
           row("data source status", escapeHtml(debug.data_source_status)),
         ].join("");
         renderCandidates(payload.candidates || []);
+        renderBPlusTriggers(payload.b_plus_triggers || []);
+      }
+
+      function renderBPlusTriggers(items) {
+        if (!items.length) {
+          $("us-b-plus-triggers").innerHTML = '<tr><td colspan="12">目前沒有 B+ 練習觀察訊號。</td></tr>';
+          return;
+        }
+        $("us-b-plus-triggers").innerHTML = items.map((item) => `<tr>
+          <td>${escapeHtml(item.symbol)}｜${escapeHtml(item.name_zh)}${item.name_en ? `｜${escapeHtml(item.name_en)}` : ""}</td>
+          <td>${escapeHtml(item.market)}</td>
+          <td>${number(item.current_price)}</td>
+          <td>${number(item.vwap)}</td>
+          <td>${number(item.volume_ratio)}x</td>
+          <td>${escapeHtml(item.entry_status)}</td>
+          <td>${escapeHtml(item.lifecycle_status)}</td>
+          <td>${escapeHtml(item.trigger_condition)}</td>
+          <td>${escapeHtml(item.distance_to_trigger)}</td>
+          <td>${escapeHtml(item.trigger_readiness_label || item.trigger_readiness)}</td>
+          <td class="notes">${escapeHtml(item.trigger_next_action)}</td>
+          <td>${number(item.confidence_score)}<br><span class="muted">${escapeHtml(item.confidence_summary || "")}</span></td>
+        </tr>`).join("");
       }
 
       function renderCandidates(items) {
@@ -1049,6 +1080,7 @@ def paper_dashboard_script() -> str:
 
       function render(payload) {
         renderAccounts(payload.accounts || [], payload.performance || {});
+        renderBPlusWaiting(payload.b_plus_triggers || []);
         renderPositions(payload.positions || []);
         renderTrades(payload.trades || []);
         renderSkipped(payload.skipped_trades || payload.skipped || []);
@@ -1072,6 +1104,23 @@ def paper_dashboard_script() -> str:
           metric(`${escapeHtml(account.market)} 未實現損益`, `<span class="${cls(account.unrealized_pnl)}">${money(account.unrealized_pnl)}</span>`),
           metric(`${escapeHtml(account.market)} 最大回撤`, pct(account.max_drawdown)),
         ].join("")).join("") + metric("整體勝率", pct(performance.win_rate || 0));
+      }
+
+      function renderBPlusWaiting(items) {
+        const waiting = items.filter((item) => item.lifecycle_status === "observed" || item.trigger_readiness !== "ready");
+        if (!waiting.length) {
+          $("paper-b-plus-waiting").innerHTML = '<tr><td colspan="7">目前沒有等待觸發的 B+ 練習訊號。</td></tr>';
+          return;
+        }
+        $("paper-b-plus-waiting").innerHTML = waiting.map((item) => `<tr>
+          <td>${escapeHtml(item.market)}</td>
+          <td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
+          <td>${escapeHtml(item.entry_status)}</td>
+          <td>${escapeHtml(item.lifecycle_status)}</td>
+          <td>${escapeHtml(item.trigger_condition)}</td>
+          <td>${escapeHtml(item.distance_to_trigger)}</td>
+          <td>${escapeHtml(item.trigger_readiness_label || item.trigger_readiness)}<br><span class="muted">${escapeHtml(item.trigger_next_action)}</span></td>
+        </tr>`).join("");
       }
 
       function renderPositions(items) {
@@ -1150,6 +1199,8 @@ def paper_dashboard_script() -> str:
         row("skipped count", text(debug.skipped_count)),
         row("recommendations scanned count", text(debug.recommendations_scanned_count)),
         row("executable / triggered count", text(debug.executable_triggered_count)),
+        row("B+ waiting count", text(debug.b_plus_waiting_count)),
+        row("B+ ready count", text(debug.b_plus_ready_count)),
         row("manual trades count", text(debug.manual_trades_count)),
         row("system trades count", text(debug.system_trades_count)),
         row("open manual positions count", text(debug.open_manual_positions_count)),

@@ -96,6 +96,7 @@ class LongModelSummary:
     market_notes: List[str]
     backtest: dict
     recommendation_checklist: dict
+    b_plus_triggers: List[dict] = field(default_factory=list)
     debug_info: dict = field(default_factory=dict)
 
 
@@ -137,6 +138,7 @@ def build_long_model_summary(
     market_bias: MarketBias,
     backtest: dict,
     recommendation_checklist: Optional[dict] = None,
+    b_plus_triggers: Optional[List[dict]] = None,
     debug_info: Optional[dict] = None,
 ) -> LongModelSummary:
     visible = [
@@ -152,6 +154,7 @@ def build_long_model_summary(
         market_notes=[f"{item.name}: {item.status}（{item.change}）" for item in market_indicators][:8],
         backtest=backtest,
         recommendation_checklist=recommendation_checklist or {},
+        b_plus_triggers=b_plus_triggers or [],
         debug_info=debug_info or {},
     )
 

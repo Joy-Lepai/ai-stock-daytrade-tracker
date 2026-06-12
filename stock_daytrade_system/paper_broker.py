@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Dict, Iterable, Optional
 from zoneinfo import ZoneInfo
 
+from stock_daytrade_system.b_plus_trigger_tracker import update_ready_b_plus_triggers
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
 from stock_daytrade_system.paper_config import DEFAULT_PAPER_CONFIG, PaperTradingConfig
 from stock_daytrade_system.us_symbols import us_symbol_rows
@@ -33,6 +34,7 @@ def run_paper_trading(
     captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
     with conn:
         _ensure_accounts(conn, captured_at, config)
+        update_ready_b_plus_triggers(conn, captured_at)
         price_map = _latest_price_map(conn)
         closed = _evaluate_open_positions(conn, captured_at, price_map, config)
         opened, skipped, scanned, executable_triggered = _process_recommendations(conn, captured_at, price_map, config)

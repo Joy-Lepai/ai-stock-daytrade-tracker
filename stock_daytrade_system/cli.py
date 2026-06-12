@@ -9,6 +9,7 @@ from typing import List
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.cmoney import CMoneyClient, CMoneyDataError, merge_cmoney_symbols, rankings_by_symbol
+from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import load_config
 from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import backtest_summary, connect, default_db_path, save_long_candidates, update_backtests
@@ -336,6 +337,7 @@ def run_tracker(
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
         backtest_data = backtest_summary(conn, now.date())
+        b_plus_triggers = build_b_plus_trigger_tracker(conn, market="TW", date_text=now.strftime("%Y-%m-%d"))
         visible_long_candidates = [
             item for item in long_candidates
             if item.grade in {"A", "B+", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
@@ -379,6 +381,7 @@ def run_tracker(
             market_bias,
             backtest_data,
             recommendation_checklist,
+            b_plus_triggers,
             debug_info,
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)

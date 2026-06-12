@@ -7,6 +7,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, List, Optional
 
+from stock_daytrade_system.b_plus_trigger_tracker import evaluate_b_plus_trigger
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS symbols (
@@ -781,6 +783,22 @@ def _upsert_us_backtest(
 
 
 def _us_trigger_from_candidate(entry_status: str, data: dict) -> Optional[str]:
+    if data.get("grade") == "B+":
+        tracker = evaluate_b_plus_trigger(
+            market="US",
+            symbol=data["symbol"],
+            name_zh=data.get("name_zh", data["symbol"]),
+            name_en=data.get("name_en", ""),
+            current_price=data.get("latest_price"),
+            vwap=data.get("vwap"),
+            volume_ratio=data.get("volume_ratio"),
+            entry_status=entry_status,
+            lifecycle_status=data.get("lifecycle_status", "observed"),
+            trigger_price=data.get("trigger_price"),
+            confidence_score=data.get("confidence_score"),
+            confidence_summary=data.get("confidence_summary", ""),
+        )
+        return tracker["trigger_reason"] if tracker["trigger_readiness"] == "ready" else None
     if entry_status == "wait_vwap" and data["above_vwap"]:
         return "站回 VWAP"
     if entry_status == "wait_volume" and float(data["volume_ratio"] or 0) >= 1.2:
@@ -1349,6 +1367,24 @@ def _trigger_from_observation(
     vwap = snapshot["vwap"]
     volume_ratio = snapshot["volume_ratio"]
     above_vwap = bool(snapshot["above_vwap"]) or (vwap is not None and last_price >= float(vwap))
+
+    if row["grade"] == "B+":
+        tracker = evaluate_b_plus_trigger(
+            market=row["market"] or "TW",
+            symbol=row["symbol"],
+            name_zh=row["symbol"],
+            current_price=last_price,
+            vwap=vwap,
+            volume_ratio=volume_ratio,
+            entry_status=entry_status,
+            lifecycle_status=row["lifecycle_status"] or "observed",
+            trigger_price=row["trigger_price"],
+            confidence_score=row["confidence_score"],
+            confidence_summary=row["confidence_summary"] or "",
+        )
+        if tracker["trigger_readiness"] == "ready":
+            return captured_at, last_price, tracker["trigger_reason"]
+        return None
 
     if entry_status == "wait_vwap" and above_vwap:
         return captured_at, last_price, "站回VWAP"

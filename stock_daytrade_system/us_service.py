@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.db import backtest_summary, save_us_candidates, save_us_symbols
 from stock_daytrade_system.market_clock import us_market_session
 from stock_daytrade_system.us_data import US_DATA_VERSION, fetch_us_watchlist_data, index_environment
@@ -21,6 +22,7 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
     save_us_symbols(conn, us_symbol_rows(clock.now_local))
     save_us_candidates(conn, clock.now_local, candidates, clock.session)
     backtest = backtest_summary(conn, clock.now_local.date(), market="US")
+    b_plus_triggers = build_b_plus_trigger_tracker(conn, market="US", date_text=clock.now_local.strftime("%Y-%m-%d"))
     recommendations_count = int(backtest.get("recommendation_count", 0))
     return {
         "market": {
@@ -42,9 +44,11 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
             "spy_change_pct": index_state["spy_change_pct"],
         },
         "candidates": [item.to_dict() for item in candidates],
+        "b_plus_triggers": b_plus_triggers,
         "summary": {
             "candidate_count": len(candidates),
             "grade_a": sum(1 for item in candidates if item.grade == "A"),
+            "grade_b_plus": sum(1 for item in candidates if item.grade == "B+"),
             "grade_b": sum(1 for item in candidates if item.grade == "B"),
             "executable": sum(1 for item in candidates if item.entry_status == "executable"),
             "wait_volume": sum(1 for item in candidates if item.entry_status == "wait_volume"),
@@ -54,6 +58,8 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
             "high_risk": sum(1 for item in candidates if item.entry_status == "high_risk"),
             "avoid": sum(1 for item in candidates if item.entry_status == "avoid"),
             "recommendations": recommendations_count,
+            "b_plus_ready": sum(1 for item in b_plus_triggers if item.get("trigger_readiness") == "ready"),
+            "b_plus_near": sum(1 for item in b_plus_triggers if item.get("trigger_readiness") == "near"),
             "observed": int(backtest.get("observed_count", 0)),
             "triggered": int(backtest.get("triggered_count", 0)),
             "expired": int(backtest.get("expired_count", 0)),

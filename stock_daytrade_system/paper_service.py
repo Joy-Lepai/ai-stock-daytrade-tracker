@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.paper_broker import (
     PAPER_ENGINE_VERSION,
     empty_paper_dashboard_payload,
@@ -15,7 +16,9 @@ from stock_daytrade_system.paper_broker import (
 def build_paper_dashboard(conn, project_root: Path) -> dict:
     payload = paper_dashboard_payload(conn)
     run = payload.get("run", {})
+    b_plus_triggers = build_b_plus_trigger_tracker(conn)
     manual_debug = _manual_debug(conn)
+    payload["b_plus_triggers"] = b_plus_triggers
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
@@ -28,6 +31,8 @@ def build_paper_dashboard(conn, project_root: Path) -> dict:
         "skipped_count": len(payload.get("skipped_trades", payload.get("skipped", []))),
         "recommendations_scanned_count": int(run.get("recommendations_scanned", 0)),
         "executable_triggered_count": int(run.get("executable_triggered", 0)),
+        "b_plus_waiting_count": sum(1 for item in b_plus_triggers if item.get("lifecycle_status") == "observed"),
+        "b_plus_ready_count": sum(1 for item in b_plus_triggers if item.get("trigger_readiness") == "ready"),
         "last_error": run.get("last_error", ""),
         **manual_debug,
     }
@@ -37,7 +42,9 @@ def build_paper_dashboard(conn, project_root: Path) -> dict:
 def build_empty_paper_dashboard(conn, project_root: Path, last_error: str = "") -> dict:
     payload = empty_paper_dashboard_payload(conn, last_error=last_error)
     run = payload.get("run", {})
+    b_plus_triggers = build_b_plus_trigger_tracker(conn)
     manual_debug = _manual_debug(conn)
+    payload["b_plus_triggers"] = b_plus_triggers
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
@@ -50,6 +57,8 @@ def build_empty_paper_dashboard(conn, project_root: Path, last_error: str = "") 
         "skipped_count": len(payload.get("skipped_trades", [])),
         "recommendations_scanned_count": int(run.get("recommendations_scanned", 0)),
         "executable_triggered_count": int(run.get("executable_triggered", 0)),
+        "b_plus_waiting_count": sum(1 for item in b_plus_triggers if item.get("lifecycle_status") == "observed"),
+        "b_plus_ready_count": sum(1 for item in b_plus_triggers if item.get("trigger_readiness") == "ready"),
         "last_error": last_error,
         **manual_debug,
     }
