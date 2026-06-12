@@ -9,6 +9,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
 from stock_daytrade_system.accuracy_service import (
@@ -364,6 +365,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
                     "next_update_seconds": clock.refresh_interval_seconds,
                 },
                 "candidates": [],
+                "b_plus_triggers": [],
                 "summary": {},
                 "debug": {
                     "app_version": "unknown",
@@ -383,8 +385,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 return build_paper_dashboard(conn, PROJECT_ROOT)
         except Exception as exc:
-            with connect(default_db_path(PROJECT_ROOT)) as conn:
-                return build_empty_paper_dashboard(conn, PROJECT_ROOT, str(exc))
+            try:
+                with connect(default_db_path(PROJECT_ROOT)) as conn:
+                    return build_empty_paper_dashboard(conn, PROJECT_ROOT, str(exc))
+            except Exception as fallback_exc:
+                return _static_paper_fallback_payload(str(exc), str(fallback_exc))
 
     def _send_report(self, name: str) -> None:
         safe_name = Path(name).name
@@ -1408,6 +1413,100 @@ def accuracy_dashboard_script() -> str:
       loadAccuracy();
     })();
     """
+
+
+def _static_paper_fallback_payload(primary_error: str, fallback_error: str) -> dict:
+    now = datetime.now(ZoneInfo("Asia/Taipei"))
+    generated_at = now.isoformat(timespec="seconds")
+    accounts = [
+        {
+            "id": "TW",
+            "market": "TW",
+            "currency": "NTD",
+            "initial_cash": 1_000_000,
+            "cash_balance": 1_000_000,
+            "equity": 1_000_000,
+            "realized_pnl": 0,
+            "unrealized_pnl": 0,
+            "max_drawdown": 0,
+            "created_at": generated_at,
+            "updated_at": generated_at,
+        },
+        {
+            "id": "US",
+            "market": "US",
+            "currency": "USD",
+            "initial_cash": 30_000,
+            "cash_balance": 30_000,
+            "equity": 30_000,
+            "realized_pnl": 0,
+            "unrealized_pnl": 0,
+            "max_drawdown": 0,
+            "created_at": generated_at,
+            "updated_at": generated_at,
+        },
+    ]
+    last_error = f"{primary_error}; fallback: {fallback_error}"
+    return {
+        "api_status": "error",
+        "data_source_status": "error",
+        "errors": [last_error],
+        "message": "虛擬交易資料庫暫時忙碌，系統會在下一次更新自動重試。",
+        "engine_version": "paper_trading_v1_manual_trade",
+        "generated_at": generated_at,
+        "run": {
+            "opened": 0,
+            "closed": 0,
+            "skipped": 0,
+            "positions": 0,
+            "recommendations_scanned": 0,
+            "executable_triggered": 0,
+            "last_error": last_error,
+        },
+        "accounts": accounts,
+        "positions": [],
+        "trades": [],
+        "skipped": [],
+        "skipped_trades": [],
+        "b_plus_triggers": [],
+        "performance": {
+            "total_trades": 0,
+            "closed_trades": 0,
+            "system_trades": 0,
+            "manual_trades": 0,
+            "win_rate": 0,
+            "realized_pnl": 0,
+            "unrealized_pnl": 0,
+            "by_market": {},
+            "by_source": {},
+            "by_grade": {},
+            "by_entry_status": {},
+        },
+        "refresh_interval_seconds": 300,
+        "debug": {
+            "app_version": "unknown",
+            "engine_version": "paper_trading_v1_manual_trade",
+            "generated_at": generated_at,
+            "refresh_interval": 300,
+            "api_status": "error",
+            "accounts_count": len(accounts),
+            "open_positions_count": 0,
+            "trades_count": 0,
+            "skipped_count": 0,
+            "recommendations_scanned_count": 0,
+            "executable_triggered_count": 0,
+            "b_plus_waiting_count": 0,
+            "b_plus_ready_count": 0,
+            "manual_trades_count": 0,
+            "system_trades_count": 0,
+            "open_manual_positions_count": 0,
+            "last_manual_trade_created_at": "",
+            "last_close_trade_status": "",
+            "quote_api_status": "unavailable",
+            "last_error": last_error,
+        },
+        "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。",
+    }
 
 
 def _extract_body(html: str) -> str:
