@@ -319,6 +319,8 @@ def run_tracker(
 
     now = datetime.now(ZoneInfo(config.market.timezone))
     output_path = output_dir / f"{now.strftime('%Y-%m-%d')}-tracker.html"
+    warning_symbols = sorted(set(daily_errors.keys()) | set(intraday_errors.keys()))
+    data_missing_count = len(warning_symbols) + len(taifex_errors) + len(cmoney_errors)
     db_path = default_db_path(PROJECT_ROOT)
     with connect(db_path) as conn:
         long_candidates = build_long_candidates(
@@ -332,25 +334,46 @@ def run_tracker(
         )
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
+        backtest_data = backtest_summary(conn, now.date())
+        recommendation_checklist = {
+            "candidate_total": len([item for item in long_candidates if item.grade in {"A", "B", "C"}]),
+            "grade_a": sum(1 for item in long_candidates if item.grade == "A"),
+            "grade_b": sum(1 for item in long_candidates if item.grade == "B"),
+            "recommendations": int(backtest_data.get("recommendation_count", 0)),
+            "backtest_trackable": int(backtest_data.get("trackable_count", 0)),
+            "data_missing": data_missing_count,
+        }
         long_summary = build_long_model_summary(
             long_candidates,
             market_indicators,
             market_bias,
-            backtest_summary(conn),
+            backtest_data,
+            recommendation_checklist,
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)
     paper_summary = update_paper_trades(now, tracked_symbols, intraday_data, output_dir)
-    warning_symbols = sorted(set(daily_errors.keys()) | set(intraday_errors.keys()))
+    data_status = [
+        f"每日行情成功 {len(all_daily_symbols) - len(daily_errors)}/{len(all_daily_symbols)}；失敗標的已排除或以缺漏提示處理。",
+        f"盤中行情成功 {len(watch_symbols) - len(intraday_errors)}/{len(watch_symbols)}；失敗標的不納入 VWAP、量比與盤中回測。",
+    ]
+    if taifex_errors:
+        data_status.append("台指期官方資料擷取失敗；已排除在大盤加權判斷外。")
+    else:
+        data_status.append("台指期官方資料擷取成功；已納入大盤狀態。")
+    if cmoney_errors:
+        data_status.append("CMoney 法人買超排行擷取失敗；法人排行已排除在評分加分外。")
+    else:
+        data_status.append(f"CMoney 法人買超排行擷取成功 {len(cmoney_rankings)} 筆；僅作現有 MVP 輔助排序。")
     data_warnings = [
-        f"{symbol} 資料擷取失敗，部分欄位可能缺漏。"
+        f"{symbol} 資料擷取失敗；該資料已從相關評分欄位排除或標為缺漏。"
         for symbol in warning_symbols
     ]
     data_warnings.extend(
-        f"{symbol} 官方資料擷取失敗，已從市場摘要排除。"
+        f"{symbol} 官方資料擷取失敗；已從大盤狀態加權排除。"
         for symbol in sorted(taifex_errors.keys())
     )
     data_warnings.extend(
-        f"{symbol} 擷取失敗，法人排行暫不納入。"
+        f"{symbol} 擷取失敗；法人排行暫不納入評分加分。"
         for symbol in sorted(cmoney_errors.keys())
     )
     render_tracker_html(
@@ -362,6 +385,7 @@ def run_tracker(
         tracked_symbols,
         output_path,
         data_warnings,
+        data_status,
         performance_summary,
         paper_summary,
         long_summary,

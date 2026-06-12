@@ -85,8 +85,14 @@ CREATE TABLE IF NOT EXISTS backtest_results (
   max_price_after_signal REAL,
   min_price_after_signal REAL,
   close_price REAL,
+  same_day_high REAL,
+  same_day_low REAL,
+  same_day_close REAL,
+  max_gain_after_recommend REAL,
+  max_drawdown_after_recommend REAL,
   hit_target INTEGER,
   hit_stop INTEGER,
+  hit_stop_loss INTEGER,
   outcome TEXT,
   return_pct REAL,
   PRIMARY KEY (date, symbol)
@@ -103,15 +109,22 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _ensure_backtest_columns(conn)
     return conn
 
 
 def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candidates: Iterable[object]) -> None:
     date_text = captured_at.strftime("%Y-%m-%d")
     captured_text = captured_at.isoformat(timespec="seconds")
+    candidate_rows = [asdict(item) for item in candidates]
+    eligible_recommendation_symbols = {
+        data["symbol"]
+        for data in candidate_rows
+        if data["grade"] in {"A", "B"}
+    }
     with conn:
-        for item in candidates:
-            data = asdict(item)
+        _delete_stale_recommendations(conn, date_text, eligible_recommendation_symbols)
+        for data in candidate_rows:
             conn.execute(
                 """
                 INSERT INTO symbols (symbol, name, sector, market, is_active)
@@ -188,7 +201,8 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                     json.dumps(data["risk_reasons"], ensure_ascii=False),
                 ),
             )
-            if data["grade"] in {"A", "B", "C"}:
+            if data["grade"] in {"A", "B"}:
+                recommendation_status = "active_watch" if data["grade"] == "A" else "wait_pullback"
                 conn.execute(
                     """
                     INSERT INTO recommendations (
@@ -214,7 +228,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         data["grade"],
                         data["bullish_score"],
                         data["risk_score"],
-                        data["entry_status"],
+                        recommendation_status,
                         data["trigger_price"],
                         data["stop_loss"],
                         data["target_price"],
@@ -224,8 +238,16 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
 
 
 def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_bars_by_symbol: dict) -> None:
-    date_text = captured_at.strftime("%Y-%m-%d")
-    rows = conn.execute("SELECT * FROM recommendations WHERE date = ?", (date_text,)).fetchall()
+    cutoff_text = captured_at.strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM recommendations
+        WHERE date <= ?
+          AND date >= date(?, '-7 days')
+        """,
+        (cutoff_text, cutoff_text),
+    ).fetchall()
     with conn:
         for row in rows:
             bars = intraday_bars_by_symbol.get(row["symbol"], [])
@@ -233,46 +255,62 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
             if not bars or signal_time is None:
                 continue
             signal_time = signal_time.replace(tzinfo=None)
+            recommendation_date = datetime.strptime(row["date"], "%Y-%m-%d").date()
+            same_day_bars = [bar for bar in bars if bar.timestamp.date() == recommendation_date]
+            if not same_day_bars:
+                continue
             relevant = [
-                bar for bar in bars
-                if bar.timestamp.date() == signal_time.date() and bar.timestamp >= signal_time
+                bar for bar in same_day_bars
+                if bar.timestamp >= signal_time
             ]
             if not relevant:
-                continue
+                relevant = same_day_bars
             entry_price = row["signal_price"] or relevant[0].close
             max_price = max(bar.high for bar in relevant)
             min_price = min(bar.low for bar in relevant)
-            close_price = relevant[-1].close
+            close_price = same_day_bars[-1].close
+            same_day_high = max(bar.high for bar in same_day_bars)
+            same_day_low = min(bar.low for bar in same_day_bars)
             target_price = row["target_price"]
             stop_loss = row["stop_loss"]
             hit_target = bool(target_price is not None and max_price >= target_price)
-            hit_stop = bool(stop_loss is not None and min_price <= stop_loss)
-            if hit_target and hit_stop:
+            hit_stop_loss = bool(stop_loss is not None and min_price <= stop_loss)
+            if hit_target and hit_stop_loss:
                 outcome = "同K不明"
             elif hit_target:
                 outcome = "達標"
-            elif hit_stop:
+            elif hit_stop_loss:
                 outcome = "停損"
             else:
                 outcome = "追蹤中"
+            max_gain = ((max_price - entry_price) / entry_price * 100) if entry_price else 0
+            max_drawdown = ((min_price - entry_price) / entry_price * 100) if entry_price else 0
             return_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0
             conn.execute(
                 """
                 INSERT OR REPLACE INTO backtest_results (
                   date, symbol, entry_price, max_price_after_signal, min_price_after_signal,
-                  close_price, hit_target, hit_stop, outcome, return_pct
+                  close_price, same_day_high, same_day_low, same_day_close,
+                  max_gain_after_recommend, max_drawdown_after_recommend,
+                  hit_target, hit_stop, hit_stop_loss, outcome, return_pct
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    date_text,
+                    row["date"],
                     row["symbol"],
                     round(entry_price, 2),
                     round(max_price, 2),
                     round(min_price, 2),
                     round(close_price, 2),
+                    round(same_day_high, 2),
+                    round(same_day_low, 2),
+                    round(close_price, 2),
+                    round(max_gain, 2),
+                    round(max_drawdown, 2),
                     int(hit_target),
-                    int(hit_stop),
+                    int(hit_stop_loss),
+                    int(hit_stop_loss),
                     outcome,
                     round(return_pct, 2),
                 ),
@@ -287,20 +325,7 @@ def latest_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3
         """
         SELECT
                ls.captured_at, ls.date, ls.symbol, ls.bullish_score, ls.risk_score,
-               CASE
-                 WHEN ls.grade = 'A' AND (
-                   COALESCE(intr.above_vwap, 0) = 0
-                   OR COALESCE(intr.volume_ratio, 0) < 1
-                   OR (COALESCE(ds.break_prev_high, 0) = 0 AND COALESCE(ds.break_5d_high, 0) = 0)
-                   OR ls.risk_score >= 45
-                 )
-                 THEN CASE
-                   WHEN ls.bullish_score >= 60 AND ls.risk_score >= 60 THEN 'C'
-                   WHEN ls.bullish_score >= 60 AND ls.risk_score < 60 THEN 'B'
-                   ELSE 'D'
-                 END
-                 ELSE ls.grade
-               END AS grade,
+               ls.grade,
                ls.reasons, ls.risk_reasons,
                s.name, s.sector, ds.close, ds.change_pct, ds.volume, ds.turnover,
                ds.volume_ratio AS daily_volume_ratio, ds.break_prev_high, ds.break_5d_high,
@@ -311,7 +336,7 @@ def latest_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3
         LEFT JOIN intraday_snapshots intr ON intr.captured_at = ls.captured_at AND intr.symbol = ls.symbol
         WHERE ls.captured_at = ?
         ORDER BY
-          CASE grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
+          CASE ls.grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
           ls.bullish_score DESC,
           ls.risk_score ASC
         LIMIT ?
@@ -323,7 +348,10 @@ def latest_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3
 def symbol_history(conn: sqlite3.Connection, symbol: str, limit: int = 30) -> List[sqlite3.Row]:
     return conn.execute(
         """
-        SELECT r.*, b.outcome, b.return_pct, b.max_price_after_signal, b.min_price_after_signal, b.close_price
+        SELECT r.*, b.outcome, b.return_pct, b.max_price_after_signal, b.min_price_after_signal,
+               b.close_price, b.same_day_high, b.same_day_low, b.same_day_close,
+               b.max_gain_after_recommend, b.max_drawdown_after_recommend,
+               b.hit_target, b.hit_stop_loss
         FROM recommendations r
         LEFT JOIN backtest_results b ON b.date = r.date AND b.symbol = r.symbol
         WHERE r.symbol = ?
@@ -339,20 +367,7 @@ def latest_symbol_score(conn: sqlite3.Connection, symbol: str) -> Optional[sqlit
         """
         SELECT
                ls.captured_at, ls.date, ls.symbol, ls.bullish_score, ls.risk_score,
-               CASE
-                 WHEN ls.grade = 'A' AND (
-                   COALESCE(intr.above_vwap, 0) = 0
-                   OR COALESCE(intr.volume_ratio, 0) < 1
-                   OR (COALESCE(ds.break_prev_high, 0) = 0 AND COALESCE(ds.break_5d_high, 0) = 0)
-                   OR ls.risk_score >= 45
-                 )
-                 THEN CASE
-                   WHEN ls.bullish_score >= 60 AND ls.risk_score >= 60 THEN 'C'
-                   WHEN ls.bullish_score >= 60 AND ls.risk_score < 60 THEN 'B'
-                   ELSE 'D'
-                 END
-                 ELSE ls.grade
-               END AS grade,
+               ls.grade,
                ls.reasons, ls.risk_reasons,
                s.name, s.sector, ds.*, intr.vwap, intr.above_vwap, intr.volume_ratio AS intraday_volume_ratio
         FROM long_scores ls
@@ -368,17 +383,58 @@ def latest_symbol_score(conn: sqlite3.Connection, symbol: str) -> Optional[sqlit
 
 
 def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> dict:
-    params = []
+    params: List[str] = []
     where = ""
     if day is not None:
         where = "WHERE date = ?"
         params.append(day.strftime("%Y-%m-%d"))
+    recommendation_count = conn.execute(f"SELECT COUNT(*) AS total FROM recommendations {where}", params).fetchone()["total"]
     rows = conn.execute(f"SELECT * FROM backtest_results {where}", params).fetchall()
-    total = len(rows)
+    trackable_count = len(rows)
     target = sum(1 for row in rows if row["outcome"] == "達標")
     stop = sum(1 for row in rows if row["outcome"] == "停損")
-    avg_return = round(sum(row["return_pct"] or 0 for row in rows) / total, 2) if total else 0.0
-    return {"total": total, "target": target, "stop": stop, "avg_return": avg_return}
+    avg_return = round(sum(row["return_pct"] or 0 for row in rows) / trackable_count, 2) if trackable_count else 0.0
+    return {
+        "total": recommendation_count,
+        "recommendation_count": recommendation_count,
+        "trackable_count": trackable_count,
+        "target": target,
+        "stop": stop,
+        "avg_return": avg_return,
+    }
+
+
+def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(backtest_results)").fetchall()}
+    columns = {
+        "same_day_high": "REAL",
+        "same_day_low": "REAL",
+        "same_day_close": "REAL",
+        "max_gain_after_recommend": "REAL",
+        "max_drawdown_after_recommend": "REAL",
+        "hit_stop_loss": "INTEGER",
+    }
+    for name, column_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE backtest_results ADD COLUMN {name} {column_type}")
+
+
+def _delete_stale_recommendations(conn: sqlite3.Connection, date_text: str, eligible_symbols: set[str]) -> None:
+    if not eligible_symbols:
+        conn.execute("DELETE FROM recommendations WHERE date = ?", (date_text,))
+        conn.execute("DELETE FROM backtest_results WHERE date = ?", (date_text,))
+        return
+
+    placeholders = ", ".join("?" for _ in eligible_symbols)
+    params = [date_text, *sorted(eligible_symbols)]
+    conn.execute(
+        f"DELETE FROM recommendations WHERE date = ? AND symbol NOT IN ({placeholders})",
+        params,
+    )
+    conn.execute(
+        f"DELETE FROM backtest_results WHERE date = ? AND symbol NOT IN ({placeholders})",
+        params,
+    )
 
 
 def _parse_datetime(value: str) -> Optional[datetime]:

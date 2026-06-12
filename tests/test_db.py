@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from dataclasses import replace
 from pathlib import Path
 import tempfile
 import unittest
@@ -75,18 +76,46 @@ class DatabaseTests(unittest.TestCase):
 
                 rows = latest_candidates(conn)
                 summary = backtest_summary(conn)
+                backtest_row = conn.execute("SELECT * FROM backtest_results WHERE symbol = ?", ("2330.TW",)).fetchone()
 
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["grade"], "A")
+        self.assertEqual(summary["recommendation_count"], 1)
+        self.assertEqual(summary["trackable_count"], 1)
         self.assertEqual(summary["target"], 1)
+        self.assertEqual(backtest_row["same_day_high"], 103)
+        self.assertEqual(backtest_row["same_day_close"], 102)
+        self.assertEqual(backtest_row["hit_stop_loss"], 0)
+        self.assertGreater(backtest_row["max_gain_after_recommend"], 0)
 
-    def test_latest_candidates_downgrades_stale_a_grade_without_volume_expansion(self):
+    def test_latest_candidates_keeps_model_grade_without_sql_downgrade(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "daytrade.db") as conn:
                 save_long_candidates(conn, datetime(2026, 1, 1, 9, 5), [candidate(volume_ratio=0.6)])
                 rows = latest_candidates(conn)
 
-        self.assertEqual(rows[0]["grade"], "B")
+        self.assertEqual(rows[0]["grade"], "A")
+
+    def test_writes_only_a_and_b_to_recommendations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(
+                    conn,
+                    datetime(2026, 1, 1, 9, 5),
+                    [
+                        candidate(grade="A"),
+                        replace(candidate(grade="B"), symbol="2317.TW", name="鴻海"),
+                        replace(candidate(grade="C"), symbol="6919.TW", name="康霈生技"),
+                    ],
+                )
+                rows = conn.execute(
+                    "SELECT symbol, grade, entry_status FROM recommendations ORDER BY symbol"
+                ).fetchall()
+
+        self.assertEqual([(row["symbol"], row["grade"], row["entry_status"]) for row in rows], [
+            ("2317.TW", "B", "wait_pullback"),
+            ("2330.TW", "A", "active_watch"),
+        ])
 
 
 if __name__ == "__main__":

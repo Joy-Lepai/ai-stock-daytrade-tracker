@@ -73,6 +73,7 @@ class LongModelSummary:
     market_state: str
     market_notes: List[str]
     backtest: dict
+    recommendation_checklist: dict
 
 
 def build_long_candidates(
@@ -112,6 +113,7 @@ def build_long_model_summary(
     market_indicators: Iterable[MarketIndicator],
     market_bias: MarketBias,
     backtest: dict,
+    recommendation_checklist: Optional[dict] = None,
 ) -> LongModelSummary:
     visible = [item for item in candidates if item.grade in {"A", "B", "C"}]
     alerts = _build_alerts(candidates)
@@ -122,6 +124,7 @@ def build_long_model_summary(
         market_state=market_bias.direction,
         market_notes=[f"{item.name}: {item.status}（{item.change}）" for item in market_indicators][:8],
         backtest=backtest,
+        recommendation_checklist=recommendation_checklist or {},
     )
 
 
@@ -161,6 +164,7 @@ def _build_candidate(
     break_10d_high = last_price > high_10d
     above_vwap = bool(vwap and last_price > vwap)
     upper_shadow_pct = _upper_shadow_pct(last)
+    vwap_distance_pct = _vwap_distance_pct(last_price, vwap)
     institutional_buy = ranking.total_buy_million if ranking else None
 
     bullish_score, reasons = _bullish_score(
@@ -189,8 +193,8 @@ def _build_candidate(
         above_vwap=above_vwap,
         market_state=market_bias.direction,
         break_prev_high=break_prev_high,
-        break_5d_high=break_5d_high,
-        volume_ratio=volume_ratio,
+        change_pct=change_pct,
+        vwap_distance_pct=vwap_distance_pct,
         upper_shadow_pct=upper_shadow_pct,
     )
     entry_status = _entry_status(grade, above_vwap, break_prev_high, volume_ratio, risk_score)
@@ -343,28 +347,29 @@ def _grade(
     above_vwap: bool,
     market_state: str,
     break_prev_high: bool,
-    break_5d_high: bool,
-    volume_ratio: float,
+    change_pct: float,
+    vwap_distance_pct: Optional[float],
     upper_shadow_pct: float,
 ) -> str:
-    has_breakout = break_prev_high or break_5d_high
-    has_volume_expansion = volume_ratio >= 1.0
-    has_long_upper_shadow = upper_shadow_pct >= 1.5
+    near_vwap = vwap_distance_pct is not None and vwap_distance_pct >= -0.5
+    below_vwap = vwap_distance_pct is not None and vwap_distance_pct < -0.5
+    has_upper_shadow = upper_shadow_pct >= 1.2
+    is_overextended = change_pct >= 7
 
-    if not above_vwap:
+    if market_state == "偏空" or bullish_score < 55 or below_vwap or risk_score > 70:
         return "D"
-    if bullish_score >= 60 and (risk_score >= 60 or has_long_upper_shadow):
-        return "C"
     if (
-        bullish_score >= 75
-        and risk_score < 45
-        and market_state != "偏空"
-        and has_breakout
-        and has_volume_expansion
-        and not has_long_upper_shadow
+        bullish_score >= 80
+        and risk_score <= 40
+        and above_vwap
+        and break_prev_high
+        and not has_upper_shadow
+        and not is_overextended
     ):
         return "A"
-    if bullish_score >= 60 and risk_score < 60 and has_breakout:
+    if bullish_score >= 55 and (risk_score > 55 or has_upper_shadow or is_overextended):
+        return "C"
+    if bullish_score >= 65 and risk_score <= 55 and (above_vwap or near_vwap):
         return "B"
     return "D"
 
@@ -425,6 +430,12 @@ def _vwap(bars: List[Bar]) -> Optional[float]:
         total_value += typical * bar.volume
         total_volume += bar.volume
     return total_value / total_volume if total_volume else None
+
+
+def _vwap_distance_pct(last_price: float, vwap: Optional[float]) -> Optional[float]:
+    if not vwap:
+        return None
+    return (last_price - vwap) / vwap * 100
 
 
 def _upper_shadow_pct(bar: Bar) -> float:

@@ -282,6 +282,7 @@ def render_tracker_html(
     tracked_symbols: Iterable[TrackedSymbol],
     output_path: Path,
     data_warnings: Iterable[str] = (),
+    data_status: Iterable[str] = (),
     performance_summary: Optional[SignalPerformanceSummary] = None,
     paper_summary: Optional[PaperTradingSummary] = None,
     long_summary: Optional[LongModelSummary] = None,
@@ -293,6 +294,7 @@ def render_tracker_html(
     auto_rows = [row for row in rows if row.source == "auto"]
     manual_rows = [row for row in rows if row.source == "manual"]
     warnings = list(data_warnings)
+    statuses = list(data_status)
     status_counts = _status_counts(rows)
     bullish_focus = _bullish_focus_rows(auto_rows + manual_rows)
 
@@ -353,6 +355,14 @@ def render_tracker_html(
       border: 1px solid #fed7aa;
       border-radius: 8px;
       color: #7c2d12;
+    }}
+    .data-status {{
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      color: #075985;
     }}
     table {{
       width: 100%;
@@ -419,11 +429,14 @@ def render_tracker_html(
       {_metric('風險過高', status_counts.get('風險過高', 0))}
       {_metric('低優先', status_counts.get('低優先', 0))}
     </div>
+    {_data_status_block(statuses)}
     {_warning_block(warnings)}
   </header>
   <main>
     <h2>今日做多候選股 MVP</h2>
     <div class="table-wrap">{_long_candidate_table(long_summary)}</div>
+    <h2>今日推薦檢查表</h2>
+    <div class="table-wrap">{_recommendation_checklist_table(long_summary)}</div>
     <h2>盤中警示</h2>
     <div class="table-wrap">{_alert_table(long_summary)}</div>
     <h2>族群熱度</h2>
@@ -432,11 +445,11 @@ def render_tracker_html(
     <div class="table-wrap">{_market_state_table(long_summary)}</div>
     <h2>每日回測</h2>
     <div class="table-wrap">{_backtest_table(long_summary)}</div>
-    <h2>今日看漲焦點</h2>
+    <h2>舊版參考：今日看漲焦點</h2>
     <div class="table-wrap">{_bullish_focus_table(bullish_focus)}</div>
     <h2>盤前市場指標</h2>
     <div class="table-wrap">{_market_indicator_table(indicators)}</div>
-    <h2>系統自動選股：做多候選</h2>
+    <h2>舊版參考：系統自動選股</h2>
     <div class="table-wrap">{_tracked_table(auto_rows, empty_text='目前沒有符合自動選股條件的標的。')}</div>
     <h2>我的自選追蹤</h2>
     <div class="table-wrap">{_tracked_table(manual_rows, empty_text='目前沒有自選標的。')}</div>
@@ -538,6 +551,13 @@ def _warning_block(warnings: List[str]) -> str:
         return ""
     items = "".join(f"<li>{escape(item)}</li>" for item in warnings)
     return f'<div class="warn"><strong>資料警告</strong><ul>{items}</ul></div>'
+
+
+def _data_status_block(statuses: List[str]) -> str:
+    if not statuses:
+        return ""
+    items = "".join(f"<li>{escape(item)}</li>" for item in statuses)
+    return f'<div class="data-status"><strong>資料狀態</strong><ul>{items}</ul></div>'
 
 
 def _tracked_table(rows: List[TrackedSymbol], empty_text: str = "目前沒有追蹤標的。") -> str:
@@ -669,10 +689,27 @@ def _backtest_table(summary: Optional[LongModelSummary]) -> str:
     avg_return = f"{float(data.get('avg_return', 0)):+.2f}%"
     return (
         "<div class=\"summary\">"
-        f"{_metric('推薦紀錄', int(data.get('total', 0)))}"
+        f"{_metric('推薦紀錄', int(data.get('recommendation_count', data.get('total', 0))))}"
+        f"{_metric('可回測追蹤', int(data.get('trackable_count', 0)))}"
         f"{_metric('達標', int(data.get('target', 0)))}"
         f"{_metric('停損', int(data.get('stop', 0)))}"
         f"{_metric_text('平均報酬', avg_return)}"
+        "</div>"
+    )
+
+
+def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
+    if summary is None:
+        return "<table><tbody><tr><td>目前沒有推薦檢查資料。</td></tr></tbody></table>"
+    data = summary.recommendation_checklist or {}
+    return (
+        "<div class=\"summary\">"
+        f"{_metric('今日候選股總數', int(data.get('candidate_total', 0)))}"
+        f"{_metric('A級數量', int(data.get('grade_a', 0)))}"
+        f"{_metric('B級數量', int(data.get('grade_b', 0)))}"
+        f"{_metric('已寫入 recommendations', int(data.get('recommendations', 0)))}"
+        f"{_metric('今日回測可追蹤', int(data.get('backtest_trackable', 0)))}"
+        f"{_metric('資料缺漏數量', int(data.get('data_missing', 0)))}"
         "</div>"
     )
 
