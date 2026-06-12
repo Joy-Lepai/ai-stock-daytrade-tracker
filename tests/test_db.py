@@ -5,8 +5,19 @@ import tempfile
 import unittest
 
 from stock_daytrade_system.data import Bar
-from stock_daytrade_system.db import backtest_summary, connect, latest_candidates, save_long_candidates, update_backtests
+from stock_daytrade_system.db import (
+    backtest_summary,
+    connect,
+    latest_candidates,
+    latest_us_candidates,
+    save_long_candidates,
+    save_us_candidates,
+    save_us_symbols,
+    update_backtests,
+)
 from stock_daytrade_system.long_model import LongCandidate
+from stock_daytrade_system.us_long_model import USLongCandidate
+from stock_daytrade_system.us_symbols import us_symbol_rows
 
 
 def candidate(volume_ratio=1.5, grade="A", entry_status="executable"):
@@ -60,6 +71,46 @@ def bar(index, high, low, close):
         low=low,
         close=close,
         volume=10_000,
+    )
+
+
+def us_candidate(entry_status="wait_volume", grade="B"):
+    return USLongCandidate(
+        symbol="NVDA",
+        name_en="NVIDIA Corporation",
+        name_zh="輝達",
+        short_name_zh="輝達",
+        sector_en="Semiconductors",
+        sector_zh="半導體",
+        industry_en="AI Accelerators",
+        industry_zh="AI 晶片",
+        description_zh="AI 晶片、GPU 與資料中心加速運算龍頭",
+        latest_price=101,
+        previous_close=99,
+        open=100,
+        high=102,
+        low=99,
+        volume=10_000_000,
+        change_pct=2,
+        volume_ratio=1.1,
+        vwap=100,
+        above_vwap=True,
+        premarket_high=100.5,
+        break_premarket_high=True,
+        break_previous_high=True,
+        break_opening_range_high=True,
+        opening_range_high=100.8,
+        bullish_score=70,
+        risk_score=20,
+        grade=grade,
+        entry_status=entry_status,
+        lifecycle_status="observed",
+        trigger_price=101,
+        stop_loss=99,
+        target_price=104,
+        reasons=["站上 VWAP"],
+        risk_reasons=[],
+        market_status="neutral",
     )
 
 
@@ -197,6 +248,22 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(result["expired_without_trigger"], 1)
         self.assertEqual(summary["trackable_count"], 0)
         self.assertEqual(summary["expired_count"], 1)
+
+    def test_us_recommendations_are_separated_by_market(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(conn, datetime(2026, 1, 1, 9, 5), [candidate()])
+                save_us_symbols(conn, us_symbol_rows(datetime(2026, 1, 1, 10, 0)))
+                save_us_candidates(conn, datetime(2026, 1, 1, 10, 0), [us_candidate()], "regular")
+
+                tw_summary = backtest_summary(conn, datetime(2026, 1, 1).date(), market="TW")
+                us_summary = backtest_summary(conn, datetime(2026, 1, 1).date(), market="US")
+                us_rows = latest_us_candidates(conn)
+
+        self.assertEqual(tw_summary["recommendation_count"], 1)
+        self.assertEqual(us_summary["recommendation_count"], 1)
+        self.assertEqual(us_summary["by_entry_status"][0]["entry_status"], "wait_volume")
+        self.assertEqual(us_rows[0]["name_zh"], "輝達")
 
 
 if __name__ == "__main__":

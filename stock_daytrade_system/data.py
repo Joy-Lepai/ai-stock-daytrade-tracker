@@ -35,8 +35,30 @@ class YahooChartClient:
     def fetch_daily(self, symbol: str, range_: str = "6mo") -> List[Bar]:
         return self._fetch_chart(symbol, range_=range_, interval="1d", include_prepost=False)
 
-    def fetch_intraday(self, symbol: str, range_: str = "1d", interval: str = "5m") -> List[Bar]:
-        return self._fetch_chart(symbol, range_=range_, interval=interval, include_prepost=False)
+    def fetch_intraday(
+        self,
+        symbol: str,
+        range_: str = "1d",
+        interval: str = "5m",
+        include_prepost: bool = False,
+    ) -> List[Bar]:
+        return self._fetch_chart(symbol, range_=range_, interval=interval, include_prepost=include_prepost)
+
+    def fetch_chart_with_meta(
+        self,
+        symbol: str,
+        range_: str,
+        interval: str,
+        include_prepost: bool = False,
+    ) -> Tuple[List[Bar], Dict]:
+        result = self._fetch_chart_result(
+            symbol,
+            range_=range_,
+            interval=interval,
+            include_prepost=include_prepost,
+        )
+        time.sleep(self.pause_seconds)
+        return self._parse_result(result), result.get("meta", {})
 
     def _fetch_chart(
         self,
@@ -45,6 +67,23 @@ class YahooChartClient:
         interval: str,
         include_prepost: bool,
     ) -> List[Bar]:
+        result = self._fetch_chart_result(
+            symbol,
+            range_=range_,
+            interval=interval,
+            include_prepost=include_prepost,
+        )
+        bars = self._parse_result(result)
+        time.sleep(self.pause_seconds)
+        return bars
+
+    def _fetch_chart_result(
+        self,
+        symbol: str,
+        range_: str,
+        interval: str,
+        include_prepost: bool,
+    ) -> Dict:
         encoded = urllib.parse.quote(symbol, safe="")
         query = urllib.parse.urlencode(
             {
@@ -73,9 +112,7 @@ class YahooChartClient:
             error = payload.get("chart", {}).get("error")
             raise MarketDataError(f"no chart data for {symbol}: {error}")
 
-        bars = self._parse_result(result[0])
-        time.sleep(self.pause_seconds)
-        return bars
+        return result[0]
 
     def fetch_many_daily(self, symbols: Iterable[str], range_: str = "6mo") -> Dict[str, List[Bar]]:
         data, _errors = self.fetch_many_daily_with_errors(symbols, range_=range_)
@@ -91,14 +128,21 @@ class YahooChartClient:
         symbols: Iterable[str],
         range_: str = "1d",
         interval: str = "5m",
+        include_prepost: bool = False,
     ) -> Tuple[Dict[str, List[Bar]], Dict[str, str]]:
-        return self._fetch_many_with_errors(symbols, range_=range_, interval=interval)
+        return self._fetch_many_with_errors(
+            symbols,
+            range_=range_,
+            interval=interval,
+            include_prepost=include_prepost,
+        )
 
     def _fetch_many_with_errors(
         self,
         symbols: Iterable[str],
         range_: str,
         interval: str,
+        include_prepost: bool = False,
     ) -> Tuple[Dict[str, List[Bar]], Dict[str, str]]:
         data: Dict[str, List[Bar]] = {}
         errors: Dict[str, str] = {}
@@ -108,7 +152,7 @@ class YahooChartClient:
                     symbol,
                     range_=range_,
                     interval=interval,
-                    include_prepost=False,
+                    include_prepost=include_prepost,
                 )
             except MarketDataError as exc:
                 data[symbol] = []

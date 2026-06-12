@@ -10,7 +10,18 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
-from stock_daytrade_system.db import backtest_summary, connect, default_db_path, latest_candidates, latest_symbol_score, symbol_history
+from stock_daytrade_system.db import (
+    backtest_summary,
+    connect,
+    default_db_path,
+    latest_candidates,
+    latest_symbol_score,
+    latest_us_candidates,
+    latest_us_symbol,
+    symbol_history,
+)
+from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
+from stock_daytrade_system.us_service import build_us_dashboard_payload
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +91,12 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path in {"/", "/dashboard"}:
             self._send_html(self._dashboard_html())
             return
+        if path == "/us":
+            self._redirect("/us/dashboard")
+            return
+        if path == "/us/dashboard":
+            self._send_html(render_us_dashboard_page(show_logout=self.web_app.require_auth))
+            return
         if path.startswith("/symbol/"):
             self._send_html(self._symbol_html(path.removeprefix("/symbol/")))
             return
@@ -93,6 +110,32 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/api/backtest":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(backtest_summary(conn))
+            return
+        if path == "/api/us/dashboard":
+            self._send_json(self._us_dashboard_payload())
+            return
+        if path == "/api/us/candidates":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json([dict(row) for row in latest_us_candidates(conn)])
+            return
+        if path.startswith("/api/us/symbol/"):
+            symbol = urllib.parse.unquote(path.removeprefix("/api/us/symbol/")).upper()
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                row = latest_us_symbol(conn, symbol)
+                self._send_json(dict(row) if row else {"error": "找不到美股資料", "symbol": symbol}, HTTPStatus.OK if row else HTTPStatus.NOT_FOUND)
+            return
+        if path == "/api/us/market":
+            clock = us_market_session()
+            self._send_json(
+                {
+                    "market": clock.market,
+                    "session": clock.session,
+                    "status_text": clock.status_text,
+                    "refresh_interval_seconds": clock.refresh_interval_seconds,
+                    "now_local": clock.now_local.isoformat(timespec="seconds"),
+                    "timezone": clock.timezone,
+                }
+            )
             return
         if path.startswith("/reports/"):
             self._send_report(path.removeprefix("/reports/"))
@@ -204,6 +247,48 @@ class StockWebHandler(BaseHTTPRequestHandler):
                 "history": [dict(row) for row in history],
             }
 
+    def _us_dashboard_payload(self) -> dict:
+        try:
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                return build_us_dashboard_payload(conn, PROJECT_ROOT)
+        except Exception as exc:
+            clock = us_market_session()
+            return {
+                "error": "資料暫時無法更新",
+                "error_detail": str(exc),
+                "market": {
+                    "market": "US",
+                    "session": clock.session,
+                    "status_text": clock.status_text,
+                    "timezone": clock.timezone,
+                    "now_local": clock.now_local.isoformat(timespec="seconds"),
+                    "refresh_interval_seconds": clock.refresh_interval_seconds,
+                },
+                "data_source": {
+                    "source": "Yahoo Finance chart endpoint",
+                    "ok": False,
+                    "success_count": 0,
+                    "failed_symbols": [],
+                    "errors": {"dashboard": str(exc)},
+                    "last_success_at": None,
+                    "updated_at": clock.now_local.isoformat(timespec="seconds"),
+                    "next_update_seconds": clock.refresh_interval_seconds,
+                },
+                "candidates": [],
+                "summary": {},
+                "debug": {
+                    "app_version": "unknown",
+                    "model_version": "unavailable",
+                    "dashboard_generated_at": clock.now_local.isoformat(timespec="seconds"),
+                    "market_session": clock.session,
+                    "refresh_interval": clock.refresh_interval_seconds,
+                    "candidates_count": 0,
+                    "recommendations_count": 0,
+                    "data_source_status": "failure",
+                },
+                "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。",
+            }
+
     def _send_report(self, name: str) -> None:
         safe_name = Path(name).name
         path = self.web_app.report_dir / safe_name
@@ -294,12 +379,72 @@ def render_login_page(error: str = "") -> str:
 </html>"""
 
 
+def render_us_dashboard_page(show_logout: bool = False) -> str:
+    logout_link = '<a href="/logout">登出</a>' if show_logout else ""
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>美股當沖追蹤器</title>
+  <style>{base_css()}{us_dashboard_css()}</style>
+</head>
+<body>
+  <nav class="topbar">
+    <strong>股票當沖追蹤器</strong>
+    <div class="nav-links">
+      <a href="/dashboard">台股追蹤</a>
+      <a href="/us/dashboard">美股追蹤</a>
+      <a href="/api/backtest">回測</a>
+      <a href="#debug">Debug</a>
+    </div>
+    <div class="topbar-actions">
+      <span id="us-refresh-status" class="refresh-status">準備更新</span>
+      {logout_link}
+    </div>
+  </nav>
+  <main class="us-page">
+    <header class="us-header">
+      <div>
+        <h1>美股追蹤</h1>
+        <p class="meta">大型熱門股 watchlist｜Yahoo Finance｜前端 polling 即時更新</p>
+      </div>
+      <div id="us-session" class="session-pill">讀取中</div>
+    </header>
+    <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。</section>
+    <section id="us-error" class="warn" hidden>資料暫時無法更新。</section>
+    <section class="summary" id="us-summary"></section>
+    <h2>資料來源狀態</h2>
+    <div class="table-wrap"><table><tbody id="us-source"></tbody></table></div>
+    <h2>指數狀態</h2>
+    <div class="table-wrap"><table><tbody id="us-market"></tbody></table></div>
+    <h2>美股候選股</h2>
+    <div class="table-wrap">
+      <table class="us-table">
+        <thead>
+          <tr>
+            <th>標的</th><th>價格</th><th>漲跌幅</th><th>成交量</th><th>量比 Volume Ratio</th>
+            <th>均價線 VWAP</th><th>盤前高點</th><th>突破</th><th>多方分數 Bullish Score</th>
+            <th>風險分數 Risk Score</th><th>分級</th><th>進場狀態 Entry Status</th>
+            <th>生命週期 Lifecycle</th><th>理由</th><th>風險理由</th>
+          </tr>
+        </thead>
+        <tbody id="us-candidates"><tr><td colspan="15">讀取中...</td></tr></tbody>
+      </table>
+    </div>
+    <h2 id="debug">Debug</h2>
+    <div class="debug-block"><table><tbody id="us-debug"></tbody></table></div>
+  </main>
+  <script>{us_dashboard_script()}</script>
+</body>
+</html>"""
+
+
 def render_shell(content: str, active_file: Optional[str], extra_css: str = "", show_logout: bool = False) -> str:
     file_text = f"<span>{_escape(active_file)}</span>" if active_file else "<span>無資料檔</span>"
     logout_link = '<a href="/logout">登出</a>' if show_logout else ""
-    refresh_interval_seconds = 300
-    refresh_start_minutes = 7 * 60
-    refresh_end_minutes = 13 * 60 + 45
+    clock = taiwan_market_session()
+    refresh_interval_seconds = clock.refresh_interval_seconds
     return f"""<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -311,9 +456,15 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
 <body>
   <nav class="topbar">
     <strong>股票當沖追蹤器</strong>
+    <div class="nav-links">
+      <a href="/dashboard">台股追蹤</a>
+      <a href="/us/dashboard">美股追蹤</a>
+      <a href="/api/backtest">回測</a>
+      <a href="#debug">Debug</a>
+    </div>
     <div class="topbar-actions">
       {file_text}
-      <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-start="{refresh_start_minutes}" data-end="{refresh_end_minutes}">交易時段自動更新</span>
+      <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">上次更新：{_escape(clock.now_local.strftime('%H:%M:%S'))}</span>
       <form method="post" action="/refresh"><button type="submit">更新</button></form>
       {logout_link}
     </div>
@@ -324,44 +475,15 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       const status = document.getElementById("refresh-status");
       if (!status) return;
       const intervalSeconds = Number(status.dataset.interval || "300");
-      const startMinutes = Number(status.dataset.start || "420");
-      const endMinutes = Number(status.dataset.end || "825");
       let remaining = intervalSeconds;
 
-      const minutesSinceMidnight = (date) => date.getHours() * 60 + date.getMinutes();
-      const isWeekday = (date) => date.getDay() >= 1 && date.getDay() <= 5;
-      const isActiveWindow = (date) => {{
-        const minutes = minutesSinceMidnight(date);
-        return isWeekday(date) && minutes >= startMinutes && minutes <= endMinutes;
-      }};
-      const formatTime = (minutes) => {{
-        const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
-        const minute = String(minutes % 60).padStart(2, "0");
-        return `${{hour}}:${{minute}}`;
-      }};
-      const nextActiveLabel = (date) => {{
-        const minutes = minutesSinceMidnight(date);
-        if (isWeekday(date) && minutes < startMinutes) return `今天 ${{formatTime(startMinutes)}}`;
-        return "下一個交易日 07:00";
-      }};
-
       const renderCountdown = () => {{
-        const now = new Date();
-        if (!isActiveWindow(now)) {{
-          status.textContent = `自動更新暫停，${{nextActiveLabel(now)}} 啟動`;
-          return;
-        }}
         const minutes = Math.floor(remaining / 60);
         const seconds = String(remaining % 60).padStart(2, "0");
-        status.textContent = `07:00-13:45 每 5 分鐘自動更新，倒數 ${{minutes}}:${{seconds}}`;
+        status.textContent = `上次更新：${{new Date().toLocaleTimeString()}}｜下一次更新 ${{minutes}}:${{seconds}}`;
       }};
 
       const refreshDashboard = async () => {{
-        if (!isActiveWindow(new Date())) {{
-          remaining = intervalSeconds;
-          renderCountdown();
-          return;
-        }}
         status.textContent = "正在更新資料...";
         try {{
           const response = await fetch("/refresh", {{
@@ -379,11 +501,6 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
 
       renderCountdown();
       window.setInterval(() => {{
-        if (!isActiveWindow(new Date())) {{
-          remaining = intervalSeconds;
-          renderCountdown();
-          return;
-        }}
         remaining -= 1;
         if (remaining <= 0) {{
           refreshDashboard();
@@ -404,6 +521,9 @@ def base_css() -> str:
     body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
     .topbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 18px; background:#fff; border-bottom:1px solid var(--line); }
     .topbar-actions { display:flex; align-items:center; gap:10px; color:var(--muted); }
+    .nav-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .nav-links a { color:var(--muted); text-decoration:none; padding:5px 8px; border-radius:6px; }
+    .nav-links a:hover { color:var(--accent); background:#eef4ff; }
     .topbar form { margin:0; }
     .refresh-status { white-space:nowrap; font-size:13px; color:var(--muted); }
     button, .topbar a { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:6px 10px; font:inherit; text-decoration:none; cursor:pointer; }
@@ -417,6 +537,174 @@ def base_css() -> str:
     .error { margin-bottom:10px; padding:8px 10px; border:1px solid #fecdd3; background:#fff1f2; color:#9f1239; border-radius:6px; }
     .empty { margin:28px; padding:16px; background:#fff; border:1px solid var(--line); border-radius:8px; }
     @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } }
+    """
+
+
+def us_dashboard_css() -> str:
+    return """
+    .us-page { padding:0 28px 32px; }
+    .us-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:24px 0 12px; }
+    .us-header h1 { margin:0 0 4px; font-size:26px; }
+    .session-pill { border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 12px; font-weight:700; white-space:nowrap; }
+    .notice { margin:12px 0; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
+    .debug-block { margin-top:10px; padding:10px 12px; background:#f8fafc; border:1px solid var(--line); border-radius:8px; }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    th, td { padding:9px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
+    th { background:#eef2f6; color:#344054; font-size:12px; }
+    tr:last-child td { border-bottom:0; }
+    h2 { margin:26px 0 10px; font-size:18px; }
+    .symbol-main { font-weight:750; }
+    .symbol-sub { color:var(--muted); font-size:12px; white-space:normal; min-width:220px; }
+    .num-up { color:#067647; font-weight:700; }
+    .num-down { color:#b42318; font-weight:700; }
+    .badge { display:inline-block; min-width:42px; padding:2px 8px; border-radius:999px; text-align:center; font-size:12px; font-weight:700; border:1px solid var(--line); background:#f8fafc; }
+    .grade-A { color:#fff; background:#067647; border-color:#067647; }
+    .grade-B { color:#175cd3; background:#eff6ff; border-color:#bfdbfe; }
+    .grade-C { color:#9a3412; background:#fff7ed; border-color:#fed7aa; }
+    .grade-D { color:#475467; background:#f2f4f7; }
+    .notes { white-space:normal; min-width:220px; color:var(--muted); }
+    @media (max-width:760px) { .us-page { padding-left:14px; padding-right:14px; } .us-header { flex-direction:column; } }
+    """
+
+
+def us_dashboard_script() -> str:
+    return r"""
+    (() => {
+      const state = { interval: 60, remaining: 60, timer: null, lastPayload: null };
+      const $ = (id) => document.getElementById(id);
+      const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
+      const number = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "-";
+      const pct = (value) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return "-";
+        const cls = n > 0 ? "num-up" : n < 0 ? "num-down" : "";
+        return `<span class="${cls}">${n > 0 ? "+" : ""}${n.toFixed(2)}%</span>`;
+      };
+      const volume = (value) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return "-";
+        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+        return n.toLocaleString();
+      };
+      const escapeHtml = (value) => text(value)
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
+      const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
+      const setStatus = (message) => { $("us-refresh-status").textContent = message; };
+
+      async function loadDashboard() {
+        setStatus("更新中...");
+        $("us-error").hidden = true;
+        try {
+          const response = await fetch("/api/us/dashboard", { cache: "no-store" });
+          const payload = await response.json();
+          if (!response.ok || payload.error) throw new Error(payload.error || `HTTP ${response.status}`);
+          state.lastPayload = payload;
+          render(payload);
+          state.interval = Number(payload.market?.refresh_interval_seconds || 60);
+          state.remaining = state.interval;
+          setStatus(`上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`);
+        } catch (error) {
+          $("us-error").hidden = false;
+          $("us-error").textContent = `資料暫時無法更新：${error.message}`;
+          state.remaining = Math.max(state.interval, 60);
+          setStatus("更新失敗，稍後自動重試");
+        }
+      }
+
+      function render(payload) {
+        const market = payload.market || {};
+        const summary = payload.summary || {};
+        const source = payload.data_source || {};
+        const debug = payload.debug || {};
+        $("us-session").textContent = `${market.status_text || "-"}｜${market.session || "-"}｜${market.market_status_text || "-"}`;
+        $("us-summary").innerHTML = [
+          metric("候選股", summary.candidate_count || 0),
+          metric("A級", summary.grade_a || 0),
+          metric("B級", summary.grade_b || 0),
+          metric("executable 可執行", summary.executable || 0),
+          metric("wait_volume 等量能", summary.wait_volume || 0),
+          metric("wait_vwap 等VWAP", summary.wait_vwap || 0),
+          metric("wait_breakout 等突破", summary.wait_breakout || 0),
+          metric("wait_pullback 等回測", summary.wait_pullback || 0),
+          metric("recommendations", summary.recommendations || 0),
+          metric("triggered 已觸發", summary.triggered || 0),
+        ].join("");
+        $("us-source").innerHTML = [
+          row("資料來源", escapeHtml(source.source)),
+          row("Yahoo Finance 狀態", source.ok ? "抓取成功" : "部分失敗 / 資料暫時無法更新"),
+          row("成功筆數", text(source.success_count)),
+          row("失敗 symbol", escapeHtml((source.failed_symbols || []).join(", ") || "無")),
+          row("最後成功更新時間", escapeHtml(source.last_success_at || "-")),
+          row("下次更新", `${text(source.next_update_seconds)} 秒`),
+        ].join("");
+        $("us-market").innerHTML = [
+          row("市場狀態", escapeHtml(market.status_text)),
+          row("Session", escapeHtml(market.session)),
+          row("QQQ 漲跌幅", pct(payload.indices?.qqq_change_pct || 0)),
+          row("SPY 漲跌幅", pct(payload.indices?.spy_change_pct || 0)),
+          row("指數環境", escapeHtml(market.market_status_text)),
+        ].join("");
+        $("us-debug").innerHTML = [
+          row("commit hash", escapeHtml(debug.app_version)),
+          row("model version", escapeHtml(debug.model_version)),
+          row("dashboard generated_at", escapeHtml(debug.dashboard_generated_at)),
+          row("market session", escapeHtml(debug.market_session)),
+          row("refresh interval", `${text(debug.refresh_interval)} 秒`),
+          row("candidates count", text(debug.candidates_count)),
+          row("recommendations count", text(debug.recommendations_count)),
+          row("data source status", escapeHtml(debug.data_source_status)),
+        ].join("");
+        renderCandidates(payload.candidates || []);
+      }
+
+      function renderCandidates(items) {
+        if (!items.length) {
+          $("us-candidates").innerHTML = '<tr><td colspan="15">目前沒有美股候選資料。</td></tr>';
+          return;
+        }
+        $("us-candidates").innerHTML = items.map((item) => {
+          const lifecycle = item.lifecycle_status || "observed";
+          const breakout = [
+            item.break_premarket_high ? "破盤前高" : "",
+            item.break_previous_high ? "破昨高" : "",
+            item.break_opening_range_high ? "破開盤區間" : "",
+          ].filter(Boolean).join(" / ") || "尚未突破";
+          return `<tr>
+            <td><div class="symbol-main">${escapeHtml(item.symbol)}｜${escapeHtml(item.short_name_zh)}｜${escapeHtml(item.name_en)}</div><div class="symbol-sub">${escapeHtml(item.sector_zh)}｜${escapeHtml(item.description_zh)}</div></td>
+            <td>${number(item.latest_price)}</td>
+            <td>${pct(item.change_pct)}</td>
+            <td>${volume(item.volume)}</td>
+            <td>${number(item.volume_ratio)}x</td>
+            <td>${item.above_vwap ? "是" : "否"}<br><span class="muted">${number(item.vwap)}</span></td>
+            <td>${number(item.premarket_high)}</td>
+            <td>${escapeHtml(breakout)}</td>
+            <td>${number(item.bullish_score)}</td>
+            <td>${number(item.risk_score)}</td>
+            <td><span class="badge grade-${escapeHtml(item.grade)}">${escapeHtml(item.grade)}</span></td>
+            <td>${escapeHtml(item.entry_status)}</td>
+            <td>${escapeHtml(lifecycle)}</td>
+            <td class="notes">${escapeHtml((item.reasons || []).join("；"))}</td>
+            <td class="notes">${escapeHtml((item.risk_reasons || []).join("；"))}</td>
+          </tr>`;
+        }).join("");
+      }
+
+      function tick() {
+        state.remaining -= 1;
+        if (state.remaining <= 0) {
+          loadDashboard();
+          return;
+        }
+        setStatus(`上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`);
+      }
+
+      loadDashboard();
+      state.timer = window.setInterval(tick, 1000);
+    })();
     """
 
 

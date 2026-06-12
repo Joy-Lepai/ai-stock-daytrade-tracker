@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS long_scores (
 );
 
 CREATE TABLE IF NOT EXISTS recommendations (
+  market TEXT NOT NULL DEFAULT 'TW',
   date TEXT NOT NULL,
   symbol TEXT NOT NULL,
   first_seen_at TEXT NOT NULL,
@@ -85,6 +86,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
 );
 
 CREATE TABLE IF NOT EXISTS backtest_results (
+  market TEXT NOT NULL DEFAULT 'TW',
   date TEXT NOT NULL,
   symbol TEXT NOT NULL,
   lifecycle_status TEXT,
@@ -111,6 +113,55 @@ CREATE TABLE IF NOT EXISTS backtest_results (
   outcome TEXT,
   return_pct REAL,
   PRIMARY KEY (date, symbol)
+);
+
+CREATE TABLE IF NOT EXISTS us_symbols (
+  symbol TEXT PRIMARY KEY,
+  name_en TEXT NOT NULL,
+  name_zh TEXT NOT NULL,
+  short_name_zh TEXT NOT NULL,
+  sector_en TEXT NOT NULL,
+  sector_zh TEXT NOT NULL,
+  industry_en TEXT NOT NULL,
+  industry_zh TEXT NOT NULL,
+  description_zh TEXT NOT NULL,
+  is_etf INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS us_candidates (
+  captured_at TEXT NOT NULL,
+  date TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  latest_price REAL,
+  previous_close REAL,
+  open REAL,
+  high REAL,
+  low REAL,
+  volume REAL,
+  change_pct REAL,
+  volume_ratio REAL,
+  vwap REAL,
+  above_vwap INTEGER,
+  premarket_high REAL,
+  break_premarket_high INTEGER,
+  break_previous_high INTEGER,
+  break_opening_range_high INTEGER,
+  opening_range_high REAL,
+  bullish_score REAL,
+  risk_score REAL,
+  grade TEXT,
+  entry_status TEXT,
+  lifecycle_status TEXT,
+  trigger_price REAL,
+  stop_loss REAL,
+  target_price REAL,
+  reasons TEXT,
+  risk_reasons TEXT,
+  market_status TEXT,
+  PRIMARY KEY (captured_at, symbol)
 );
 """
 
@@ -288,13 +339,288 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                 )
 
 
+def save_us_symbols(conn: sqlite3.Connection, rows: Iterable[dict]) -> None:
+    with conn:
+        for row in rows:
+            conn.execute(
+                """
+                INSERT INTO us_symbols (
+                  symbol, name_en, name_zh, short_name_zh, sector_en, sector_zh,
+                  industry_en, industry_zh, description_zh, is_etf, is_active,
+                  created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(symbol) DO UPDATE SET
+                  name_en=excluded.name_en,
+                  name_zh=excluded.name_zh,
+                  short_name_zh=excluded.short_name_zh,
+                  sector_en=excluded.sector_en,
+                  sector_zh=excluded.sector_zh,
+                  industry_en=excluded.industry_en,
+                  industry_zh=excluded.industry_zh,
+                  description_zh=excluded.description_zh,
+                  is_etf=excluded.is_etf,
+                  is_active=excluded.is_active,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    row["symbol"],
+                    row["name_en"],
+                    row["name_zh"],
+                    row["short_name_zh"],
+                    row["sector_en"],
+                    row["sector_zh"],
+                    row["industry_en"],
+                    row["industry_zh"],
+                    row["description_zh"],
+                    int(row["is_etf"]),
+                    int(row["is_active"]),
+                    row["created_at"],
+                    row["updated_at"],
+                ),
+            )
+
+
+def save_us_candidates(
+    conn: sqlite3.Connection,
+    captured_at: datetime,
+    candidates: Iterable[object],
+    market_session: str,
+) -> None:
+    date_text = captured_at.strftime("%Y-%m-%d")
+    captured_text = captured_at.isoformat(timespec="seconds")
+    rows = [asdict(item) for item in candidates]
+    eligible_symbols = {row["symbol"] for row in rows if row["grade"] in {"A", "B"}}
+    with conn:
+        _delete_stale_recommendations(conn, date_text, eligible_symbols, market="US")
+        for data in rows:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO us_candidates (
+                  captured_at, date, symbol, latest_price, previous_close, open, high, low,
+                  volume, change_pct, volume_ratio, vwap, above_vwap, premarket_high,
+                  break_premarket_high, break_previous_high, break_opening_range_high,
+                  opening_range_high, bullish_score, risk_score, grade, entry_status,
+                  lifecycle_status, trigger_price, stop_loss, target_price, reasons,
+                  risk_reasons, market_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    captured_text,
+                    date_text,
+                    data["symbol"],
+                    data["latest_price"],
+                    data["previous_close"],
+                    data["open"],
+                    data["high"],
+                    data["low"],
+                    data["volume"],
+                    data["change_pct"],
+                    data["volume_ratio"],
+                    data["vwap"],
+                    int(data["above_vwap"]),
+                    data["premarket_high"],
+                    int(data["break_premarket_high"]),
+                    int(data["break_previous_high"]),
+                    int(data["break_opening_range_high"]),
+                    data["opening_range_high"],
+                    data["bullish_score"],
+                    data["risk_score"],
+                    data["grade"],
+                    data["entry_status"],
+                    data["lifecycle_status"],
+                    data["trigger_price"],
+                    data["stop_loss"],
+                    data["target_price"],
+                    json.dumps(data["reasons"], ensure_ascii=False),
+                    json.dumps(data["risk_reasons"], ensure_ascii=False),
+                    data["market_status"],
+                ),
+            )
+            if data["grade"] in {"A", "B"}:
+                _upsert_us_recommendation(conn, date_text, captured_text, data, market_session)
+
+
+def _upsert_us_recommendation(
+    conn: sqlite3.Connection,
+    date_text: str,
+    captured_text: str,
+    data: dict,
+    market_session: str,
+) -> None:
+    existing = conn.execute(
+        "SELECT * FROM recommendations WHERE market = 'US' AND date = ? AND symbol = ?",
+        (date_text, data["symbol"]),
+    ).fetchone()
+    lifecycle_status = "triggered" if data["entry_status"] == "executable" else "observed"
+    trigger_time = captured_text if data["entry_status"] == "executable" else None
+    trigger_price = data["latest_price"] if data["entry_status"] == "executable" else data["trigger_price"]
+    trigger_reason = "美股條件即時成立" if data["entry_status"] == "executable" else None
+    if existing and (existing["lifecycle_status"] or "observed") == "observed":
+        trigger = _us_trigger_from_candidate(existing["entry_status"], data)
+        if trigger:
+            lifecycle_status = "triggered"
+            trigger_time = captured_text
+            trigger_price = data["latest_price"]
+            trigger_reason = trigger
+        elif market_session == "closed":
+            lifecycle_status = "expired"
+    elif existing:
+        lifecycle_status = existing["lifecycle_status"]
+        trigger_time = existing["trigger_time"]
+        trigger_price = existing["trigger_price"]
+        trigger_reason = existing["trigger_reason"]
+
+    expired_at = captured_text if lifecycle_status == "expired" else None
+    closed_at = captured_text if lifecycle_status in {"closed", "expired"} else None
+    conn.execute(
+        """
+        INSERT INTO recommendations (
+          market, date, symbol, first_seen_at, latest_seen_at, grade, bullish_score, risk_score,
+          entry_status, lifecycle_status, observed_at, trigger_time, trigger_price,
+          trigger_reason, stop_loss, target_price, signal_price, expired_at, closed_at
+        )
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(date, symbol) DO UPDATE SET
+          market='US',
+          latest_seen_at=excluded.latest_seen_at,
+          grade=excluded.grade,
+          bullish_score=excluded.bullish_score,
+          risk_score=excluded.risk_score,
+          entry_status=CASE
+            WHEN recommendations.lifecycle_status = 'observed' THEN excluded.entry_status
+            ELSE recommendations.entry_status
+          END,
+          lifecycle_status=excluded.lifecycle_status,
+          trigger_time=COALESCE(recommendations.trigger_time, excluded.trigger_time),
+          trigger_price=COALESCE(recommendations.trigger_price, excluded.trigger_price),
+          trigger_reason=COALESCE(recommendations.trigger_reason, excluded.trigger_reason),
+          stop_loss=excluded.stop_loss,
+          target_price=excluded.target_price,
+          expired_at=COALESCE(recommendations.expired_at, excluded.expired_at),
+          closed_at=COALESCE(recommendations.closed_at, excluded.closed_at)
+        """,
+        (
+            date_text,
+            data["symbol"],
+            captured_text,
+            captured_text,
+            data["grade"],
+            data["bullish_score"],
+            data["risk_score"],
+            data["entry_status"],
+            lifecycle_status,
+            captured_text,
+            trigger_time,
+            trigger_price,
+            trigger_reason,
+            data["stop_loss"],
+            data["target_price"],
+            data["latest_price"],
+            expired_at,
+            closed_at,
+        ),
+    )
+    if lifecycle_status == "triggered":
+        _upsert_us_backtest(conn, date_text, captured_text, data, lifecycle_status, trigger_time, trigger_price)
+    elif lifecycle_status == "expired":
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO backtest_results (
+              market, date, symbol, lifecycle_status, entry_status, expired_without_trigger, outcome
+            )
+            VALUES ('US', ?, ?, ?, ?, 1, ?)
+            """,
+            (date_text, data["symbol"], lifecycle_status, data["entry_status"], "未觸發過期"),
+        )
+
+
+def _upsert_us_backtest(
+    conn: sqlite3.Connection,
+    date_text: str,
+    captured_text: str,
+    data: dict,
+    lifecycle_status: str,
+    trigger_time: Optional[str],
+    trigger_price: Optional[float],
+) -> None:
+    entry_price = float(trigger_price or data["latest_price"])
+    max_price = float(data["high"])
+    min_price = float(data["low"])
+    close_price = float(data["latest_price"])
+    hit_target = bool(data["target_price"] and max_price >= float(data["target_price"]))
+    hit_stop = bool(data["stop_loss"] and min_price <= float(data["stop_loss"]))
+    outcome = "達標" if hit_target else "停損" if hit_stop else "追蹤中"
+    max_gain = ((max_price - entry_price) / entry_price * 100) if entry_price else 0.0
+    max_drawdown = ((min_price - entry_price) / entry_price * 100) if entry_price else 0.0
+    return_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0.0
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO backtest_results (
+          market, date, symbol, lifecycle_status, entry_status, trigger_time, trigger_price,
+          entry_price, max_price_after_signal, min_price_after_signal,
+          max_price_after_trigger, min_price_after_trigger, close_price,
+          same_day_high, same_day_low, same_day_close,
+          max_gain_after_recommend, max_drawdown_after_recommend,
+          max_gain_after_trigger, max_drawdown_after_trigger,
+          hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct
+        )
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        """,
+        (
+            date_text,
+            data["symbol"],
+            lifecycle_status,
+            data["entry_status"],
+            trigger_time or captured_text,
+            round(entry_price, 2),
+            round(entry_price, 2),
+            round(max_price, 2),
+            round(min_price, 2),
+            round(max_price, 2),
+            round(min_price, 2),
+            round(close_price, 2),
+            round(max_price, 2),
+            round(min_price, 2),
+            round(close_price, 2),
+            round(max_gain, 2),
+            round(max_drawdown, 2),
+            round(max_gain, 2),
+            round(max_drawdown, 2),
+            int(hit_target),
+            int(hit_stop),
+            int(hit_stop),
+            outcome,
+            round(return_pct, 2),
+        ),
+    )
+
+
+def _us_trigger_from_candidate(entry_status: str, data: dict) -> Optional[str]:
+    if entry_status == "wait_vwap" and data["above_vwap"]:
+        return "站回 VWAP"
+    if entry_status == "wait_volume" and float(data["volume_ratio"] or 0) >= 1.2:
+        return f"量比放大至 {float(data['volume_ratio']):.2f}x"
+    if entry_status == "wait_breakout" and (
+        data["break_previous_high"] or data["break_premarket_high"] or data["break_opening_range_high"]
+    ):
+        return "突破關鍵高點"
+    if entry_status == "wait_pullback" and data["above_vwap"]:
+        distance = ((data["latest_price"] - data["vwap"]) / data["vwap"] * 100) if data["vwap"] else 0
+        if distance <= 1.2:
+            return "回測 VWAP 後未跌破"
+    return None
+
+
 def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_bars_by_symbol: dict) -> None:
     cutoff_text = captured_at.strftime("%Y-%m-%d")
     rows = conn.execute(
         """
         SELECT *
         FROM recommendations
-        WHERE date <= ?
+        WHERE market = 'TW'
+          AND date <= ?
           AND date >= date(?, '-7 days')
         """,
         (cutoff_text, cutoff_text),
@@ -325,7 +651,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                         UPDATE recommendations
                         SET lifecycle_status = ?, trigger_time = ?, trigger_price = ?,
                             trigger_reason = ?
-                        WHERE date = ? AND symbol = ?
+                        WHERE market = 'TW' AND date = ? AND symbol = ?
                         """,
                         (
                             lifecycle_status,
@@ -343,7 +669,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                         """
                         UPDATE recommendations
                         SET lifecycle_status = ?, expired_at = ?
-                        WHERE date = ? AND symbol = ?
+                        WHERE market = 'TW' AND date = ? AND symbol = ?
                         """,
                         (lifecycle_status, expired_at, row["date"], row["symbol"]),
                     )
@@ -388,7 +714,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                 """
                 UPDATE recommendations
                 SET lifecycle_status = ?, closed_at = ?
-                WHERE date = ? AND symbol = ?
+                WHERE market = 'TW' AND date = ? AND symbol = ?
                 """,
                 (lifecycle_status, closed_at, row["date"], row["symbol"]),
             )
@@ -471,8 +797,9 @@ def symbol_history(conn: sqlite3.Connection, symbol: str, limit: int = 30) -> Li
                b.max_gain_after_recommend, b.max_drawdown_after_recommend,
                b.hit_target, b.hit_stop_loss
         FROM recommendations r
-        LEFT JOIN backtest_results b ON b.date = r.date AND b.symbol = r.symbol
-        WHERE r.symbol = ?
+        LEFT JOIN backtest_results b ON b.market = r.market AND b.date = r.date AND b.symbol = r.symbol
+        WHERE r.market = 'TW'
+          AND r.symbol = ?
         ORDER BY r.date DESC
         LIMIT ?
         """,
@@ -500,11 +827,53 @@ def latest_symbol_score(conn: sqlite3.Connection, symbol: str) -> Optional[sqlit
     ).fetchone()
 
 
-def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> dict:
-    params: List[str] = []
-    where = ""
+def latest_us_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3.Row]:
+    captured = conn.execute("SELECT MAX(captured_at) AS captured_at FROM us_candidates").fetchone()["captured_at"]
+    if not captured:
+        return []
+    return conn.execute(
+        """
+        SELECT uc.*, us.name_en, us.name_zh, us.short_name_zh, us.sector_en, us.sector_zh,
+               us.industry_en, us.industry_zh, us.description_zh, us.is_etf,
+               r.lifecycle_status AS recommendation_lifecycle_status,
+               r.trigger_time, r.trigger_reason
+        FROM us_candidates uc
+        JOIN us_symbols us ON us.symbol = uc.symbol
+        LEFT JOIN recommendations r ON r.market = 'US' AND r.date = uc.date AND r.symbol = uc.symbol
+        WHERE uc.captured_at = ?
+        ORDER BY
+          CASE uc.grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
+          uc.bullish_score DESC,
+          uc.risk_score ASC
+        LIMIT ?
+        """,
+        (captured, limit),
+    ).fetchall()
+
+
+def latest_us_symbol(conn: sqlite3.Connection, symbol: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT uc.*, us.name_en, us.name_zh, us.short_name_zh, us.sector_en, us.sector_zh,
+               us.industry_en, us.industry_zh, us.description_zh, us.is_etf,
+               r.lifecycle_status AS recommendation_lifecycle_status,
+               r.trigger_time, r.trigger_price, r.trigger_reason
+        FROM us_candidates uc
+        JOIN us_symbols us ON us.symbol = uc.symbol
+        LEFT JOIN recommendations r ON r.market = 'US' AND r.date = uc.date AND r.symbol = uc.symbol
+        WHERE uc.symbol = ?
+        ORDER BY uc.captured_at DESC
+        LIMIT 1
+        """,
+        (symbol.upper(),),
+    ).fetchone()
+
+
+def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None, market: str = "TW") -> dict:
+    params: List[str] = [market]
+    where = "WHERE market = ?"
     if day is not None:
-        where = "WHERE date = ?"
+        where += " AND date = ?"
         params.append(day.strftime("%Y-%m-%d"))
     recommendation_count = conn.execute(f"SELECT COUNT(*) AS total FROM recommendations {where}", params).fetchone()["total"]
     lifecycle_rows = conn.execute(
@@ -523,8 +892,8 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> di
           b.trigger_time,
           b.expired_without_trigger
         FROM recommendations r
-        LEFT JOIN backtest_results b ON b.date = r.date AND b.symbol = r.symbol
-        {where.replace("date", "r.date") if where else ""}
+        LEFT JOIN backtest_results b ON b.market = r.market AND b.date = r.date AND b.symbol = r.symbol
+        {where.replace("market", "r.market").replace("date", "r.date")}
         """,
         params,
     ).fetchall()
@@ -594,6 +963,7 @@ def _entry_status_order(value: str) -> int:
 def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(backtest_results)").fetchall()}
     columns = {
+        "market": "TEXT NOT NULL DEFAULT 'TW'",
         "lifecycle_status": "TEXT",
         "entry_status": "TEXT",
         "trigger_time": "TEXT",
@@ -613,11 +983,13 @@ def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:
     for name, column_type in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE backtest_results ADD COLUMN {name} {column_type}")
+    conn.execute("UPDATE backtest_results SET market = 'TW' WHERE market IS NULL OR market = ''")
 
 
 def _ensure_recommendation_columns(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(recommendations)").fetchall()}
     columns = {
+        "market": "TEXT NOT NULL DEFAULT 'TW'",
         "lifecycle_status": "TEXT NOT NULL DEFAULT 'observed'",
         "observed_at": "TEXT",
         "trigger_time": "TEXT",
@@ -630,22 +1002,28 @@ def _ensure_recommendation_columns(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE recommendations ADD COLUMN {name} {column_type}")
     conn.execute("UPDATE recommendations SET observed_at = first_seen_at WHERE observed_at IS NULL")
     conn.execute("UPDATE recommendations SET lifecycle_status = 'observed' WHERE lifecycle_status IS NULL OR lifecycle_status = ''")
+    conn.execute("UPDATE recommendations SET market = 'TW' WHERE market IS NULL OR market = ''")
 
 
-def _delete_stale_recommendations(conn: sqlite3.Connection, date_text: str, eligible_symbols: set[str]) -> None:
+def _delete_stale_recommendations(
+    conn: sqlite3.Connection,
+    date_text: str,
+    eligible_symbols: set[str],
+    market: str = "TW",
+) -> None:
     if not eligible_symbols:
-        conn.execute("DELETE FROM recommendations WHERE date = ?", (date_text,))
-        conn.execute("DELETE FROM backtest_results WHERE date = ?", (date_text,))
+        conn.execute("DELETE FROM recommendations WHERE market = ? AND date = ?", (market, date_text))
+        conn.execute("DELETE FROM backtest_results WHERE market = ? AND date = ?", (market, date_text))
         return
 
     placeholders = ", ".join("?" for _ in eligible_symbols)
-    params = [date_text, *sorted(eligible_symbols)]
+    params = [market, date_text, *sorted(eligible_symbols)]
     conn.execute(
-        f"DELETE FROM recommendations WHERE date = ? AND symbol NOT IN ({placeholders})",
+        f"DELETE FROM recommendations WHERE market = ? AND date = ? AND symbol NOT IN ({placeholders})",
         params,
     )
     conn.execute(
-        f"DELETE FROM backtest_results WHERE date = ? AND symbol NOT IN ({placeholders})",
+        f"DELETE FROM backtest_results WHERE market = ? AND date = ? AND symbol NOT IN ({placeholders})",
         params,
     )
 
