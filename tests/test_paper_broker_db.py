@@ -5,7 +5,7 @@ import unittest
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, save_us_symbols
-from stock_daytrade_system.paper_broker import run_paper_trading
+from stock_daytrade_system.paper_broker import empty_paper_dashboard_payload, paper_dashboard_payload, run_paper_trading
 from stock_daytrade_system.us_symbols import us_symbol_rows
 
 
@@ -78,6 +78,32 @@ def insert_recommendation(conn, market="TW", symbol="2330.TW", grade="A", entry_
 
 
 class PaperBrokerDatabaseTests(unittest.TestCase):
+    def test_dashboard_payload_without_recommendations_returns_full_empty_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                payload = paper_dashboard_payload(conn, TW_NOW)
+
+        self.assertEqual(payload["api_status"], "ok")
+        self.assertEqual(payload["data_source_status"], "ok")
+        self.assertEqual(payload["errors"], [])
+        self.assertEqual(len(payload["accounts"]), 2)
+        self.assertEqual(payload["positions"], [])
+        self.assertEqual(payload["trades"], [])
+        self.assertEqual(payload["skipped_trades"], [])
+        self.assertIn("尚無符合虛擬進場條件", payload["message"])
+        self.assertEqual(payload["accounts"][0]["initial_cash"], 1_000_000)
+        self.assertEqual(payload["accounts"][1]["initial_cash"], 30_000)
+
+    def test_empty_fallback_payload_initializes_accounts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                payload = empty_paper_dashboard_payload(conn, TW_NOW, "測試錯誤")
+
+        self.assertEqual(payload["api_status"], "degraded")
+        self.assertEqual(payload["errors"], ["測試錯誤"])
+        self.assertEqual(len(payload["accounts"]), 2)
+        self.assertEqual(payload["positions"], [])
+
     def test_executable_recommendation_opens_trade_once(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "db.sqlite") as conn:

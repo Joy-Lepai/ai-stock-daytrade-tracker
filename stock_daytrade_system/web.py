@@ -22,7 +22,7 @@ from stock_daytrade_system.db import (
     symbol_history,
 )
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
-from stock_daytrade_system.paper_service import build_paper_dashboard, build_paper_performance
+from stock_daytrade_system.paper_service import build_empty_paper_dashboard, build_paper_dashboard, build_paper_performance
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
 
@@ -319,25 +319,8 @@ class StockWebHandler(BaseHTTPRequestHandler):
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 return build_paper_dashboard(conn, PROJECT_ROOT)
         except Exception as exc:
-            refresh_interval = 300
-            return {
-                "error": "虛擬交易資料暫時無法更新",
-                "error_detail": str(exc),
-                "generated_at": datetime_now_text(),
-                "refresh_interval_seconds": refresh_interval,
-                "accounts": [],
-                "positions": [],
-                "trades": [],
-                "skipped": [],
-                "performance": {},
-                "debug": {
-                    "app_version": "unknown",
-                    "engine_version": "unavailable",
-                    "generated_at": datetime_now_text(),
-                    "refresh_interval": refresh_interval,
-                },
-                "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。",
-            }
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                return build_empty_paper_dashboard(conn, PROJECT_ROOT, str(exc))
 
     def _send_report(self, name: str) -> None:
         safe_name = Path(name).name
@@ -856,7 +839,7 @@ def paper_dashboard_script() -> str:
         try {
           const response = await fetch("/api/paper/dashboard", { cache: "no-store" });
           const payload = await response.json();
-          if (!response.ok || payload.error) throw new Error(payload.error || `HTTP ${response.status}`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
           render(payload);
           state.interval = Number(payload.refresh_interval_seconds || 300);
           state.remaining = state.interval;
@@ -873,9 +856,12 @@ def paper_dashboard_script() -> str:
         renderAccounts(payload.accounts || [], payload.performance || {});
         renderPositions(payload.positions || []);
         renderTrades(payload.trades || []);
-        renderSkipped(payload.skipped || []);
+        renderSkipped(payload.skipped_trades || payload.skipped || []);
         renderPerformance(payload.performance || {});
         renderDebug(payload.debug || {}, payload.run || {});
+        const errors = payload.errors || [];
+        $("paper-error").hidden = !(payload.api_status === "degraded" && errors.length);
+        if (!$("paper-error").hidden) $("paper-error").textContent = `虛擬交易以空狀態顯示：${errors.join("；")}`;
       }
 
       function renderAccounts(accounts, performance) {
@@ -890,7 +876,7 @@ def paper_dashboard_script() -> str:
 
       function renderPositions(items) {
         if (!items.length) {
-          $("paper-positions").innerHTML = '<tr><td colspan="8">目前沒有持倉。</td></tr>';
+          $("paper-positions").innerHTML = '<tr><td colspan="8">尚無持倉，等待 executable / triggered recommendations 產生後開始模擬。</td></tr>';
           return;
         }
         $("paper-positions").innerHTML = items.map((item) => `<tr>
@@ -904,7 +890,7 @@ def paper_dashboard_script() -> str:
       function renderTrades(items) {
         const tradable = items.filter((item) => item.status !== "skipped").slice(0, 40);
         if (!tradable.length) {
-          $("paper-trades").innerHTML = '<tr><td colspan="9">目前沒有虛擬交易。</td></tr>';
+          $("paper-trades").innerHTML = '<tr><td colspan="9">今日尚無虛擬交易，等待符合條件的訊號。</td></tr>';
           return;
         }
         $("paper-trades").innerHTML = tradable.map((item) => `<tr>
@@ -919,7 +905,7 @@ def paper_dashboard_script() -> str:
 
       function renderSkipped(items) {
         if (!items.length) {
-          $("paper-skipped").innerHTML = '<tr><td colspan="5">目前沒有跳過紀錄。</td></tr>';
+          $("paper-skipped").innerHTML = '<tr><td colspan="5">尚無跳過紀錄。</td></tr>';
           return;
         }
         $("paper-skipped").innerHTML = items.slice(0, 40).map((item) => `<tr>
@@ -948,7 +934,15 @@ def paper_dashboard_script() -> str:
           row("commit hash", escapeHtml(debug.app_version)),
           row("engine version", escapeHtml(debug.engine_version)),
           row("generated_at", escapeHtml(debug.generated_at)),
-          row("refresh interval", `${text(debug.refresh_interval)} 秒`),
+        row("API status", escapeHtml(debug.api_status || "ok")),
+        row("refresh interval", `${text(debug.refresh_interval)} 秒`),
+        row("accounts count", text(debug.accounts_count)),
+        row("open positions count", text(debug.open_positions_count)),
+        row("trades count", text(debug.trades_count)),
+        row("skipped count", text(debug.skipped_count)),
+        row("recommendations scanned count", text(debug.recommendations_scanned_count)),
+        row("executable / triggered count", text(debug.executable_triggered_count)),
+        row("last error", escapeHtml(debug.last_error || "")),
           row("本次開倉", text(run.opened)),
           row("本次平倉", text(run.closed)),
           row("本次跳過", text(run.skipped)),

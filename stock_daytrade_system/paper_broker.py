@@ -19,6 +19,9 @@ class PaperRunSummary:
     closed: int
     skipped: int
     positions: int
+    recommendations_scanned: int
+    executable_triggered: int
+    last_error: str = ""
 
 
 def run_paper_trading(
@@ -31,11 +34,18 @@ def run_paper_trading(
         _ensure_accounts(conn, captured_at, config)
         price_map = _latest_price_map(conn)
         closed = _evaluate_open_positions(conn, captured_at, price_map, config)
-        opened, skipped = _process_recommendations(conn, captured_at, price_map, config)
+        opened, skipped, scanned, executable_triggered = _process_recommendations(conn, captured_at, price_map, config)
         _refresh_accounts(conn, captured_at)
         _record_equity_curve(conn, captured_at)
     positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions").fetchone()["total"]
-    return PaperRunSummary(opened=opened, closed=closed, skipped=skipped, positions=positions)
+    return PaperRunSummary(
+        opened=opened,
+        closed=closed,
+        skipped=skipped,
+        positions=positions,
+        recommendations_scanned=scanned,
+        executable_triggered=executable_triggered,
+    )
 
 
 def paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
@@ -55,14 +65,21 @@ def paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[datetime] = 
         ).fetchall()
     ]
     performance = paper_performance(conn)
+    skipped_trades = [item for item in trades if item.get("status") == "skipped"]
+    message = "目前尚無符合虛擬進場條件的訊號" if not positions and not [item for item in trades if item.get("status") != "skipped"] else ""
     return {
+        "api_status": "ok",
+        "data_source_status": "ok",
+        "errors": [],
+        "message": message,
         "engine_version": PAPER_ENGINE_VERSION,
         "generated_at": captured_at.isoformat(timespec="seconds"),
         "run": run.__dict__,
         "accounts": accounts,
         "positions": positions,
         "trades": trades,
-        "skipped": [item for item in trades if item.get("status") == "skipped"],
+        "skipped": skipped_trades,
+        "skipped_trades": skipped_trades,
         "performance": performance,
         "refresh_interval_seconds": _paper_refresh_interval(captured_at),
         "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。",
@@ -110,7 +127,7 @@ def _process_recommendations(
     now: datetime,
     price_map: Dict[tuple[str, str], dict],
     config: PaperTradingConfig,
-) -> tuple[int, int]:
+) -> tuple[int, int, int, int]:
     opened = 0
     skipped = 0
     rows = conn.execute(
@@ -121,6 +138,14 @@ def _process_recommendations(
         ORDER BY latest_seen_at DESC
         """
     ).fetchall()
+    scanned = len(rows)
+    executable_triggered = sum(
+        1
+        for row in rows
+        if row["grade"] in {"A", "B"}
+        and row["entry_status"] not in {"high_risk", "avoid"}
+        and (row["entry_status"] == "executable" or row["lifecycle_status"] == "triggered")
+    )
     for row in rows:
         recommendation_id = _recommendation_id(row)
         if _trade_exists(conn, recommendation_id):
@@ -134,7 +159,42 @@ def _process_recommendations(
             continue
         _open_trade(conn, row, recommendation_id, price_info, now, config)
         opened += 1
-    return opened, skipped
+    return opened, skipped, scanned, executable_triggered
+
+
+def empty_paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[datetime] = None, last_error: str = "") -> dict:
+    captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    with conn:
+        _ensure_accounts(conn, captured_at, DEFAULT_PAPER_CONFIG)
+        _refresh_accounts(conn, captured_at)
+    accounts = [dict(row) for row in conn.execute("SELECT * FROM paper_accounts ORDER BY market").fetchall()]
+    performance = paper_performance(conn)
+    run = PaperRunSummary(
+        opened=0,
+        closed=0,
+        skipped=0,
+        positions=0,
+        recommendations_scanned=0,
+        executable_triggered=0,
+        last_error=last_error,
+    )
+    return {
+        "api_status": "degraded" if last_error else "ok",
+        "data_source_status": "degraded" if last_error else "ok",
+        "errors": [last_error] if last_error else [],
+        "message": "目前尚無符合虛擬進場條件的訊號",
+        "engine_version": PAPER_ENGINE_VERSION,
+        "generated_at": captured_at.isoformat(timespec="seconds"),
+        "run": run.__dict__,
+        "accounts": accounts,
+        "positions": [],
+        "trades": [],
+        "skipped": [],
+        "skipped_trades": [],
+        "performance": performance,
+        "refresh_interval_seconds": _paper_refresh_interval(captured_at),
+        "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。",
+    }
 
 
 def _entry_decision(

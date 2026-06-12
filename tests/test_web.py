@@ -24,6 +24,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("/api/paper/dashboard", html)
         self.assertIn("不串接券商", html)
         self.assertIn("目前持倉", html)
+        self.assertIn("尚無持倉", html)
+        self.assertNotIn("!response.ok || payload.error", html)
 
 
 if __name__ == "__main__":
