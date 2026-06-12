@@ -128,7 +128,7 @@ class LongModelTests(unittest.TestCase):
         self.assertEqual(candidates[0].grade, "D")
         self.assertEqual(candidates[0].entry_status, "wait_volume")
 
-    def test_b_level_with_sub_one_volume_waits_for_volume_confirmation(self):
+    def test_b_plus_with_sub_one_volume_waits_for_volume_confirmation(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
         bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
         intraday = [intraday_bar(index, 104 + index * 0.2, volume=112_500) for index in range(8)]
@@ -145,8 +145,9 @@ class LongModelTests(unittest.TestCase):
         self.assertEqual(len(candidates), 1)
         self.assertGreaterEqual(candidates[0].volume_ratio, 0.8)
         self.assertLess(candidates[0].volume_ratio, 1.0)
-        self.assertEqual(candidates[0].grade, "B")
+        self.assertEqual(candidates[0].grade, "B+")
         self.assertEqual(candidates[0].entry_status, "wait_volume")
+        self.assertIn("B+練習觀察", "；".join(candidates[0].reasons))
 
     def test_near_vwap_but_not_above_waits_for_vwap(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
@@ -162,7 +163,7 @@ class LongModelTests(unittest.TestCase):
         )
 
         self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0].grade, "B")
+        self.assertEqual(candidates[0].grade, "B+")
         self.assertFalse(candidates[0].above_vwap)
         self.assertEqual(candidates[0].entry_status, "wait_vwap")
 

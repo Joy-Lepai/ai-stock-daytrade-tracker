@@ -338,12 +338,19 @@ def run_tracker(
         backtest_data = backtest_summary(conn, now.date())
         visible_long_candidates = [
             item for item in long_candidates
-            if item.grade in {"A", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
+            if item.grade in {"A", "B+", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
         ]
         recommendation_checklist = {
             "candidate_total": len(visible_long_candidates),
             "grade_a": sum(1 for item in long_candidates if item.grade == "A"),
+            "grade_b_plus": sum(1 for item in long_candidates if item.grade == "B+"),
             "grade_b": sum(1 for item in long_candidates if item.grade == "B"),
+            "grade_cd": sum(1 for item in long_candidates if item.grade in {"C", "D"}),
+            "paper_practice_observable": sum(
+                1
+                for item in long_candidates
+                if item.grade in {"A", "B+"} and item.entry_status not in {"high_risk", "avoid"}
+            ),
             "executable": sum(1 for item in long_candidates if item.entry_status == "executable"),
             "wait_volume": sum(1 for item in visible_long_candidates if item.entry_status == "wait_volume"),
             "wait_vwap": sum(1 for item in visible_long_candidates if item.entry_status == "wait_vwap"),

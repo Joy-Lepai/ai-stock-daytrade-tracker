@@ -302,7 +302,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
     eligible_recommendation_symbols = {
         data["symbol"]
         for data in candidate_rows
-        if data["grade"] in {"A", "B"}
+        if data["grade"] in {"A", "B+", "B"}
     }
     with conn:
         _delete_stale_recommendations(conn, date_text, eligible_recommendation_symbols)
@@ -395,7 +395,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                     data.get("confidence_adjustment_reason"),
                 ),
             )
-            if data["grade"] in {"A", "B"}:
+            if data["grade"] in {"A", "B+", "B"}:
                 lifecycle_status = "triggered" if data["entry_status"] == "executable" else "observed"
                 trigger_time = captured_text if data["entry_status"] == "executable" else None
                 trigger_price = data["last_price"] if data["entry_status"] == "executable" else data["trigger_price"]
@@ -538,7 +538,7 @@ def save_us_candidates(
     date_text = captured_at.strftime("%Y-%m-%d")
     captured_text = captured_at.isoformat(timespec="seconds")
     rows = [asdict(item) for item in candidates]
-    eligible_symbols = {row["symbol"] for row in rows if row["grade"] in {"A", "B"}}
+    eligible_symbols = {row["symbol"] for row in rows if row["grade"] in {"A", "B+", "B"}}
     with conn:
         _delete_stale_recommendations(conn, date_text, eligible_symbols, market="US")
         for data in rows:
@@ -597,7 +597,7 @@ def save_us_candidates(
                     data.get("confidence_adjustment_reason"),
                 ),
             )
-            if data["grade"] in {"A", "B"}:
+            if data["grade"] in {"A", "B+", "B"}:
                 _upsert_us_recommendation(conn, date_text, captured_text, data, market_session)
 
 
@@ -967,7 +967,7 @@ def latest_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqlite3
         LEFT JOIN intraday_snapshots intr ON intr.captured_at = ls.captured_at AND intr.symbol = ls.symbol
         WHERE ls.captured_at = ?
         ORDER BY
-          CASE ls.grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
+          CASE ls.grade WHEN 'A' THEN 1 WHEN 'B+' THEN 2 WHEN 'B' THEN 3 WHEN 'C' THEN 4 ELSE 5 END,
           ls.bullish_score DESC,
           ls.risk_score ASC
         LIMIT ?
@@ -1029,7 +1029,7 @@ def latest_us_candidates(conn: sqlite3.Connection, limit: int = 50) -> List[sqli
         LEFT JOIN recommendations r ON r.market = 'US' AND r.date = uc.date AND r.symbol = uc.symbol
         WHERE uc.captured_at = ?
         ORDER BY
-          CASE uc.grade WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3 ELSE 4 END,
+          CASE uc.grade WHEN 'A' THEN 1 WHEN 'B+' THEN 2 WHEN 'B' THEN 3 WHEN 'C' THEN 4 ELSE 5 END,
           uc.bullish_score DESC,
           uc.risk_score ASC
         LIMIT ?
@@ -1072,12 +1072,15 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None, marke
         f"""
         SELECT
           r.entry_status,
+          r.grade,
           r.lifecycle_status,
           r.symbol,
           b.outcome,
           b.return_pct,
           b.trigger_time,
-          b.expired_without_trigger
+          b.expired_without_trigger,
+          b.max_gain_after_trigger,
+          b.max_drawdown_after_trigger
         FROM recommendations r
         LEFT JOIN backtest_results b ON b.market = r.market AND b.date = r.date AND b.symbol = r.symbol
         {where.replace("market", "r.market").replace("date", "r.date")}
@@ -1106,6 +1109,7 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None, marke
         "stop": stop,
         "avg_return": avg_return,
         "by_entry_status": _summarize_by_entry_status(status_rows),
+        "by_grade": _summarize_by_grade(status_rows),
     }
 
 
@@ -1136,6 +1140,40 @@ def _summarize_by_entry_status(rows: Iterable[sqlite3.Row]) -> List[dict]:
     return result
 
 
+def _summarize_by_grade(rows: Iterable[sqlite3.Row]) -> List[dict]:
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(row["grade"] or "unknown", []).append(row)
+
+    result = []
+    for grade, items in grouped.items():
+        tracked = [item for item in items if item["trigger_time"]]
+        total = len(items)
+        triggered = len(tracked)
+        expired = sum(1 for item in items if item["lifecycle_status"] == "expired" or item["expired_without_trigger"])
+        target = sum(1 for item in tracked if item["outcome"] == "達標")
+        stop = sum(1 for item in tracked if item["outcome"] == "停損")
+        avg_return = round(sum(item["return_pct"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        avg_max_gain = round(sum(item["max_gain_after_trigger"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        avg_max_drawdown = round(sum(item["max_drawdown_after_trigger"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        result.append(
+            {
+                "grade": grade,
+                "total": total,
+                "triggered": triggered,
+                "expired": expired,
+                "untriggered_ratio": round((total - triggered) / total * 100, 2) if total else 0.0,
+                "target": target,
+                "stop": stop,
+                "avg_return": avg_return,
+                "avg_max_gain": avg_max_gain,
+                "avg_max_drawdown": avg_max_drawdown,
+            }
+        )
+    result.sort(key=lambda item: _grade_order(item["grade"]))
+    return result
+
+
 def _entry_status_order(value: str) -> int:
     return {
         "executable": 0,
@@ -1145,6 +1183,10 @@ def _entry_status_order(value: str) -> int:
         "high_risk": 4,
         "avoid": 5,
     }.get(value, 9)
+
+
+def _grade_order(value: str) -> int:
+    return {"A": 0, "B+": 1, "B": 2, "C": 3, "D": 4}.get(value, 9)
 
 
 def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:

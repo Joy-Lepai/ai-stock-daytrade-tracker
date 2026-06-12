@@ -681,6 +681,8 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <section class="summary" id="accuracy-summary"></section>
     <h2>依進場狀態</h2>
     <div class="table-wrap" id="accuracy-status"></div>
+    <h2>依分級</h2>
+    <div class="table-wrap" id="accuracy-grade"></div>
     <h2>依信心等級</h2>
     <div class="table-wrap" id="accuracy-confidence"></div>
     <h2>依市場</h2>
@@ -1321,9 +1323,14 @@ def accuracy_dashboard_script() -> str:
           metric("平均最大回撤", `${number(summary.avg_max_drawdown_pct)}%`),
           metric("停損率", `${number(summary.stop_rate)}%`),
           metric("達標率", `${number(summary.target_rate)}%`),
+          metric("A級勝率", `${number(summary.grade_a?.win_rate)}%`),
+          metric("B+勝率", `${number(summary.grade_b_plus?.win_rate)}%`),
+          metric("B+觸發後勝率", `${number(summary.grade_b_plus_triggered?.win_rate)}%`),
+          metric("B+未觸發比例", `${number(payload.b_plus_lifecycle?.untriggered_ratio)}%`),
           metric("樣本提示", escapeHtml(summary.message || "")),
         ].join("");
         $("accuracy-status").innerHTML = table(payload.by_status || [], "進場狀態");
+        $("accuracy-grade").innerHTML = table(payload.by_grade || [], "分級");
         $("accuracy-confidence").innerHTML = table(payload.by_confidence || [], "信心等級");
         $("accuracy-market").innerHTML = table(payload.by_market || [], "市場");
         const suggestions = payload.model_suggestions || [];
@@ -1339,11 +1346,12 @@ def accuracy_dashboard_script() -> str:
           <td>${item.is_statistically_meaningful ? "是" : "否"}</td>
           <td>${number(item.win_rate)}%</td>
           <td>${number(item.avg_return_pct)}%</td>
+          <td>${number(item.avg_max_gain_pct)}%</td>
           <td>${number(item.avg_max_drawdown_pct)}%</td>
           <td>${number(item.stop_rate)}%</td>
           <td>${number(item.target_rate)}%</td>
-        </tr>`).join("") : `<tr><td colspan="8">目前沒有${label}統計資料。</td></tr>`;
-        return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th></tr></thead><tbody>${body}</tbody></table>`;
+        </tr>`).join("") : `<tr><td colspan="9">目前沒有${label}統計資料。</td></tr>`;
+        return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th></tr></thead><tbody>${body}</tbody></table>`;
       }
 
       loadAccuracy();

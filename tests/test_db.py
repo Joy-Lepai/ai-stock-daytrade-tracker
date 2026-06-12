@@ -169,7 +169,7 @@ class DatabaseTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["grade"], "A")
 
-    def test_writes_only_a_and_b_to_recommendations(self):
+    def test_writes_a_b_plus_and_b_to_recommendations(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "daytrade.db") as conn:
                 save_long_candidates(
@@ -177,6 +177,7 @@ class DatabaseTests(unittest.TestCase):
                     datetime(2026, 1, 1, 9, 5),
                     [
                         candidate(grade="A"),
+                        replace(candidate(grade="B+", entry_status="wait_pullback"), symbol="2303.TW", name="聯電"),
                         replace(candidate(grade="B", entry_status="wait_volume"), symbol="2317.TW", name="鴻海"),
                         replace(candidate(grade="C", entry_status="high_risk"), symbol="6919.TW", name="康霈生技"),
                     ],
@@ -186,6 +187,7 @@ class DatabaseTests(unittest.TestCase):
                 ).fetchall()
 
         self.assertEqual([(row["symbol"], row["grade"], row["entry_status"]) for row in rows], [
+            ("2303.TW", "B+", "wait_pullback"),
             ("2317.TW", "B", "wait_volume"),
             ("2330.TW", "A", "executable"),
         ])

@@ -444,6 +444,7 @@ def render_tracker_html(
     <h2>信心雷達</h2>
     {_confidence_radar(long_summary)}
     <h2>今日做多候選股 MVP</h2>
+    <section class="notice">B+ 為策略練習觀察，不代表正式做多建議。</section>
     <div class="table-wrap">{_long_candidate_table(long_summary)}</div>
     <h2>今日推薦檢查表</h2>
     <div class="table-wrap">{_recommendation_checklist_table(long_summary)}</div>
@@ -733,6 +734,7 @@ def _backtest_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric_text('平均報酬', avg_return)}"
         "</div>"
         f"{_entry_status_backtest_table(data.get('by_entry_status', []))}"
+        f"{_grade_backtest_table(data.get('by_grade', []))}"
     )
 
 
@@ -743,8 +745,11 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
     return (
         "<div class=\"summary\">"
         f"{_metric('今日候選股總數', int(data.get('candidate_total', 0)))}"
-        f"{_metric('A級數量', int(data.get('grade_a', 0)))}"
-        f"{_metric('B級數量', int(data.get('grade_b', 0)))}"
+        f"{_metric('A級高信心數量', int(data.get('grade_a', 0)))}"
+        f"{_metric('B+可練習觀察數量', int(data.get('grade_b_plus', 0)))}"
+        f"{_metric('B級等待確認數量', int(data.get('grade_b', 0)))}"
+        f"{_metric('C/D避開數量', int(data.get('grade_cd', 0)))}"
+        f"{_metric('今日可虛擬交易觀察數量', int(data.get('paper_practice_observable', 0)))}"
         f"{_metric('executable 可執行', int(data.get('executable', 0)))}"
         f"{_metric('wait_volume 等量能', int(data.get('wait_volume', 0)))}"
         f"{_metric('wait_vwap 等VWAP', int(data.get('wait_vwap', 0)))}"
@@ -782,6 +787,40 @@ def _entry_status_backtest_table(rows: List[dict]) -> str:
         "<table class=\"sortable\"><thead><tr><th data-sort=\"text\">進場狀態</th>"
         "<th data-sort=\"number\">推薦數</th><th data-sort=\"number\">可回測</th>"
         "<th data-sort=\"number\">達標</th><th data-sort=\"number\">停損</th><th data-sort=\"number\">平均報酬</th>"
+        "</tr></thead><tbody>"
+        + "".join(body)
+        + "</tbody></table>"
+    )
+
+
+def _grade_backtest_table(rows: List[dict]) -> str:
+    if not rows:
+        return ""
+    body = []
+    for item in rows:
+        avg_return = f"{float(item.get('avg_return', 0)):+.2f}%"
+        avg_gain = f"{float(item.get('avg_max_gain', 0)):+.2f}%"
+        avg_drawdown = f"{float(item.get('avg_max_drawdown', 0)):+.2f}%"
+        body.append(
+            "<tr>"
+            f"<td>{escape(str(item.get('grade', '')))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('total'))}\">{int(item.get('total', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('triggered'))}\">{int(item.get('triggered', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('untriggered_ratio'))}\">{_fmt(float(item.get('untriggered_ratio', 0)))}%</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('target'))}\">{int(item.get('target', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('stop'))}\">{int(item.get('stop', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('avg_return'))}\">{escape(avg_return)}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('avg_max_gain'))}\">{escape(avg_gain)}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('avg_max_drawdown'))}\">{escape(avg_drawdown)}</td>"
+            "</tr>"
+        )
+    return (
+        "<h3>依分級回測</h3>"
+        "<table class=\"sortable\"><thead><tr><th data-sort=\"text\">分級</th>"
+        "<th data-sort=\"number\">推薦數</th><th data-sort=\"number\">已觸發</th>"
+        "<th data-sort=\"number\">未觸發比例</th><th data-sort=\"number\">達標</th>"
+        "<th data-sort=\"number\">停損</th><th data-sort=\"number\">平均報酬</th>"
+        "<th data-sort=\"number\">平均最大漲幅</th><th data-sort=\"number\">平均最大回撤</th>"
         "</tr></thead><tbody>"
         + "".join(body)
         + "</tbody></table>"
@@ -1032,6 +1071,7 @@ def _direction(value: str) -> str:
 def _grade_label(value: str) -> str:
     return {
         "A": "強勢做多觀察",
+        "B+": "可練習觀察",
         "B": "可追蹤，等回測",
         "C": "題材股，風險偏高",
         "D": "暫不建議做多",

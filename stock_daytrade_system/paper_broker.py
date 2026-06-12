@@ -115,6 +115,12 @@ def paper_performance(conn: sqlite3.Connection) -> dict:
         "by_source": _group_performance(closed, "source"),
         "by_grade": _group_performance(closed, "grade"),
         "by_entry_status": _group_performance(closed, "entry_status"),
+        "grade_a": _group_performance([row for row in closed if row["grade"] == "A"], "grade"),
+        "grade_b_plus": _group_performance([row for row in closed if row["grade"] == "B+"], "grade"),
+        "grade_b_plus_triggered": _group_performance(
+            [row for row in closed if row["grade"] == "B+" and (row["lifecycle_status"] or "") != "observed"],
+            "grade",
+        ),
     }
 
 
@@ -316,7 +322,7 @@ def _process_recommendations(
     executable_triggered = sum(
         1
         for row in rows
-        if row["grade"] in {"A", "B"}
+        if row["grade"] in {"A", "B+", "B"}
         and row["entry_status"] not in {"high_risk", "avoid"}
         and (row["entry_status"] == "executable" or row["lifecycle_status"] == "triggered")
     )
@@ -420,13 +426,13 @@ def _entry_decision(
         return "market_closed"
     if market == "TW" and taiwan_market_session(now).session != "regular":
         return "market_closed"
-    if grade not in {"A", "B"}:
+    if grade not in {"A", "B+", "B"}:
         return "not_executable"
     if entry_status in {"high_risk", "avoid"}:
         return "risk_too_high"
     if not (entry_status == "executable" or lifecycle == "triggered"):
         return "not_executable"
-    if grade == "B" and lifecycle != "triggered":
+    if grade in {"B+", "B"} and lifecycle != "triggered":
         return "not_executable"
     if row["stop_loss"] is None:
         return "no_stop_loss"

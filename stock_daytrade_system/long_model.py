@@ -13,7 +13,15 @@ from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.sectors import SectorStrength
 
 
-SCORING_MODEL_VERSION = "long_model_v2_volume_vwap_2026-06-12"
+SCORING_MODEL_VERSION = "long_model_v2_b_plus_practice_2026-06-13"
+
+MAJOR_CONFLICT_CODES = {
+    "breakout_below_vwap",
+    "high_risk_executable",
+    "failed_breakout",
+    "long_upper_shadow",
+    "missing_data_signal",
+}
 
 
 @dataclass(frozen=True)
@@ -133,7 +141,7 @@ def build_long_model_summary(
 ) -> LongModelSummary:
     visible = [
         item for item in candidates
-        if item.grade in {"A", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
+        if item.grade in {"A", "B+", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
     ]
     alerts = _build_alerts(candidates)
     return LongModelSummary(
@@ -213,6 +221,8 @@ def _build_candidate(
         above_vwap=above_vwap,
         market_state=market_bias.direction,
         break_prev_high=break_prev_high,
+        previous_high=previous_high,
+        last_price=last_price,
         volume_ratio=volume_ratio,
         change_pct=change_pct,
         vwap_distance_pct=vwap_distance_pct,
@@ -247,6 +257,19 @@ def _build_candidate(
         data_status="ok" if latest_intraday or opening else "partial",
     )
     entry_status = confidence.adjusted_entry_status
+    grade = _apply_confidence_to_grade(
+        grade=grade,
+        entry_status=entry_status,
+        confidence_score=confidence.confidence_score,
+        conflicts=confidence.conflicts,
+    )
+    if grade == "B+" and entry_status == "executable":
+        entry_status = "wait_pullback"
+    if grade == "B+":
+        reasons = [
+            *reasons,
+            "B+練習觀察：條件接近，可列入虛擬交易練習觀察，尚未達到A級高信心標準",
+        ]
     return LongCandidate(
         symbol=symbol.symbol,
         name=symbol.name,
@@ -406,13 +429,17 @@ def _grade(
     above_vwap: bool,
     market_state: str,
     break_prev_high: bool,
+    previous_high: float,
+    last_price: float,
     volume_ratio: float,
     change_pct: float,
     vwap_distance_pct: Optional[float],
     upper_shadow_pct: float,
 ) -> str:
     near_vwap = vwap_distance_pct is not None and vwap_distance_pct >= -0.5
+    near_vwap_for_practice = vwap_distance_pct is not None and abs(vwap_distance_pct) <= 0.5
     below_vwap = vwap_distance_pct is not None and vwap_distance_pct < -0.5
+    near_breakout = break_prev_high or bool(previous_high and last_price >= previous_high * 0.995)
     has_upper_shadow = upper_shadow_pct >= 1.2
     is_overextended = change_pct >= 7
 
@@ -430,6 +457,14 @@ def _grade(
         return "A"
     if bullish_score >= 55 and (risk_score > 55 or has_upper_shadow or is_overextended):
         return "C"
+    if (
+        bullish_score >= 70
+        and risk_score <= 55
+        and volume_ratio >= 0.8
+        and (above_vwap or near_vwap_for_practice)
+        and near_breakout
+    ):
+        return "B+"
     if bullish_score >= 65 and risk_score <= 55 and (above_vwap or near_vwap) and break_prev_high and volume_ratio >= 0.8:
         return "B"
     return "D"
@@ -454,9 +489,33 @@ def _entry_status(
         return "wait_volume"
     if grade == "A":
         return "executable"
+    if grade == "B+":
+        return "wait_pullback"
     if grade == "B":
         return "wait_pullback"
     return "avoid"
+
+
+def _apply_confidence_to_grade(
+    grade: str,
+    entry_status: str,
+    confidence_score: float,
+    conflicts: List[dict],
+) -> str:
+    if grade == "A" and (confidence_score < 70 or _has_major_conflict(conflicts)):
+        return "B+"
+    if grade == "B+":
+        if confidence_score < 55:
+            return "B"
+        if entry_status == "high_risk":
+            return "C"
+        if entry_status == "avoid":
+            return "D"
+    return grade
+
+
+def _has_major_conflict(conflicts: List[dict]) -> bool:
+    return any(str(item.get("code") or "") in MAJOR_CONFLICT_CODES for item in conflicts)
 
 
 def _build_alerts(candidates: List[LongCandidate]) -> List[str]:
@@ -464,6 +523,8 @@ def _build_alerts(candidates: List[LongCandidate]) -> List[str]:
     for item in candidates:
         if item.grade == "A":
             alerts.append(f"{item.name} {item.symbol}：A級強勢，{', '.join(item.reasons[:3])}")
+        elif item.grade == "B+":
+            alerts.append(f"{item.name} {item.symbol}：B+練習觀察，條件接近但仍待觸發確認")
         elif item.entry_status == "wait_volume":
             alerts.append(f"{item.name} {item.symbol}：多方結構不錯但量能不足，等待量比放大")
         elif item.entry_status == "high_risk":
@@ -537,4 +598,4 @@ def _higher_low(bars: List[Bar]) -> bool:
 
 
 def _grade_order(value: str) -> int:
-    return {"A": 0, "B": 1, "C": 2, "D": 3}.get(value, 9)
+    return {"A": 0, "B+": 1, "B": 2, "C": 3, "D": 4}.get(value, 9)

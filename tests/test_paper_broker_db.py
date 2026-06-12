@@ -140,6 +140,23 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
         self.assertEqual(summary.skipped, 1)
         self.assertEqual(skipped["skipped_reason"], "not_executable")
 
+    def test_b_plus_observed_waits_but_triggered_opens_trade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_tw_price(conn)
+                insert_recommendation(conn, grade="B+", entry_status="wait_pullback", lifecycle="observed")
+
+                observed = run_paper_trading(conn, TW_NOW)
+                conn.execute("DELETE FROM paper_trades")
+                conn.execute("DELETE FROM paper_positions")
+                conn.execute("UPDATE recommendations SET lifecycle_status = 'triggered', trigger_time = ?, trigger_price = 100 WHERE grade = 'B+'", (TW_NOW.isoformat(timespec="seconds"),))
+                triggered = run_paper_trading(conn, TW_NOW)
+                open_positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions").fetchone()["total"]
+
+        self.assertEqual(observed.opened, 0)
+        self.assertEqual(triggered.opened, 1)
+        self.assertEqual(open_positions, 1)
+
     def test_target_hit_closes_open_position(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "db.sqlite") as conn:

@@ -57,6 +57,40 @@ class AccuracyServiceTests(unittest.TestCase):
         self.assertEqual(by_confidence["rows"][0]["group"], "high")
         self.assertEqual(by_confidence["rows"][0]["win_rate"], 100)
 
+    def test_b_plus_accuracy_is_counted_separately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                conn.execute(
+                    """
+                    INSERT INTO recommendations (
+                      market, date, symbol, first_seen_at, latest_seen_at, grade,
+                      bullish_score, risk_score, entry_status, lifecycle_status,
+                      confidence_score, confidence_level, conflicts
+                    )
+                    VALUES ('TW', '2026-01-01', '2317.TW', '2026-01-01T09:05:00',
+                      '2026-01-01T09:10:00', 'B+', 72, 30, 'wait_pullback', 'hit_target',
+                      65, 'medium', '[]')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO backtest_results (
+                      market, date, symbol, lifecycle_status, entry_status, return_pct,
+                      max_gain_after_trigger, max_drawdown_after_trigger, hit_target,
+                      hit_stop, outcome, confidence_score, confidence_level
+                    )
+                    VALUES ('TW', '2026-01-01', '2317.TW', 'hit_target', 'wait_pullback',
+                      1.8, 2.4, -0.5, 1, 0, '達標', 65, 'medium')
+                    """
+                )
+                payload = build_accuracy_dashboard_payload(conn)
+
+        self.assertEqual(payload["summary"]["grade_b_plus"]["sample_size"], 1)
+        self.assertEqual(payload["summary"]["grade_b_plus"]["win_rate"], 100)
+        self.assertEqual(payload["summary"]["grade_b_plus_triggered"]["sample_size"], 1)
+        self.assertEqual(payload["by_grade"][0]["group"], "B+")
+        self.assertEqual(payload["by_grade"][0]["avg_max_gain_pct"], 2.4)
+
     def test_paper_trade_samples_are_counted_by_market(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "daytrade.db") as conn:

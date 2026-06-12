@@ -18,8 +18,10 @@ def build_accuracy_dashboard_payload(
         "title": "策略成績單",
         "summary": summary,
         "by_status": _group_samples(samples, "entry_status", config),
+        "by_grade": _group_samples(samples, "grade", config),
         "by_market": _group_samples(samples, "market", config),
         "by_confidence": _group_samples(samples, "confidence_level", config),
+        "b_plus_lifecycle": _b_plus_lifecycle_stats(conn),
         "model_suggestions": _model_suggestions(samples, config),
         "disclaimer": "本系統僅供資料整理、策略追蹤與回測，不構成投資建議，也不保證獲利。",
     }
@@ -48,6 +50,17 @@ def build_accuracy_summary(samples: list[dict], config: ConfidenceConfig = DEFAU
     stats["high_confidence"] = _stats([item for item in samples if item.get("confidence_level") == "high"], config)
     stats["low_confidence"] = _stats([item for item in samples if item.get("confidence_level") == "low"], config)
     stats["unreliable"] = _stats([item for item in samples if item.get("confidence_level") == "unreliable"], config)
+    stats["grade_a"] = _stats([item for item in samples if item.get("grade") == "A"], config)
+    stats["grade_b_plus"] = _stats([item for item in samples if item.get("grade") == "B+"], config)
+    stats["grade_b_plus_triggered"] = _stats(
+        [
+            item
+            for item in samples
+            if item.get("grade") == "B+"
+            and item.get("lifecycle_status") not in {"observed", "expired", "unknown", ""}
+        ],
+        config,
+    )
     return stats
 
 
@@ -55,7 +68,8 @@ def _accuracy_samples(conn: sqlite3.Connection) -> list[dict]:
     samples: list[dict] = []
     for row in conn.execute(
         """
-        SELECT b.market, b.symbol, b.entry_status, b.return_pct, b.max_drawdown_after_trigger,
+        SELECT b.market, b.symbol, b.entry_status, b.lifecycle_status, b.return_pct,
+               b.max_gain_after_trigger, b.max_drawdown_after_trigger,
                b.hit_target, COALESCE(b.hit_stop_loss, b.hit_stop) AS hit_stop,
                b.outcome, r.grade, r.confidence_level, r.confidence_score, r.conflicts
         FROM backtest_results b
@@ -74,10 +88,12 @@ def _accuracy_samples(conn: sqlite3.Connection) -> list[dict]:
                 "market": row["market"] or "TW",
                 "symbol": row["symbol"],
                 "grade": row["grade"] or "unknown",
+                "lifecycle_status": row["lifecycle_status"] or "unknown",
                 "entry_status": row["entry_status"] or "unknown",
                 "confidence_level": row["confidence_level"] or "unknown",
                 "confidence_score": _float(row["confidence_score"]),
                 "return_pct": return_pct,
+                "max_gain_pct": _float(row["max_gain_after_trigger"]),
                 "max_drawdown_pct": _float(row["max_drawdown_after_trigger"]),
                 "hit_target": bool(row["hit_target"]),
                 "hit_stop": bool(row["hit_stop"]),
@@ -87,8 +103,8 @@ def _accuracy_samples(conn: sqlite3.Connection) -> list[dict]:
         )
     for row in conn.execute(
         """
-        SELECT market, symbol, grade, entry_status, realized_pnl_pct,
-               max_adverse_excursion, status, source
+        SELECT market, symbol, grade, entry_status, lifecycle_status, realized_pnl_pct,
+               max_favorable_excursion, max_adverse_excursion, status, source
         FROM paper_trades
         WHERE status IN ('closed', 'stopped', 'target_hit', 'forced_exit')
           AND realized_pnl_pct IS NOT NULL
@@ -101,10 +117,12 @@ def _accuracy_samples(conn: sqlite3.Connection) -> list[dict]:
                 "market": row["market"],
                 "symbol": row["symbol"],
                 "grade": row["grade"] or "unknown",
+                "lifecycle_status": row["lifecycle_status"] or "unknown",
                 "entry_status": row["entry_status"] or "unknown",
                 "confidence_level": "unknown",
                 "confidence_score": 0.0,
                 "return_pct": return_pct,
+                "max_gain_pct": _float(row["max_favorable_excursion"]),
                 "max_drawdown_pct": _float(row["max_adverse_excursion"]),
                 "hit_target": row["status"] == "target_hit",
                 "hit_stop": row["status"] == "stopped",
@@ -132,6 +150,7 @@ def _stats(samples: list[dict], config: ConfidenceConfig) -> dict:
     stop = sum(1 for item in samples if item.get("hit_stop"))
     returns = [float(item.get("return_pct") or 0) for item in samples]
     drawdowns = [float(item.get("max_drawdown_pct") or 0) for item in samples]
+    gains = [float(item.get("max_gain_pct") or 0) for item in samples]
     return {
         "sample_size": total,
         "min_sample_size": config.min_sample_size,
@@ -140,6 +159,7 @@ def _stats(samples: list[dict], config: ConfidenceConfig) -> dict:
         "is_trusted_sample": total >= config.trusted_sample_size,
         "win_rate": round(wins / total * 100, 2) if total else 0.0,
         "avg_return_pct": round(sum(returns) / total, 2) if total else 0.0,
+        "avg_max_gain_pct": round(sum(gains) / total, 2) if total else 0.0,
         "avg_max_drawdown_pct": round(sum(drawdowns) / total, 2) if total else 0.0,
         "stop_rate": round(stop / total * 100, 2) if total else 0.0,
         "target_rate": round(target / total * 100, 2) if total else 0.0,
@@ -153,6 +173,28 @@ def _model_suggestions(samples: list[dict], config: ConfidenceConfig) -> list[st
     weak = [item for item in grouped if item["sample_size"] >= config.min_sample_size and item["win_rate"] < 45]
     suggestions = [f"{item['group']} 勝率偏低，建議檢查進場條件或提高信心門檻。" for item in weak[:3]]
     return suggestions or ["目前沒有明顯需要調整的模型條件，持續累積樣本。"]
+
+
+def _b_plus_lifecycle_stats(conn: sqlite3.Connection) -> dict:
+    rows = conn.execute(
+        """
+        SELECT lifecycle_status, COUNT(*) AS total
+        FROM recommendations
+        WHERE grade = 'B+'
+        GROUP BY lifecycle_status
+        """
+    ).fetchall()
+    counts = {row["lifecycle_status"] or "observed": int(row["total"] or 0) for row in rows}
+    total = sum(counts.values())
+    triggered = counts.get("triggered", 0) + counts.get("closed", 0) + counts.get("stopped", 0) + counts.get("hit_target", 0)
+    untriggered = max(total - triggered, 0)
+    return {
+        "sample_size": total,
+        "triggered": triggered,
+        "untriggered": untriggered,
+        "untriggered_ratio": round(untriggered / total * 100, 2) if total else 0.0,
+        "by_lifecycle": counts,
+    }
 
 
 def _sample_message(sample_size: int, config: ConfidenceConfig) -> str:
