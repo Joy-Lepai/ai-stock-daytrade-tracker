@@ -441,6 +441,8 @@ def render_tracker_html(
     {_debug_block(long_summary)}
   </header>
   <main>
+    <h2>信心雷達</h2>
+    {_confidence_radar(long_summary)}
     <h2>今日做多候選股 MVP</h2>
     <div class="table-wrap">{_long_candidate_table(long_summary)}</div>
     <h2>今日推薦檢查表</h2>
@@ -628,6 +630,9 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
             f"<td data-sort-value=\"{_sort_value(item.bullish_score)}\">{_fmt(item.bullish_score)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.risk_score)}\">{_fmt(item.risk_score)}</td>"
             f"<td>{escape(_entry_status_label(item.entry_status))}<br><span class=\"muted\">{escape(_entry_status_message(item.entry_status))}</span></td>"
+            f"<td data-sort-value=\"{_sort_value(item.confidence_score)}\">{_fmt(item.confidence_score)}<br><span class=\"muted\">{escape(item.confidence_level_label)}</span></td>"
+            f"<td data-sort-value=\"{_sort_value(item.conflicts_count)}\">{item.conflicts_count}<br><span class=\"muted\">{escape(item.conflict_summary)}</span></td>"
+            f"<td class=\"notes\">{escape(item.confidence_summary)}</td>"
             f"<td class=\"notes\">{escape('；'.join(item.reasons[:5]))}</td>"
             f"<td class=\"notes\">{escape('；'.join(item.risk_reasons[:4]))}</td>"
             "</tr>"
@@ -637,10 +642,33 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
         "<th data-sort=\"text\">分級</th><th data-sort=\"text\">標的</th><th data-sort=\"number\">現價</th>"
         "<th data-sort=\"number\">今日漲幅</th><th data-sort=\"number\">成交金額</th><th data-sort=\"number\">量比</th>"
         "<th data-sort=\"number\">VWAP</th><th data-sort=\"text\">破昨高</th><th data-sort=\"text\">破5日高</th><th data-sort=\"text\">破10日高</th>"
-        "<th data-sort=\"number\">多方分數</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">狀態</th><th>多方理由</th><th>風險理由</th>"
+        "<th data-sort=\"number\">多方分數</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">狀態</th>"
+        "<th data-sort=\"number\">信心分數</th><th data-sort=\"number\">衝突</th><th>信心摘要</th><th>多方理由</th><th>風險理由</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
+    )
+
+
+def _confidence_radar(summary: Optional[LongModelSummary]) -> str:
+    if summary is None:
+        return "<div class=\"summary\"><div class=\"metric\"><span class=\"muted\">信心資料</span><strong>0</strong></div></div>"
+    items = summary.candidates
+    conflict_counts: Dict[str, int] = {}
+    for item in items:
+        if item.conflicts:
+            message = str(item.conflicts[0].get("message", item.conflict_summary))
+            conflict_counts[message] = conflict_counts.get(message, 0) + 1
+    common_conflict = max(conflict_counts.items(), key=lambda pair: pair[1])[0] if conflict_counts else "無明顯衝突"
+    return (
+        "<div class=\"summary\">"
+        f"{_metric('高信心數', sum(1 for item in items if item.confidence_level == 'high'))}"
+        f"{_metric('中等信心數', sum(1 for item in items if item.confidence_level == 'medium'))}"
+        f"{_metric('低信心數', sum(1 for item in items if item.confidence_level == 'low'))}"
+        f"{_metric('不可信數', sum(1 for item in items if item.confidence_level == 'unreliable'))}"
+        f"{_metric('指標衝突總數', sum(item.conflicts_count for item in items))}"
+        f"{_metric_text('最常見衝突', common_conflict)}"
+        "</div>"
     )
 
 

@@ -59,6 +59,15 @@ CREATE TABLE IF NOT EXISTS long_scores (
   grade TEXT NOT NULL,
   reasons TEXT NOT NULL,
   risk_reasons TEXT NOT NULL,
+  confidence_score REAL,
+  confidence_level TEXT,
+  conflicts_count INTEGER,
+  conflicts TEXT,
+  conflict_summary TEXT,
+  confidence_summary TEXT,
+  original_entry_status TEXT,
+  adjusted_entry_status TEXT,
+  confidence_adjustment_reason TEXT,
   PRIMARY KEY (captured_at, symbol)
 );
 
@@ -80,6 +89,15 @@ CREATE TABLE IF NOT EXISTS recommendations (
   stop_loss REAL,
   target_price REAL,
   signal_price REAL,
+  confidence_score REAL,
+  confidence_level TEXT,
+  conflicts_count INTEGER,
+  conflicts TEXT,
+  conflict_summary TEXT,
+  confidence_summary TEXT,
+  original_entry_status TEXT,
+  adjusted_entry_status TEXT,
+  confidence_adjustment_reason TEXT,
   expired_at TEXT,
   closed_at TEXT,
   PRIMARY KEY (date, symbol)
@@ -112,6 +130,9 @@ CREATE TABLE IF NOT EXISTS backtest_results (
   expired_without_trigger INTEGER,
   outcome TEXT,
   return_pct REAL,
+  confidence_score REAL,
+  confidence_level TEXT,
+  entry_status_at_signal TEXT,
   PRIMARY KEY (date, symbol)
 );
 
@@ -161,6 +182,15 @@ CREATE TABLE IF NOT EXISTS us_candidates (
   reasons TEXT,
   risk_reasons TEXT,
   market_status TEXT,
+  confidence_score REAL,
+  confidence_level TEXT,
+  conflicts_count INTEGER,
+  conflicts TEXT,
+  conflict_summary TEXT,
+  confidence_summary TEXT,
+  original_entry_status TEXT,
+  adjusted_entry_status TEXT,
+  confidence_adjustment_reason TEXT,
   PRIMARY KEY (captured_at, symbol)
 );
 
@@ -260,6 +290,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     _ensure_recommendation_columns(conn)
     _ensure_backtest_columns(conn)
+    _ensure_confidence_columns(conn)
     _ensure_paper_trade_columns(conn)
     return conn
 
@@ -337,9 +368,12 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
             conn.execute(
                 """
                 INSERT OR REPLACE INTO long_scores (
-                  captured_at, date, symbol, bullish_score, risk_score, grade, reasons, risk_reasons
+                  captured_at, date, symbol, bullish_score, risk_score, grade, reasons, risk_reasons,
+                  confidence_score, confidence_level, conflicts_count, conflicts, conflict_summary,
+                  confidence_summary, original_entry_status, adjusted_entry_status,
+                  confidence_adjustment_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     captured_text,
@@ -350,6 +384,15 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                     data["grade"],
                     json.dumps(data["reasons"], ensure_ascii=False),
                     json.dumps(data["risk_reasons"], ensure_ascii=False),
+                    data.get("confidence_score"),
+                    data.get("confidence_level"),
+                    data.get("conflicts_count"),
+                    json.dumps(data.get("conflicts", []), ensure_ascii=False),
+                    data.get("conflict_summary"),
+                    data.get("confidence_summary"),
+                    data.get("original_entry_status"),
+                    data.get("adjusted_entry_status"),
+                    data.get("confidence_adjustment_reason"),
                 ),
             )
             if data["grade"] in {"A", "B"}:
@@ -362,9 +405,12 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                     INSERT INTO recommendations (
                       date, symbol, first_seen_at, latest_seen_at, grade, bullish_score, risk_score,
                       entry_status, lifecycle_status, observed_at, trigger_time, trigger_price,
-                      trigger_reason, stop_loss, target_price, signal_price
+                      trigger_reason, stop_loss, target_price, signal_price,
+                      confidence_score, confidence_level, conflicts_count, conflicts, conflict_summary,
+                      confidence_summary, original_entry_status, adjusted_entry_status,
+                      confidence_adjustment_reason
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date, symbol) DO UPDATE SET
                       latest_seen_at=excluded.latest_seen_at,
                       grade=excluded.grade,
@@ -400,7 +446,16 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         ELSE recommendations.trigger_reason
                       END,
                       stop_loss=excluded.stop_loss,
-                      target_price=excluded.target_price
+                      target_price=excluded.target_price,
+                      confidence_score=excluded.confidence_score,
+                      confidence_level=excluded.confidence_level,
+                      conflicts_count=excluded.conflicts_count,
+                      conflicts=excluded.conflicts,
+                      conflict_summary=excluded.conflict_summary,
+                      confidence_summary=excluded.confidence_summary,
+                      original_entry_status=excluded.original_entry_status,
+                      adjusted_entry_status=excluded.adjusted_entry_status,
+                      confidence_adjustment_reason=excluded.confidence_adjustment_reason
                     """,
                     (
                         date_text,
@@ -419,6 +474,15 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         data["stop_loss"],
                         data["target_price"],
                         data["last_price"],
+                        data.get("confidence_score"),
+                        data.get("confidence_level"),
+                        data.get("conflicts_count"),
+                        json.dumps(data.get("conflicts", []), ensure_ascii=False),
+                        data.get("conflict_summary"),
+                        data.get("confidence_summary"),
+                        data.get("original_entry_status"),
+                        data.get("adjusted_entry_status"),
+                        data.get("confidence_adjustment_reason"),
                     ),
                 )
 
@@ -486,9 +550,11 @@ def save_us_candidates(
                   break_premarket_high, break_previous_high, break_opening_range_high,
                   opening_range_high, bullish_score, risk_score, grade, entry_status,
                   lifecycle_status, trigger_price, stop_loss, target_price, reasons,
-                  risk_reasons, market_status
+                  risk_reasons, market_status, confidence_score, confidence_level,
+                  conflicts_count, conflicts, conflict_summary, confidence_summary,
+                  original_entry_status, adjusted_entry_status, confidence_adjustment_reason
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     captured_text,
@@ -520,6 +586,15 @@ def save_us_candidates(
                     json.dumps(data["reasons"], ensure_ascii=False),
                     json.dumps(data["risk_reasons"], ensure_ascii=False),
                     data["market_status"],
+                    data.get("confidence_score"),
+                    data.get("confidence_level"),
+                    data.get("conflicts_count"),
+                    json.dumps(data.get("conflicts", []), ensure_ascii=False),
+                    data.get("conflict_summary"),
+                    data.get("confidence_summary"),
+                    data.get("original_entry_status"),
+                    data.get("adjusted_entry_status"),
+                    data.get("confidence_adjustment_reason"),
                 ),
             )
             if data["grade"] in {"A", "B"}:
@@ -563,9 +638,11 @@ def _upsert_us_recommendation(
         INSERT INTO recommendations (
           market, date, symbol, first_seen_at, latest_seen_at, grade, bullish_score, risk_score,
           entry_status, lifecycle_status, observed_at, trigger_time, trigger_price,
-          trigger_reason, stop_loss, target_price, signal_price, expired_at, closed_at
+          trigger_reason, stop_loss, target_price, signal_price, confidence_score, confidence_level,
+          conflicts_count, conflicts, conflict_summary, confidence_summary, original_entry_status,
+          adjusted_entry_status, confidence_adjustment_reason, expired_at, closed_at
         )
-        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(date, symbol) DO UPDATE SET
           market='US',
           latest_seen_at=excluded.latest_seen_at,
@@ -582,6 +659,15 @@ def _upsert_us_recommendation(
           trigger_reason=COALESCE(recommendations.trigger_reason, excluded.trigger_reason),
           stop_loss=excluded.stop_loss,
           target_price=excluded.target_price,
+          confidence_score=excluded.confidence_score,
+          confidence_level=excluded.confidence_level,
+          conflicts_count=excluded.conflicts_count,
+          conflicts=excluded.conflicts,
+          conflict_summary=excluded.conflict_summary,
+          confidence_summary=excluded.confidence_summary,
+          original_entry_status=excluded.original_entry_status,
+          adjusted_entry_status=excluded.adjusted_entry_status,
+          confidence_adjustment_reason=excluded.confidence_adjustment_reason,
           expired_at=COALESCE(recommendations.expired_at, excluded.expired_at),
           closed_at=COALESCE(recommendations.closed_at, excluded.closed_at)
         """,
@@ -602,6 +688,15 @@ def _upsert_us_recommendation(
             data["stop_loss"],
             data["target_price"],
             data["latest_price"],
+            data.get("confidence_score"),
+            data.get("confidence_level"),
+            data.get("conflicts_count"),
+            json.dumps(data.get("conflicts", []), ensure_ascii=False),
+            data.get("conflict_summary"),
+            data.get("confidence_summary"),
+            data.get("original_entry_status"),
+            data.get("adjusted_entry_status"),
+            data.get("confidence_adjustment_reason"),
             expired_at,
             closed_at,
         ),
@@ -648,9 +743,10 @@ def _upsert_us_backtest(
           same_day_high, same_day_low, same_day_close,
           max_gain_after_recommend, max_drawdown_after_recommend,
           max_gain_after_trigger, max_drawdown_after_trigger,
-          hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct
+          hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct,
+          confidence_score, confidence_level, entry_status_at_signal
         )
-        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
         """,
         (
             date_text,
@@ -677,6 +773,9 @@ def _upsert_us_backtest(
             int(hit_stop),
             outcome,
             round(return_pct, 2),
+            data.get("confidence_score"),
+            data.get("confidence_level"),
+            data.get("original_entry_status") or data.get("entry_status"),
         ),
     )
 
@@ -811,9 +910,10 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                   same_day_high, same_day_low, same_day_close,
                   max_gain_after_recommend, max_drawdown_after_recommend,
                   max_gain_after_trigger, max_drawdown_after_trigger,
-                  hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct
+                  hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct,
+                  confidence_score, confidence_level, entry_status_at_signal
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row["date"],
@@ -841,6 +941,9 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                     0,
                     outcome,
                     round(return_pct, 2),
+                    row["confidence_score"],
+                    row["confidence_level"],
+                    row["original_entry_status"] or row["entry_status"],
                 ),
             )
 
@@ -1087,6 +1190,38 @@ def _ensure_recommendation_columns(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE recommendations SET observed_at = first_seen_at WHERE observed_at IS NULL")
     conn.execute("UPDATE recommendations SET lifecycle_status = 'observed' WHERE lifecycle_status IS NULL OR lifecycle_status = ''")
     conn.execute("UPDATE recommendations SET market = 'TW' WHERE market IS NULL OR market = ''")
+
+
+def _ensure_confidence_columns(conn: sqlite3.Connection) -> None:
+    shared = {
+        "confidence_score": "REAL",
+        "confidence_level": "TEXT",
+        "conflicts_count": "INTEGER",
+        "conflicts": "TEXT",
+        "conflict_summary": "TEXT",
+        "confidence_summary": "TEXT",
+        "original_entry_status": "TEXT",
+        "adjusted_entry_status": "TEXT",
+        "confidence_adjustment_reason": "TEXT",
+    }
+    for table in ("recommendations", "long_scores", "us_candidates"):
+        _add_missing_columns(conn, table, shared)
+    _add_missing_columns(
+        conn,
+        "backtest_results",
+        {
+            "confidence_score": "REAL",
+            "confidence_level": "TEXT",
+            "entry_status_at_signal": "TEXT",
+        },
+    )
+
+
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for name, column_type in columns.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_type}")
 
 
 def _ensure_paper_trade_columns(conn: sqlite3.Connection) -> None:

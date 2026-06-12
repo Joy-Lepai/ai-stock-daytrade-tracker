@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
+from stock_daytrade_system.accuracy_service import (
+    build_accuracy_dashboard_payload,
+    build_accuracy_group_payload,
+    build_accuracy_summary,
+)
 from stock_daytrade_system.db import (
     backtest_summary,
     connect,
@@ -106,6 +111,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/paper/dashboard":
             self._send_html(render_paper_dashboard_page(show_logout=self.web_app.require_auth))
             return
+        if path == "/accuracy":
+            self._send_html(render_accuracy_page(show_logout=self.web_app.require_auth))
+            return
         if path.startswith("/symbol/"):
             self._send_html(self._symbol_html(path.removeprefix("/symbol/")))
             return
@@ -176,6 +184,22 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/api/paper/performance":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(build_paper_performance(conn))
+            return
+        if path == "/api/accuracy/summary":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(build_accuracy_dashboard_payload(conn))
+            return
+        if path == "/api/accuracy/by-status":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(build_accuracy_group_payload(conn, "entry_status"))
+            return
+        if path == "/api/accuracy/by-market":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(build_accuracy_group_payload(conn, "market"))
+            return
+        if path == "/api/accuracy/by-confidence":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(build_accuracy_group_payload(conn, "confidence_level"))
             return
         if path.startswith("/reports/"):
             self._send_report(path.removeprefix("/reports/"))
@@ -469,6 +493,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
       <a href="/dashboard">台股追蹤</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/accuracy">策略成績單</a>
       <a href="/api/backtest">回測</a>
       <a href="#debug">Debug</a>
     </div>
@@ -500,10 +525,10 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
             <th>標的</th><th>價格</th><th>漲跌幅</th><th>成交量</th><th>量比 Volume Ratio</th>
             <th>均價線 VWAP</th><th>盤前高點</th><th>突破</th><th>多方分數 Bullish Score</th>
             <th>風險分數 Risk Score</th><th>分級</th><th>進場狀態 Entry Status</th>
-            <th>生命週期 Lifecycle</th><th>理由</th><th>風險理由</th>
+            <th>信心</th><th>衝突</th><th>生命週期 Lifecycle</th><th>理由</th><th>風險理由</th>
           </tr>
         </thead>
-        <tbody id="us-candidates"><tr><td colspan="15">讀取中...</td></tr></tbody>
+        <tbody id="us-candidates"><tr><td colspan="17">讀取中...</td></tr></tbody>
       </table>
     </div>
     <h2 id="debug">Debug</h2>
@@ -531,6 +556,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
       <a href="/dashboard">台股追蹤</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/accuracy">策略成績單</a>
       <a href="/api/backtest">回測</a>
       <a href="#debug">Debug</a>
     </div>
@@ -619,6 +645,54 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
 </html>"""
 
 
+def render_accuracy_page(show_logout: bool = False) -> str:
+    logout_link = '<a href="/logout">登出</a>' if show_logout else ""
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>策略成績單</title>
+  <style>{base_css()}{paper_dashboard_css()}</style>
+</head>
+<body>
+  <nav class="topbar">
+    <strong>股票當沖追蹤器</strong>
+    <div class="nav-links">
+      <a href="/dashboard">台股追蹤</a>
+      <a href="/us/dashboard">美股追蹤</a>
+      <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/accuracy">策略成績單</a>
+      <a href="/api/backtest">回測</a>
+    </div>
+    <div class="topbar-actions">{logout_link}</div>
+  </nav>
+  <main class="paper-page">
+    <header class="paper-header">
+      <div>
+        <h1>策略成績單</h1>
+        <p class="meta">根據 recommendations / backtest / paper trades 統計訊號準確度；樣本不足時不做過度判斷。</p>
+      </div>
+      <div class="session-pill">Accuracy / Confidence</div>
+    </header>
+    <section class="notice">本系統僅供資料整理、策略追蹤與回測，不構成投資建議，也不保證獲利。</section>
+    <section id="accuracy-error" class="warn" hidden>策略成績單 API 暫時無法更新。</section>
+    <h2>整體摘要</h2>
+    <section class="summary" id="accuracy-summary"></section>
+    <h2>依進場狀態</h2>
+    <div class="table-wrap" id="accuracy-status"></div>
+    <h2>依信心等級</h2>
+    <div class="table-wrap" id="accuracy-confidence"></div>
+    <h2>依市場</h2>
+    <div class="table-wrap" id="accuracy-market"></div>
+    <h2>模型調整建議</h2>
+    <div class="table-wrap"><table><tbody id="accuracy-suggestions"></tbody></table></div>
+  </main>
+  <script>{accuracy_dashboard_script()}</script>
+</body>
+</html>"""
+
+
 def render_shell(content: str, active_file: Optional[str], extra_css: str = "", show_logout: bool = False) -> str:
     file_text = f"<span>{_escape(active_file)}</span>" if active_file else "<span>無資料檔</span>"
     logout_link = '<a href="/logout">登出</a>' if show_logout else ""
@@ -639,6 +713,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       <a href="/dashboard">台股追蹤</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/accuracy">策略成績單</a>
       <a href="/api/backtest">回測</a>
       <a href="#debug">Debug</a>
     </div>
@@ -847,6 +922,12 @@ def us_dashboard_script() -> str:
           metric("wait_vwap 等VWAP", summary.wait_vwap || 0),
           metric("wait_breakout 等突破", summary.wait_breakout || 0),
           metric("wait_pullback 等回測", summary.wait_pullback || 0),
+          metric("高信心", summary.confidence_high || 0),
+          metric("中等信心", summary.confidence_medium || 0),
+          metric("低信心", summary.confidence_low || 0),
+          metric("不可信", summary.confidence_unreliable || 0),
+          metric("指標衝突", summary.conflicts_total || 0),
+          metric("常見衝突", escapeHtml(summary.top_conflict || "無明顯衝突")),
           metric("recommendations", summary.recommendations || 0),
           metric("triggered 已觸發", summary.triggered || 0),
         ].join("");
@@ -880,7 +961,7 @@ def us_dashboard_script() -> str:
 
       function renderCandidates(items) {
         if (!items.length) {
-          $("us-candidates").innerHTML = '<tr><td colspan="15">目前沒有美股候選資料。</td></tr>';
+          $("us-candidates").innerHTML = '<tr><td colspan="17">目前沒有美股候選資料。</td></tr>';
           return;
         }
         $("us-candidates").innerHTML = items.map((item) => {
@@ -903,8 +984,10 @@ def us_dashboard_script() -> str:
             <td>${number(item.risk_score)}</td>
             <td><span class="badge grade-${escapeHtml(item.grade)}">${escapeHtml(item.grade)}</span></td>
             <td>${escapeHtml(item.entry_status)}</td>
+            <td>${number(item.confidence_score)}<br><span class="muted">${escapeHtml(item.confidence_level_label || item.confidence_level)}</span></td>
+            <td>${escapeHtml(item.conflicts_count || 0)}<br><span class="muted">${escapeHtml(item.conflict_summary || "無明顯衝突")}</span></td>
             <td>${escapeHtml(lifecycle)}</td>
-            <td class="notes">${escapeHtml((item.reasons || []).join("；"))}</td>
+            <td class="notes">${escapeHtml(item.confidence_summary || (item.reasons || []).join("；"))}</td>
             <td class="notes">${escapeHtml((item.risk_reasons || []).join("；"))}</td>
           </tr>`;
         }).join("");
@@ -970,8 +1053,13 @@ def paper_dashboard_script() -> str:
         renderPerformance(payload.performance || {});
         renderDebug(payload.debug || {}, payload.run || {});
         const errors = payload.errors || [];
-        $("paper-error").hidden = !(payload.api_status === "degraded" && errors.length);
-        if (!$("paper-error").hidden) $("paper-error").textContent = `虛擬交易以空狀態顯示：${errors.join("；")}`;
+        if (payload.api_status === "degraded" && errors.length) {
+          $("paper-error").hidden = false;
+          $("paper-error").textContent = `虛擬交易以空狀態顯示：${errors.join("；")}`;
+        } else {
+          $("paper-error").hidden = true;
+          $("paper-error").textContent = "虛擬交易 API 暫時無法更新。";
+        }
       }
 
       function renderAccounts(accounts, performance) {
@@ -1194,6 +1282,71 @@ def paper_dashboard_script() -> str:
 
       loadDashboard();
       window.setInterval(tick, 1000);
+    })();
+    """
+
+
+def accuracy_dashboard_script() -> str:
+    return r"""
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
+      const number = (value, digits = 2) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "-";
+      const escapeHtml = (value) => text(value)
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
+
+      async function loadAccuracy() {
+        $("accuracy-error").hidden = true;
+        try {
+          const response = await fetch("/api/accuracy/summary", { cache: "no-store" });
+          const payload = await response.json();
+          if (!response.ok || payload.api_status !== "ok") throw new Error(payload.error || `HTTP ${response.status}`);
+          render(payload);
+        } catch (error) {
+          $("accuracy-error").hidden = false;
+          $("accuracy-error").textContent = `策略成績單 API 暫時無法更新：${error.message}`;
+        }
+      }
+
+      function render(payload) {
+        const summary = payload.summary || {};
+        $("accuracy-summary").innerHTML = [
+          metric("樣本數", summary.sample_size || 0),
+          metric("最低樣本門檻", summary.min_sample_size || 20),
+          metric("統計是否具意義", summary.is_statistically_meaningful ? "是" : "否"),
+          metric("整體勝率", `${number(summary.win_rate)}%`),
+          metric("平均報酬", `${number(summary.avg_return_pct)}%`),
+          metric("平均最大回撤", `${number(summary.avg_max_drawdown_pct)}%`),
+          metric("停損率", `${number(summary.stop_rate)}%`),
+          metric("達標率", `${number(summary.target_rate)}%`),
+          metric("樣本提示", escapeHtml(summary.message || "")),
+        ].join("");
+        $("accuracy-status").innerHTML = table(payload.by_status || [], "進場狀態");
+        $("accuracy-confidence").innerHTML = table(payload.by_confidence || [], "信心等級");
+        $("accuracy-market").innerHTML = table(payload.by_market || [], "市場");
+        const suggestions = payload.model_suggestions || [];
+        $("accuracy-suggestions").innerHTML = suggestions.length
+          ? suggestions.map((item) => `<tr><td>${escapeHtml(item)}</td></tr>`).join("")
+          : '<tr><td>目前沒有模型調整建議。</td></tr>';
+      }
+
+      function table(rows, label) {
+        const body = rows.length ? rows.map((item) => `<tr>
+          <td>${escapeHtml(item.group)}</td>
+          <td>${item.sample_size}</td>
+          <td>${item.is_statistically_meaningful ? "是" : "否"}</td>
+          <td>${number(item.win_rate)}%</td>
+          <td>${number(item.avg_return_pct)}%</td>
+          <td>${number(item.avg_max_drawdown_pct)}%</td>
+          <td>${number(item.stop_rate)}%</td>
+          <td>${number(item.target_rate)}%</td>
+        </tr>`).join("") : `<tr><td colspan="8">目前沒有${label}統計資料。</td></tr>`;
+        return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th></tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      loadAccuracy();
     })();
     """
 

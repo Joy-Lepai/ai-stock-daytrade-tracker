@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.config import WatchSymbol
+from stock_daytrade_system.confidence_model import evaluate_signal
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.indicators import atr, average_volume, pct_change
 from stock_daytrade_system.intraday import OpeningSignal
@@ -48,6 +49,16 @@ class LongCandidate:
     risk_score: float
     grade: str
     entry_status: str
+    original_entry_status: str
+    adjusted_entry_status: str
+    confidence_score: float
+    confidence_level: str
+    confidence_level_label: str
+    conflicts_count: int
+    conflicts: List[dict]
+    conflict_summary: str
+    confidence_summary: str
+    confidence_adjustment_reason: str
     trigger_price: float
     stop_loss: float
     target_price: float
@@ -207,7 +218,7 @@ def _build_candidate(
         vwap_distance_pct=vwap_distance_pct,
         upper_shadow_pct=upper_shadow_pct,
     )
-    entry_status = _entry_status(
+    original_entry_status = _entry_status(
         grade=grade,
         bullish_score=bullish_score,
         risk_score=risk_score,
@@ -215,6 +226,27 @@ def _build_candidate(
         volume_ratio=volume_ratio,
         vwap_distance_pct=vwap_distance_pct,
     )
+    confidence = evaluate_signal(
+        latest_price=last_price,
+        volume=intraday_volume,
+        vwap=vwap,
+        above_vwap=above_vwap,
+        volume_ratio=volume_ratio,
+        break_prev_high=break_prev_high,
+        break_5d_high=break_5d_high,
+        higher_high=_higher_high(intraday_bars),
+        higher_low=_higher_low(intraday_bars),
+        distance_to_vwap_pct=vwap_distance_pct,
+        risk_score=risk_score,
+        bullish_score=bullish_score,
+        entry_status=original_entry_status,
+        market_status=market_bias.direction,
+        sector_strength=sector_score,
+        long_upper_shadow=upper_shadow_pct >= 1.2,
+        failed_breakout=(break_prev_high and last_price < previous_high),
+        data_status="ok" if latest_intraday or opening else "partial",
+    )
+    entry_status = confidence.adjusted_entry_status
     return LongCandidate(
         symbol=symbol.symbol,
         name=symbol.name,
@@ -247,6 +279,16 @@ def _build_candidate(
         risk_score=risk_score,
         grade=grade,
         entry_status=entry_status,
+        original_entry_status=confidence.original_entry_status,
+        adjusted_entry_status=confidence.adjusted_entry_status,
+        confidence_score=confidence.confidence_score,
+        confidence_level=confidence.confidence_level,
+        confidence_level_label=confidence.confidence_level_label,
+        conflicts_count=confidence.conflicts_count,
+        conflicts=confidence.conflicts,
+        conflict_summary=confidence.conflict_summary,
+        confidence_summary=confidence.confidence_summary,
+        confidence_adjustment_reason=confidence.confidence_adjustment_reason,
         trigger_price=round(trigger_price, 2),
         stop_loss=round(stop_loss, 2),
         target_price=round(target_price, 2),
@@ -478,6 +520,20 @@ def _upper_shadow_pct(bar: Bar) -> float:
         return 0.0
     upper_shadow = max(bar.high - max(bar.open, bar.close), 0.0)
     return upper_shadow / bar.close * 100
+
+
+def _higher_high(bars: List[Bar]) -> bool:
+    if len(bars) < 3:
+        return False
+    recent = bars[-3:]
+    return recent[0].high <= recent[1].high <= recent[2].high
+
+
+def _higher_low(bars: List[Bar]) -> bool:
+    if len(bars) < 3:
+        return False
+    recent = bars[-3:]
+    return recent[0].low <= recent[1].low <= recent[2].low
 
 
 def _grade_order(value: str) -> int:

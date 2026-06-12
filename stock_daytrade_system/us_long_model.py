@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Iterable, List
 
+from stock_daytrade_system.confidence_model import evaluate_signal
 from stock_daytrade_system.us_data import USMarketSnapshot
 
 
@@ -39,6 +40,16 @@ class USLongCandidate:
     risk_score: float
     grade: str
     entry_status: str
+    original_entry_status: str
+    adjusted_entry_status: str
+    confidence_score: float
+    confidence_level: str
+    confidence_level_label: str
+    conflicts_count: int
+    conflicts: List[dict]
+    conflict_summary: str
+    confidence_summary: str
+    confidence_adjustment_reason: str
     lifecycle_status: str
     trigger_price: float
     stop_loss: float
@@ -142,7 +153,7 @@ def _score_snapshot(
         item.volume_ratio,
         market_status,
     )
-    entry_status = _entry_status(
+    original_entry_status = _entry_status(
         grade,
         bullish,
         risk,
@@ -153,6 +164,26 @@ def _score_snapshot(
         vwap_distance_pct,
         market_status,
     )
+    confidence = evaluate_signal(
+        latest_price=item.latest_price,
+        volume=item.volume,
+        vwap=item.vwap,
+        above_vwap=item.above_vwap,
+        volume_ratio=item.volume_ratio,
+        break_prev_high=item.break_previous_high,
+        break_orb=item.break_opening_range_high,
+        higher_high=item.latest_price >= item.high * 0.995,
+        higher_low=item.latest_price > item.low,
+        distance_to_vwap_pct=vwap_distance_pct,
+        risk_score=risk,
+        bullish_score=bullish,
+        entry_status=original_entry_status,
+        market_status=market_status,
+        sector_strength="strong" if sector_strength.get(item.sector_en, 0) >= 2 else "",
+        failed_breakout=(item.break_previous_high and item.latest_price < item.previous_high),
+        data_status="ok" if item.latest_price and item.volume and item.vwap else "partial",
+    )
+    entry_status = confidence.adjusted_entry_status
     trigger_price = _trigger_price(item)
     risk_per_share = max(trigger_price - min(item.vwap or trigger_price, item.low), item.latest_price * 0.006, 0.01)
     stop_loss = max(0.01, trigger_price - risk_per_share)
@@ -186,6 +217,16 @@ def _score_snapshot(
         risk_score=round(risk, 2),
         grade=grade,
         entry_status=entry_status,
+        original_entry_status=confidence.original_entry_status,
+        adjusted_entry_status=confidence.adjusted_entry_status,
+        confidence_score=confidence.confidence_score,
+        confidence_level=confidence.confidence_level,
+        confidence_level_label=confidence.confidence_level_label,
+        conflicts_count=confidence.conflicts_count,
+        conflicts=confidence.conflicts,
+        conflict_summary=confidence.conflict_summary,
+        confidence_summary=confidence.confidence_summary,
+        confidence_adjustment_reason=confidence.confidence_adjustment_reason,
         lifecycle_status="observed",
         trigger_price=round(trigger_price, 2),
         stop_loss=round(stop_loss, 2),

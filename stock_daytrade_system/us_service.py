@@ -59,6 +59,12 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
             "expired": int(backtest.get("expired_count", 0)),
             "closed": int(backtest.get("closed_count", 0)),
             "trackable": int(backtest.get("trackable_count", 0)),
+            "confidence_high": sum(1 for item in candidates if item.confidence_level == "high"),
+            "confidence_medium": sum(1 for item in candidates if item.confidence_level == "medium"),
+            "confidence_low": sum(1 for item in candidates if item.confidence_level == "low"),
+            "confidence_unreliable": sum(1 for item in candidates if item.confidence_level == "unreliable"),
+            "conflicts_total": sum(item.conflicts_count for item in candidates),
+            "top_conflict": _top_conflict(candidates),
         },
         "backtest": backtest,
         "debug": {
@@ -74,6 +80,15 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
         },
         "disclaimer": "本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。",
     }
+
+
+def _top_conflict(candidates) -> str:
+    counts: dict[str, int] = {}
+    for item in candidates:
+        if item.conflicts:
+            message = item.conflicts[0].get("message", item.conflict_summary)
+            counts[message] = counts.get(message, 0) + 1
+    return max(counts.items(), key=lambda pair: pair[1])[0] if counts else "無明顯衝突"
 
 
 def _current_commit_hash(project_root: Path) -> str:
