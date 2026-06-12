@@ -141,6 +141,7 @@ class TrackerStatusTests(unittest.TestCase):
                 "wait_volume": 1,
                 "wait_vwap": 0,
                 "high_risk": 1,
+                "avoid": 2,
                 "recommendations": 2,
                 "backtest_trackable": 1,
                 "data_missing": 4,
@@ -153,6 +154,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("executable 可執行", html)
         self.assertIn("wait_volume 等量能", html)
         self.assertIn("high_risk 風險過高", html)
+        self.assertIn("avoid 暫不追蹤", html)
         self.assertIn("已寫入 recommendations", html)
         self.assertIn("<strong>4</strong>", html)
 
@@ -185,6 +187,14 @@ class TrackerStatusTests(unittest.TestCase):
             market_notes=[],
             backtest={"recommendation_count": 0, "trackable_count": 0, "target": 0, "stop": 0, "avg_return": 0},
             recommendation_checklist={},
+            debug_info={
+                "app_version": "abc123",
+                "scoring_model_version": "long_model_v2_volume_vwap_2026-06-12",
+                "dashboard_generated_at": "2026-01-01T09:05:00",
+                "recommendations_count_from_db": 2,
+                "candidates_count_from_current_run": 17,
+                "visible_candidates_count": 12,
+            },
         )
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "tracker.html"
@@ -202,6 +212,9 @@ class TrackerStatusTests(unittest.TestCase):
             html = output_path.read_text(encoding="utf-8")
 
         self.assertIn("今日推薦檢查表", html)
+        self.assertIn("系統版本 / Debug", html)
+        self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
+        self.assertIn("recommendations count from DB", html)
         self.assertIn("舊版參考：今日看漲焦點", html)
         self.assertIn("舊版參考：系統自動選股", html)
 

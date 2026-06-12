@@ -215,6 +215,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -229,6 +230,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
     def _redirect(self, location: str, clear_cookie: bool = False) -> None:
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", location)
+        self._send_no_cache_headers()
         if clear_cookie:
             self.send_header("Set-Cookie", f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
         self.end_headers()
@@ -238,6 +240,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(data)
 
@@ -246,8 +249,14 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
+        self._send_no_cache_headers()
         self.end_headers()
         self.wfile.write(data)
+
+    def _send_no_cache_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
 
     def _send_not_found(self) -> None:
         self._send_html(render_shell("<p class=\"empty\">找不到頁面。</p>", None, show_logout=self.web_app.require_auth), HTTPStatus.NOT_FOUND)

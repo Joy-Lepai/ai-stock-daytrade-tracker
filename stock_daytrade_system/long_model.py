@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.config import WatchSymbol
@@ -10,6 +10,9 @@ from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.sectors import SectorStrength
+
+
+SCORING_MODEL_VERSION = "long_model_v2_volume_vwap_2026-06-12"
 
 
 @dataclass(frozen=True)
@@ -74,6 +77,7 @@ class LongModelSummary:
     market_notes: List[str]
     backtest: dict
     recommendation_checklist: dict
+    debug_info: dict = field(default_factory=dict)
 
 
 def build_long_candidates(
@@ -114,6 +118,7 @@ def build_long_model_summary(
     market_bias: MarketBias,
     backtest: dict,
     recommendation_checklist: Optional[dict] = None,
+    debug_info: Optional[dict] = None,
 ) -> LongModelSummary:
     visible = [
         item for item in candidates
@@ -128,6 +133,7 @@ def build_long_model_summary(
         market_notes=[f"{item.name}: {item.status}（{item.change}）" for item in market_indicators][:8],
         backtest=backtest,
         recommendation_checklist=recommendation_checklist or {},
+        debug_info=debug_info or {},
     )
 
 

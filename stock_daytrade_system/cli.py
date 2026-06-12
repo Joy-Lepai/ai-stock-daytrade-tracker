@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import List
@@ -12,7 +13,7 @@ from stock_daytrade_system.config import load_config
 from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import backtest_summary, connect, default_db_path, save_long_candidates, update_backtests
 from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confirmation
-from stock_daytrade_system.long_model import build_long_candidates, build_long_model_summary
+from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.paper_trading import update_paper_trades
 from stock_daytrade_system.performance import record_signal_performance
@@ -347,9 +348,18 @@ def run_tracker(
             "wait_volume": sum(1 for item in visible_long_candidates if item.entry_status == "wait_volume"),
             "wait_vwap": sum(1 for item in visible_long_candidates if item.entry_status == "wait_vwap"),
             "high_risk": sum(1 for item in visible_long_candidates if item.entry_status == "high_risk"),
+            "avoid": sum(1 for item in long_candidates if item.entry_status == "avoid"),
             "recommendations": int(backtest_data.get("recommendation_count", 0)),
             "backtest_trackable": int(backtest_data.get("trackable_count", 0)),
             "data_missing": data_missing_count,
+        }
+        debug_info = {
+            "app_version": _current_commit_hash(),
+            "scoring_model_version": SCORING_MODEL_VERSION,
+            "dashboard_generated_at": now.isoformat(timespec="seconds"),
+            "recommendations_count_from_db": int(backtest_data.get("recommendation_count", 0)),
+            "candidates_count_from_current_run": len(long_candidates),
+            "visible_candidates_count": len(visible_long_candidates),
         }
         long_summary = build_long_model_summary(
             long_candidates,
@@ -357,6 +367,7 @@ def run_tracker(
             market_bias,
             backtest_data,
             recommendation_checklist,
+            debug_info,
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)
     paper_summary = update_paper_trades(now, tracked_symbols, intraday_data, output_dir)
@@ -429,6 +440,24 @@ def _dedupe_watch_symbols(symbols):
         seen.add(item.symbol)
         result.append(item)
     return result
+
+
+def _current_commit_hash() -> str:
+    for name in ("RENDER_GIT_COMMIT", "SOURCE_VERSION"):
+        value = os.getenv(name)
+        if value:
+            return value[:12]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
 
 
 if __name__ == "__main__":

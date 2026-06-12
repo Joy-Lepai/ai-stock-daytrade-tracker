@@ -364,6 +364,14 @@ def render_tracker_html(
       border-radius: 8px;
       color: #075985;
     }}
+    .debug-block {{
+      margin-top: 14px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: #344054;
+    }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -431,6 +439,7 @@ def render_tracker_html(
     </div>
     {_data_status_block(statuses)}
     {_warning_block(warnings)}
+    {_debug_block(long_summary)}
   </header>
   <main>
     <h2>今日做多候選股 MVP</h2>
@@ -712,6 +721,7 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('wait_volume 等量能', int(data.get('wait_volume', 0)))}"
         f"{_metric('wait_vwap 等VWAP', int(data.get('wait_vwap', 0)))}"
         f"{_metric('high_risk 風險過高', int(data.get('high_risk', 0)))}"
+        f"{_metric('avoid 暫不追蹤', int(data.get('avoid', 0)))}"
         f"{_metric('已寫入 recommendations 數量', int(data.get('recommendations', 0)))}"
         f"{_metric('今日可回測數量', int(data.get('backtest_trackable', 0)))}"
         f"{_metric('資料缺漏數量', int(data.get('data_missing', 0)))}"
@@ -765,6 +775,22 @@ def _entry_status_message(value: str) -> str:
         "high_risk": "多方動能強，但追價風險偏高，避免直接追高。",
         "avoid": "條件不足或跌破VWAP，暫不追蹤。",
     }.get(value, "")
+
+
+def _debug_block(summary: Optional[LongModelSummary]) -> str:
+    if summary is None or not summary.debug_info:
+        return ""
+    info = summary.debug_info
+    rows = [
+        ("app version / commit", str(info.get("app_version", "-"))),
+        ("scoring model version", str(info.get("scoring_model_version", "-"))),
+        ("dashboard generated_at", str(info.get("dashboard_generated_at", "-"))),
+        ("recommendations count from DB", str(info.get("recommendations_count_from_db", "-"))),
+        ("candidates count from current run", str(info.get("candidates_count_from_current_run", "-"))),
+        ("visible candidates count", str(info.get("visible_candidates_count", "-"))),
+    ]
+    items = "".join(f"<li><strong>{escape(label)}:</strong> {escape(value)}</li>" for label, value in rows)
+    return f'<div class="debug-block"><strong>系統版本 / Debug</strong><ul>{items}</ul></div>'
 
 
 def _bullish_focus_rows(rows: List[TrackedSymbol]) -> List[TrackedSymbol]:
