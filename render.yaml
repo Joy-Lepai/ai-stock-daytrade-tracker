@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: ai-stock-daytrade-tracker
+    runtime: python
+    plan: free
+    buildCommand: "python3 -m compileall stock_daytrade_system"
+    startCommand: "./scripts/start_web.sh"
+    envVars:
+      - key: STOCK_WEB_HOST
+        value: 0.0.0.0

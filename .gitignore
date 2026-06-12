@@ -1,0 +1,11 @@
+.pycache/
+__pycache__/
+*.pyc
+.DS_Store
+.taifex_*.html
+config/auth.json
+data/*.db
+reports/*.html
+reports/*.md
+reports/*.json
+reports/*.csv

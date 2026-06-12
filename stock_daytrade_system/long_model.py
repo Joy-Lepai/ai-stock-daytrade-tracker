@@ -1,0 +1,438 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional
+
+from stock_daytrade_system.config import WatchSymbol
+from stock_daytrade_system.data import Bar
+from stock_daytrade_system.indicators import atr, average_volume, pct_change
+from stock_daytrade_system.intraday import OpeningSignal
+from stock_daytrade_system.market_context import MarketIndicator
+from stock_daytrade_system.scoring import MarketBias
+from stock_daytrade_system.sectors import SectorStrength
+
+
+@dataclass(frozen=True)
+class LongCandidate:
+    symbol: str
+    name: str
+    sector: str
+    last_price: float
+    change_pct: float
+    volume: float
+    turnover: float
+    avg_volume_20: float
+    daily_volume_ratio: float
+    intraday_volume: float
+    volume_ratio: float
+    vwap: Optional[float]
+    above_vwap: bool
+    previous_high: float
+    high_5d: float
+    high_10d: float
+    break_prev_high: bool
+    break_5d_high: bool
+    break_10d_high: bool
+    upper_shadow_pct: float
+    institutional_buy_million: Optional[float]
+    margin_balance: Optional[float]
+    short_balance: Optional[float]
+    daytrade_ratio: Optional[float]
+    sector_strength: float
+    news_topics: List[str]
+    market_state: str
+    bullish_score: float
+    risk_score: float
+    grade: str
+    entry_status: str
+    trigger_price: float
+    stop_loss: float
+    target_price: float
+    opening_range_high: Optional[float]
+    opening_range_low: Optional[float]
+    reasons: List[str]
+    risk_reasons: List[str]
+
+
+@dataclass(frozen=True)
+class SectorHeat:
+    sector: str
+    score: float
+    candidates: int
+    grade_a_count: int
+    above_vwap_count: int
+    breakout_count: int
+    avg_volume_ratio: float
+
+
+@dataclass(frozen=True)
+class LongModelSummary:
+    candidates: List[LongCandidate]
+    alerts: List[str]
+    sector_heat: List[SectorHeat]
+    market_state: str
+    market_notes: List[str]
+    backtest: dict
+
+
+def build_long_candidates(
+    symbols: Iterable[WatchSymbol],
+    daily_data: Dict[str, List[Bar]],
+    intraday_data: Dict[str, List[Bar]],
+    opening_signals: Iterable[OpeningSignal],
+    sector_strengths: Iterable[SectorStrength],
+    market_bias: MarketBias,
+    institutional_rankings: Optional[dict] = None,
+) -> List[LongCandidate]:
+    opening_map = {item.symbol: item for item in opening_signals}
+    sector_map = {item.sector: item for item in sector_strengths}
+    ranking_map = institutional_rankings or {}
+    candidates: List[LongCandidate] = []
+    for symbol in symbols:
+        bars = daily_data.get(symbol.symbol, [])
+        if len(bars) < 11:
+            continue
+        item = _build_candidate(
+            symbol,
+            bars,
+            intraday_data.get(symbol.symbol, []),
+            opening_map.get(symbol.symbol),
+            sector_map.get(symbol.sector),
+            market_bias,
+            ranking_map.get(symbol.symbol),
+        )
+        if item is not None:
+            candidates.append(item)
+    candidates.sort(key=lambda item: (_grade_order(item.grade), -item.bullish_score, item.risk_score, item.symbol))
+    return candidates
+
+
+def build_long_model_summary(
+    candidates: List[LongCandidate],
+    market_indicators: Iterable[MarketIndicator],
+    market_bias: MarketBias,
+    backtest: dict,
+) -> LongModelSummary:
+    visible = [item for item in candidates if item.grade in {"A", "B", "C"}]
+    alerts = _build_alerts(candidates)
+    return LongModelSummary(
+        candidates=visible[:30],
+        alerts=alerts,
+        sector_heat=_build_sector_heat(candidates),
+        market_state=market_bias.direction,
+        market_notes=[f"{item.name}: {item.status}（{item.change}）" for item in market_indicators][:8],
+        backtest=backtest,
+    )
+
+
+def _build_candidate(
+    symbol: WatchSymbol,
+    bars: List[Bar],
+    intraday_bars: List[Bar],
+    opening: Optional[OpeningSignal],
+    sector: Optional[SectorStrength],
+    market_bias: MarketBias,
+    ranking,
+) -> Optional[LongCandidate]:
+    last = bars[-1]
+    previous = bars[-2]
+    avg_vol = average_volume(bars, 20)
+    if avg_vol <= 0:
+        return None
+    previous_high = previous.high
+    high_5d = max(bar.high for bar in bars[-6:-1])
+    high_10d = max(bar.high for bar in bars[-11:-1])
+    latest_intraday = intraday_bars[-1] if intraday_bars else None
+    last_price = round((opening.last_price if opening else latest_intraday.close if latest_intraday else last.close), 2)
+    intraday_volume = sum(bar.volume for bar in intraday_bars) if intraday_bars else last.volume
+    vwap = opening.vwap if opening else _vwap(intraday_bars)
+    volume_ratio = opening.volume_ratio if opening else (intraday_volume / avg_vol if avg_vol else 0.0)
+    daily_volume_ratio = last.volume / avg_vol if avg_vol else 0.0
+    change_pct = pct_change(last.close, previous.close)
+    turnover = last.close * last.volume
+    sector_score = sector.score if sector else 0.0
+    stock_atr = atr(bars, 14)
+    trigger_price = max(previous_high, high_5d)
+    stop_loss = min(previous.low, trigger_price - stock_atr * 0.8)
+    risk_per_share = max(trigger_price - stop_loss, 0.01)
+    target_price = trigger_price + risk_per_share * 1.5
+    break_prev_high = last_price > previous_high
+    break_5d_high = last_price > high_5d
+    break_10d_high = last_price > high_10d
+    above_vwap = bool(vwap and last_price > vwap)
+    upper_shadow_pct = _upper_shadow_pct(last)
+    institutional_buy = ranking.total_buy_million if ranking else None
+
+    bullish_score, reasons = _bullish_score(
+        change_pct=change_pct,
+        volume_ratio=volume_ratio,
+        above_vwap=above_vwap,
+        break_prev_high=break_prev_high,
+        break_5d_high=break_5d_high,
+        break_10d_high=break_10d_high,
+        sector_score=sector_score,
+        market_state=market_bias.direction,
+        institutional_buy=institutional_buy,
+    )
+    risk_score, risk_reasons = _risk_score(
+        change_pct=change_pct,
+        volume_ratio=volume_ratio,
+        last_price=last_price,
+        vwap=vwap,
+        risk_per_share=risk_per_share,
+        atr_pct=(stock_atr / last_price * 100) if last_price else 0.0,
+        upper_shadow_pct=upper_shadow_pct,
+    )
+    grade = _grade(
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+        above_vwap=above_vwap,
+        market_state=market_bias.direction,
+        break_prev_high=break_prev_high,
+        break_5d_high=break_5d_high,
+        volume_ratio=volume_ratio,
+        upper_shadow_pct=upper_shadow_pct,
+    )
+    entry_status = _entry_status(grade, above_vwap, break_prev_high, volume_ratio, risk_score)
+    return LongCandidate(
+        symbol=symbol.symbol,
+        name=symbol.name,
+        sector=symbol.sector,
+        last_price=last_price,
+        change_pct=round(change_pct, 2),
+        volume=round(last.volume, 0),
+        turnover=round(turnover, 0),
+        avg_volume_20=round(avg_vol, 0),
+        daily_volume_ratio=round(daily_volume_ratio, 2),
+        intraday_volume=round(intraday_volume, 0),
+        volume_ratio=round(volume_ratio, 2),
+        vwap=round(vwap, 2) if vwap else None,
+        above_vwap=above_vwap,
+        previous_high=round(previous_high, 2),
+        high_5d=round(high_5d, 2),
+        high_10d=round(high_10d, 2),
+        break_prev_high=break_prev_high,
+        break_5d_high=break_5d_high,
+        break_10d_high=break_10d_high,
+        upper_shadow_pct=round(upper_shadow_pct, 2),
+        institutional_buy_million=round(institutional_buy, 2) if institutional_buy is not None else None,
+        margin_balance=None,
+        short_balance=None,
+        daytrade_ratio=None,
+        sector_strength=round(sector_score, 2),
+        news_topics=[],
+        market_state=market_bias.direction,
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+        grade=grade,
+        entry_status=entry_status,
+        trigger_price=round(trigger_price, 2),
+        stop_loss=round(stop_loss, 2),
+        target_price=round(target_price, 2),
+        opening_range_high=opening.opening_range_high if opening else None,
+        opening_range_low=opening.opening_range_low if opening else None,
+        reasons=reasons,
+        risk_reasons=risk_reasons,
+    )
+
+
+def _bullish_score(
+    change_pct: float,
+    volume_ratio: float,
+    above_vwap: bool,
+    break_prev_high: bool,
+    break_5d_high: bool,
+    break_10d_high: bool,
+    sector_score: float,
+    market_state: str,
+    institutional_buy: Optional[float],
+) -> tuple[float, List[str]]:
+    score = 0.0
+    reasons: List[str] = []
+    if above_vwap:
+        score += 20
+        reasons.append("站上VWAP")
+    if volume_ratio >= 1.5:
+        score += 15
+        reasons.append(f"量比 {volume_ratio:.2f}x")
+    elif volume_ratio >= 1.2:
+        score += 10
+        reasons.append(f"量比 {volume_ratio:.2f}x")
+    elif volume_ratio >= 1.0:
+        score += 5
+        reasons.append(f"量比 {volume_ratio:.2f}x")
+    if break_prev_high:
+        score += 15
+        reasons.append("突破昨日高點")
+    if break_5d_high:
+        score += 15
+        reasons.append("突破5日高點")
+    if break_10d_high:
+        score += 10
+        reasons.append("突破10日高點")
+    if 1 <= change_pct <= 4:
+        score += 10
+        reasons.append(f"漲幅適中 {change_pct:+.2f}%")
+    elif 0 < change_pct < 1:
+        score += 5
+        reasons.append(f"小漲 {change_pct:+.2f}%")
+    if sector_score >= 2:
+        score += 10
+        reasons.append("族群強勢")
+    elif sector_score > 0:
+        score += 5
+        reasons.append("族群偏強")
+    if market_state == "偏多":
+        score += 10
+        reasons.append("大盤偏多")
+    elif market_state == "中性":
+        score += 5
+        reasons.append("大盤中性")
+    if institutional_buy and institutional_buy > 0:
+        score += 5
+        reasons.append("法人買超")
+    return round(min(score, 100), 2), reasons
+
+
+def _risk_score(
+    change_pct: float,
+    volume_ratio: float,
+    last_price: float,
+    vwap: Optional[float],
+    risk_per_share: float,
+    atr_pct: float,
+    upper_shadow_pct: float,
+) -> tuple[float, List[str]]:
+    score = 0.0
+    reasons: List[str] = []
+    if change_pct > 7:
+        score += 25
+        reasons.append("漲幅超過7%，追價風險高")
+    elif change_pct >= 5:
+        score += 15
+        reasons.append("漲幅5%以上")
+    if vwap:
+        distance = (last_price - vwap) / vwap * 100
+        if distance > 3:
+            score += 20
+            reasons.append("距離VWAP超過3%")
+        elif distance > 2:
+            score += 10
+            reasons.append("距離VWAP超過2%")
+    if volume_ratio > 3:
+        score += 15
+        reasons.append("量比過高")
+    if upper_shadow_pct >= 2:
+        score += 20
+        reasons.append("長上影，追價風險高")
+    elif upper_shadow_pct >= 1.2:
+        score += 10
+        reasons.append("上影線偏長")
+    if atr_pct > 6:
+        score += 15
+        reasons.append("波動過大")
+    if risk_per_share / last_price * 100 > 4:
+        score += 20
+        reasons.append("停損距離過大")
+    return round(min(score, 100), 2), reasons
+
+
+def _grade(
+    bullish_score: float,
+    risk_score: float,
+    above_vwap: bool,
+    market_state: str,
+    break_prev_high: bool,
+    break_5d_high: bool,
+    volume_ratio: float,
+    upper_shadow_pct: float,
+) -> str:
+    has_breakout = break_prev_high or break_5d_high
+    has_volume_expansion = volume_ratio >= 1.0
+    has_long_upper_shadow = upper_shadow_pct >= 1.5
+
+    if not above_vwap:
+        return "D"
+    if bullish_score >= 60 and (risk_score >= 60 or has_long_upper_shadow):
+        return "C"
+    if (
+        bullish_score >= 75
+        and risk_score < 45
+        and market_state != "偏空"
+        and has_breakout
+        and has_volume_expansion
+        and not has_long_upper_shadow
+    ):
+        return "A"
+    if bullish_score >= 60 and risk_score < 60 and has_breakout:
+        return "B"
+    return "D"
+
+
+def _entry_status(grade: str, above_vwap: bool, break_prev_high: bool, volume_ratio: float, risk_score: float) -> str:
+    if grade == "A":
+        return "強勢做多觀察"
+    if grade == "B":
+        return "可追蹤，等回測"
+    if grade == "C":
+        return "題材股，風險偏高"
+    return "暫不建議做多"
+
+
+def _build_alerts(candidates: List[LongCandidate]) -> List[str]:
+    alerts: List[str] = []
+    for item in candidates:
+        if item.grade == "A":
+            alerts.append(f"{item.name} {item.symbol}：A級強勢，{', '.join(item.reasons[:3])}")
+        elif item.bullish_score >= 70 and item.risk_score >= 60:
+            alerts.append(f"{item.name} {item.symbol}：多方強但風險偏高，避免追價")
+        elif item.above_vwap is False and item.bullish_score >= 60:
+            alerts.append(f"{item.name} {item.symbol}：分數不差但未站上VWAP")
+    return alerts[:12]
+
+
+def _build_sector_heat(candidates: List[LongCandidate]) -> List[SectorHeat]:
+    grouped: Dict[str, List[LongCandidate]] = {}
+    for item in candidates:
+        grouped.setdefault(item.sector, []).append(item)
+    heat: List[SectorHeat] = []
+    for sector, items in grouped.items():
+        breakout_count = sum(1 for item in items if item.break_prev_high or item.break_5d_high)
+        above_vwap_count = sum(1 for item in items if item.above_vwap)
+        grade_a_count = sum(1 for item in items if item.grade == "A")
+        avg_volume_ratio = sum(item.volume_ratio for item in items) / len(items)
+        score = grade_a_count * 3 + above_vwap_count * 1.5 + breakout_count + avg_volume_ratio
+        heat.append(
+            SectorHeat(
+                sector=sector,
+                score=round(score, 2),
+                candidates=len(items),
+                grade_a_count=grade_a_count,
+                above_vwap_count=above_vwap_count,
+                breakout_count=breakout_count,
+                avg_volume_ratio=round(avg_volume_ratio, 2),
+            )
+        )
+    heat.sort(key=lambda item: item.score, reverse=True)
+    return heat[:12]
+
+
+def _vwap(bars: List[Bar]) -> Optional[float]:
+    total_value = 0.0
+    total_volume = 0.0
+    for bar in bars:
+        typical = (bar.high + bar.low + bar.close) / 3
+        total_value += typical * bar.volume
+        total_volume += bar.volume
+    return total_value / total_volume if total_volume else None
+
+
+def _upper_shadow_pct(bar: Bar) -> float:
+    if bar.close <= 0:
+        return 0.0
+    upper_shadow = max(bar.high - max(bar.open, bar.close), 0.0)
+    return upper_shadow / bar.close * 100
+
+
+def _grade_order(value: str) -> int:
+    return {"A": 0, "B": 1, "C": 2, "D": 3}.get(value, 9)
