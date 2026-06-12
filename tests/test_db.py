@@ -9,7 +9,7 @@ from stock_daytrade_system.db import backtest_summary, connect, latest_candidate
 from stock_daytrade_system.long_model import LongCandidate
 
 
-def candidate(volume_ratio=1.5, grade="A"):
+def candidate(volume_ratio=1.5, grade="A", entry_status="executable"):
     return LongCandidate(
         symbol="2330.TW",
         name="台積電",
@@ -41,7 +41,7 @@ def candidate(volume_ratio=1.5, grade="A"):
         bullish_score=85,
         risk_score=20,
         grade=grade,
-        entry_status="強勢做多觀察",
+        entry_status=entry_status,
         trigger_price=99,
         stop_loss=97,
         target_price=102,
@@ -83,6 +83,8 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(summary["recommendation_count"], 1)
         self.assertEqual(summary["trackable_count"], 1)
         self.assertEqual(summary["target"], 1)
+        self.assertEqual(summary["by_entry_status"][0]["entry_status"], "executable")
+        self.assertEqual(summary["by_entry_status"][0]["trackable"], 1)
         self.assertEqual(backtest_row["same_day_high"], 103)
         self.assertEqual(backtest_row["same_day_close"], 102)
         self.assertEqual(backtest_row["hit_stop_loss"], 0)
@@ -104,8 +106,8 @@ class DatabaseTests(unittest.TestCase):
                     datetime(2026, 1, 1, 9, 5),
                     [
                         candidate(grade="A"),
-                        replace(candidate(grade="B"), symbol="2317.TW", name="鴻海"),
-                        replace(candidate(grade="C"), symbol="6919.TW", name="康霈生技"),
+                        replace(candidate(grade="B", entry_status="wait_volume"), symbol="2317.TW", name="鴻海"),
+                        replace(candidate(grade="C", entry_status="high_risk"), symbol="6919.TW", name="康霈生技"),
                     ],
                 )
                 rows = conn.execute(
@@ -113,8 +115,8 @@ class DatabaseTests(unittest.TestCase):
                 ).fetchall()
 
         self.assertEqual([(row["symbol"], row["grade"], row["entry_status"]) for row in rows], [
-            ("2317.TW", "B", "wait_pullback"),
-            ("2330.TW", "A", "active_watch"),
+            ("2317.TW", "B", "wait_volume"),
+            ("2330.TW", "A", "executable"),
         ])
 
 

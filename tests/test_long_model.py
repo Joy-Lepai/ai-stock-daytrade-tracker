@@ -3,6 +3,7 @@ import unittest
 
 from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.data import Bar
+from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.scoring import MarketBias
 
@@ -31,6 +32,23 @@ def intraday_bar(index, close, volume=50_000):
     )
 
 
+def opening_signal(last_price, vwap, volume_ratio=1.2):
+    return OpeningSignal(
+        symbol="2330.TW",
+        name="台積電",
+        sector="semiconductor",
+        direction="做多確認",
+        score=4,
+        last_price=last_price,
+        opening_range_high=last_price - 1,
+        opening_range_low=last_price - 2,
+        vwap=vwap,
+        cumulative_volume=900_000,
+        volume_ratio=volume_ratio,
+        reasons=[],
+    )
+
+
 class LongModelTests(unittest.TestCase):
     def test_builds_a_grade_candidate_for_breakout_above_vwap(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
@@ -48,6 +66,7 @@ class LongModelTests(unittest.TestCase):
 
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].grade, "A")
+        self.assertEqual(candidates[0].entry_status, "executable")
         self.assertGreaterEqual(candidates[0].bullish_score, 60)
         self.assertTrue(candidates[0].above_vwap)
 
@@ -86,8 +105,66 @@ class LongModelTests(unittest.TestCase):
 
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].grade, "B")
+        self.assertEqual(candidates[0].entry_status, "wait_pullback")
         self.assertTrue(candidates[0].break_prev_high)
         self.assertFalse(candidates[0].break_5d_high)
+
+    def test_low_volume_ratio_cannot_be_a_or_b(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=70_000) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("1216.TW", "統一", "consumer")],
+            {"1216.TW": bars},
+            {"1216.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertLess(candidates[0].volume_ratio, 0.8)
+        self.assertEqual(candidates[0].grade, "D")
+        self.assertEqual(candidates[0].entry_status, "wait_volume")
+
+    def test_b_level_with_sub_one_volume_waits_for_volume_confirmation(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=112_500) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2892.TW", "第一金", "finance")],
+            {"2892.TW": bars},
+            {"2892.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertGreaterEqual(candidates[0].volume_ratio, 0.8)
+        self.assertLess(candidates[0].volume_ratio, 1.0)
+        self.assertEqual(candidates[0].grade, "B")
+        self.assertEqual(candidates[0].entry_status, "wait_volume")
+
+    def test_near_vwap_but_not_above_waits_for_vwap(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2330.TW", "台積電", "semiconductor")],
+            {"2330.TW": bars},
+            {"2330.TW": []},
+            [opening_signal(last_price=105, vwap=105.2, volume_ratio=1.2)],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0].grade, "B")
+        self.assertFalse(candidates[0].above_vwap)
+        self.assertEqual(candidates[0].entry_status, "wait_vwap")
 
     def test_bearish_market_blocks_candidate_to_d_grade(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]

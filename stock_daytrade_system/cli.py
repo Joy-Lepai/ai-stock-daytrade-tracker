@@ -335,10 +335,18 @@ def run_tracker(
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
         backtest_data = backtest_summary(conn, now.date())
+        visible_long_candidates = [
+            item for item in long_candidates
+            if item.grade in {"A", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
+        ]
         recommendation_checklist = {
-            "candidate_total": len([item for item in long_candidates if item.grade in {"A", "B", "C"}]),
+            "candidate_total": len(visible_long_candidates),
             "grade_a": sum(1 for item in long_candidates if item.grade == "A"),
             "grade_b": sum(1 for item in long_candidates if item.grade == "B"),
+            "executable": sum(1 for item in long_candidates if item.entry_status == "executable"),
+            "wait_volume": sum(1 for item in visible_long_candidates if item.entry_status == "wait_volume"),
+            "wait_vwap": sum(1 for item in visible_long_candidates if item.entry_status == "wait_vwap"),
+            "high_risk": sum(1 for item in visible_long_candidates if item.entry_status == "high_risk"),
             "recommendations": int(backtest_data.get("recommendation_count", 0)),
             "backtest_trackable": int(backtest_data.get("trackable_count", 0)),
             "data_missing": data_missing_count,

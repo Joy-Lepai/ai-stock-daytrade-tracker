@@ -10,6 +10,7 @@ from stock_daytrade_system.tracker import (
     _bullish_focus_table,
     _change_number,
     _data_status_block,
+    _entry_status_message,
     _recommendation_checklist_table,
     _tracked_table,
     bullish_profile,
@@ -136,6 +137,10 @@ class TrackerStatusTests(unittest.TestCase):
                 "candidate_total": 3,
                 "grade_a": 1,
                 "grade_b": 1,
+                "executable": 1,
+                "wait_volume": 1,
+                "wait_vwap": 0,
+                "high_risk": 1,
                 "recommendations": 2,
                 "backtest_trackable": 1,
                 "data_missing": 4,
@@ -145,8 +150,25 @@ class TrackerStatusTests(unittest.TestCase):
         html = _recommendation_checklist_table(summary)
 
         self.assertIn("今日候選股總數", html)
+        self.assertIn("executable 可執行", html)
+        self.assertIn("wait_volume 等量能", html)
+        self.assertIn("high_risk 風險過高", html)
         self.assertIn("已寫入 recommendations", html)
         self.assertIn("<strong>4</strong>", html)
+
+    def test_entry_status_messages_explain_wait_states(self):
+        self.assertEqual(
+            _entry_status_message("wait_volume"),
+            "多方結構不錯，但量能不足，等待量比放大後再觀察。",
+        )
+        self.assertEqual(
+            _entry_status_message("wait_vwap"),
+            "突破條件成立，但尚未站上 VWAP，等待站回均價線。",
+        )
+        self.assertEqual(
+            _entry_status_message("high_risk"),
+            "多方動能強，但追價風險偏高，避免直接追高。",
+        )
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])

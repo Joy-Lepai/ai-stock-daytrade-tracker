@@ -623,7 +623,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
             f"<td>{_yes_no(item.break_10d_high)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.bullish_score)}\">{_fmt(item.bullish_score)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.risk_score)}\">{_fmt(item.risk_score)}</td>"
-            f"<td>{escape(item.entry_status)}</td>"
+            f"<td>{escape(_entry_status_label(item.entry_status))}<br><span class=\"muted\">{escape(_entry_status_message(item.entry_status))}</span></td>"
             f"<td class=\"notes\">{escape('；'.join(item.reasons[:5]))}</td>"
             f"<td class=\"notes\">{escape('；'.join(item.risk_reasons[:4]))}</td>"
             "</tr>"
@@ -695,6 +695,7 @@ def _backtest_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('停損', int(data.get('stop', 0)))}"
         f"{_metric_text('平均報酬', avg_return)}"
         "</div>"
+        f"{_entry_status_backtest_table(data.get('by_entry_status', []))}"
     )
 
 
@@ -707,11 +708,63 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('今日候選股總數', int(data.get('candidate_total', 0)))}"
         f"{_metric('A級數量', int(data.get('grade_a', 0)))}"
         f"{_metric('B級數量', int(data.get('grade_b', 0)))}"
-        f"{_metric('已寫入 recommendations', int(data.get('recommendations', 0)))}"
-        f"{_metric('今日回測可追蹤', int(data.get('backtest_trackable', 0)))}"
+        f"{_metric('executable 可執行', int(data.get('executable', 0)))}"
+        f"{_metric('wait_volume 等量能', int(data.get('wait_volume', 0)))}"
+        f"{_metric('wait_vwap 等VWAP', int(data.get('wait_vwap', 0)))}"
+        f"{_metric('high_risk 風險過高', int(data.get('high_risk', 0)))}"
+        f"{_metric('已寫入 recommendations 數量', int(data.get('recommendations', 0)))}"
+        f"{_metric('今日可回測數量', int(data.get('backtest_trackable', 0)))}"
         f"{_metric('資料缺漏數量', int(data.get('data_missing', 0)))}"
         "</div>"
     )
+
+
+def _entry_status_backtest_table(rows: List[dict]) -> str:
+    if not rows:
+        return ""
+    body = []
+    for item in rows:
+        avg_return = f"{float(item.get('avg_return', 0)):+.2f}%"
+        body.append(
+            "<tr>"
+            f"<td>{escape(_entry_status_label(str(item.get('entry_status', ''))))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('total'))}\">{int(item.get('total', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('trackable'))}\">{int(item.get('trackable', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('target'))}\">{int(item.get('target', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('stop'))}\">{int(item.get('stop', 0))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('avg_return'))}\">{escape(avg_return)}</td>"
+            "</tr>"
+        )
+    return (
+        "<table class=\"sortable\"><thead><tr><th data-sort=\"text\">進場狀態</th>"
+        "<th data-sort=\"number\">推薦數</th><th data-sort=\"number\">可回測</th>"
+        "<th data-sort=\"number\">達標</th><th data-sort=\"number\">停損</th><th data-sort=\"number\">平均報酬</th>"
+        "</tr></thead><tbody>"
+        + "".join(body)
+        + "</tbody></table>"
+    )
+
+
+def _entry_status_label(value: str) -> str:
+    return {
+        "executable": "executable 可執行觀察",
+        "wait_volume": "wait_volume 等待量能確認",
+        "wait_vwap": "wait_vwap 等待站回VWAP",
+        "wait_pullback": "wait_pullback 等待回測",
+        "high_risk": "high_risk 風險過高",
+        "avoid": "avoid 暫不追蹤",
+    }.get(value, value or "-")
+
+
+def _entry_status_message(value: str) -> str:
+    return {
+        "executable": "量能與VWAP條件成立，可列入做多觀察。",
+        "wait_volume": "多方結構不錯，但量能不足，等待量比放大後再觀察。",
+        "wait_vwap": "突破條件成立，但尚未站上 VWAP，等待站回均價線。",
+        "wait_pullback": "條件可追蹤，等待回測或整理後再評估。",
+        "high_risk": "多方動能強，但追價風險偏高，避免直接追高。",
+        "avoid": "條件不足或跌破VWAP，暫不追蹤。",
+    }.get(value, "")
 
 
 def _bullish_focus_rows(rows: List[TrackedSymbol]) -> List[TrackedSymbol]:

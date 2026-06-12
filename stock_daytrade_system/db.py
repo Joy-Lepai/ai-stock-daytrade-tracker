@@ -202,7 +202,6 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                 ),
             )
             if data["grade"] in {"A", "B"}:
-                recommendation_status = "active_watch" if data["grade"] == "A" else "wait_pullback"
                 conn.execute(
                     """
                     INSERT INTO recommendations (
@@ -228,7 +227,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         data["grade"],
                         data["bullish_score"],
                         data["risk_score"],
-                        recommendation_status,
+                        data["entry_status"],
                         data["trigger_price"],
                         data["stop_loss"],
                         data["target_price"],
@@ -390,6 +389,19 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> di
         params.append(day.strftime("%Y-%m-%d"))
     recommendation_count = conn.execute(f"SELECT COUNT(*) AS total FROM recommendations {where}", params).fetchone()["total"]
     rows = conn.execute(f"SELECT * FROM backtest_results {where}", params).fetchall()
+    status_rows = conn.execute(
+        f"""
+        SELECT
+          r.entry_status,
+          r.symbol,
+          b.outcome,
+          b.return_pct
+        FROM recommendations r
+        LEFT JOIN backtest_results b ON b.date = r.date AND b.symbol = r.symbol
+        {where.replace("date", "r.date") if where else ""}
+        """,
+        params,
+    ).fetchall()
     trackable_count = len(rows)
     target = sum(1 for row in rows if row["outcome"] == "達標")
     stop = sum(1 for row in rows if row["outcome"] == "停損")
@@ -401,7 +413,46 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None) -> di
         "target": target,
         "stop": stop,
         "avg_return": avg_return,
+        "by_entry_status": _summarize_by_entry_status(status_rows),
     }
+
+
+def _summarize_by_entry_status(rows: Iterable[sqlite3.Row]) -> List[dict]:
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(row["entry_status"] or "unknown", []).append(row)
+
+    result = []
+    for status, items in grouped.items():
+        tracked = [item for item in items if item["outcome"]]
+        total = len(items)
+        trackable = len(tracked)
+        target = sum(1 for item in tracked if item["outcome"] == "達標")
+        stop = sum(1 for item in tracked if item["outcome"] == "停損")
+        avg_return = round(sum(item["return_pct"] or 0 for item in tracked) / trackable, 2) if trackable else 0.0
+        result.append(
+            {
+                "entry_status": status,
+                "total": total,
+                "trackable": trackable,
+                "target": target,
+                "stop": stop,
+                "avg_return": avg_return,
+            }
+        )
+    result.sort(key=lambda item: _entry_status_order(item["entry_status"]))
+    return result
+
+
+def _entry_status_order(value: str) -> int:
+    return {
+        "executable": 0,
+        "wait_pullback": 1,
+        "wait_volume": 2,
+        "wait_vwap": 3,
+        "high_risk": 4,
+        "avoid": 5,
+    }.get(value, 9)
 
 
 def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:

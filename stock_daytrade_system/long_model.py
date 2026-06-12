@@ -115,7 +115,10 @@ def build_long_model_summary(
     backtest: dict,
     recommendation_checklist: Optional[dict] = None,
 ) -> LongModelSummary:
-    visible = [item for item in candidates if item.grade in {"A", "B", "C"}]
+    visible = [
+        item for item in candidates
+        if item.grade in {"A", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
+    ]
     alerts = _build_alerts(candidates)
     return LongModelSummary(
         candidates=visible[:30],
@@ -193,11 +196,19 @@ def _build_candidate(
         above_vwap=above_vwap,
         market_state=market_bias.direction,
         break_prev_high=break_prev_high,
+        volume_ratio=volume_ratio,
         change_pct=change_pct,
         vwap_distance_pct=vwap_distance_pct,
         upper_shadow_pct=upper_shadow_pct,
     )
-    entry_status = _entry_status(grade, above_vwap, break_prev_high, volume_ratio, risk_score)
+    entry_status = _entry_status(
+        grade=grade,
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+        above_vwap=above_vwap,
+        volume_ratio=volume_ratio,
+        vwap_distance_pct=vwap_distance_pct,
+    )
     return LongCandidate(
         symbol=symbol.symbol,
         name=symbol.name,
@@ -347,6 +358,7 @@ def _grade(
     above_vwap: bool,
     market_state: str,
     break_prev_high: bool,
+    volume_ratio: float,
     change_pct: float,
     vwap_distance_pct: Optional[float],
     upper_shadow_pct: float,
@@ -363,25 +375,40 @@ def _grade(
         and risk_score <= 40
         and above_vwap
         and break_prev_high
+        and volume_ratio >= 1.0
         and not has_upper_shadow
         and not is_overextended
     ):
         return "A"
     if bullish_score >= 55 and (risk_score > 55 or has_upper_shadow or is_overextended):
         return "C"
-    if bullish_score >= 65 and risk_score <= 55 and (above_vwap or near_vwap):
+    if bullish_score >= 65 and risk_score <= 55 and (above_vwap or near_vwap) and break_prev_high and volume_ratio >= 0.8:
         return "B"
     return "D"
 
 
-def _entry_status(grade: str, above_vwap: bool, break_prev_high: bool, volume_ratio: float, risk_score: float) -> str:
+def _entry_status(
+    grade: str,
+    bullish_score: float,
+    risk_score: float,
+    above_vwap: bool,
+    volume_ratio: float,
+    vwap_distance_pct: Optional[float],
+) -> str:
+    if risk_score > 55 or grade == "C":
+        return "high_risk"
+    if not above_vwap:
+        if vwap_distance_pct is not None and vwap_distance_pct < -0.5:
+            return "avoid"
+        if bullish_score >= 55:
+            return "wait_vwap"
+    if bullish_score >= 65 and volume_ratio < 1.0:
+        return "wait_volume"
     if grade == "A":
-        return "強勢做多觀察"
+        return "executable"
     if grade == "B":
-        return "可追蹤，等回測"
-    if grade == "C":
-        return "題材股，風險偏高"
-    return "暫不建議做多"
+        return "wait_pullback"
+    return "avoid"
 
 
 def _build_alerts(candidates: List[LongCandidate]) -> List[str]:
@@ -389,9 +416,11 @@ def _build_alerts(candidates: List[LongCandidate]) -> List[str]:
     for item in candidates:
         if item.grade == "A":
             alerts.append(f"{item.name} {item.symbol}：A級強勢，{', '.join(item.reasons[:3])}")
-        elif item.bullish_score >= 70 and item.risk_score >= 60:
+        elif item.entry_status == "wait_volume":
+            alerts.append(f"{item.name} {item.symbol}：多方結構不錯但量能不足，等待量比放大")
+        elif item.entry_status == "high_risk":
             alerts.append(f"{item.name} {item.symbol}：多方強但風險偏高，避免追價")
-        elif item.above_vwap is False and item.bullish_score >= 60:
+        elif item.entry_status == "wait_vwap":
             alerts.append(f"{item.name} {item.symbol}：分數不差但未站上VWAP")
     return alerts[:12]
 
