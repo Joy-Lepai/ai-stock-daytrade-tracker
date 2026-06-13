@@ -56,10 +56,11 @@ def paper_dashboard_payload(conn: sqlite3.Connection, now: Optional[datetime] = 
     run = run_paper_trading(conn, captured_at)
     accounts = [dict(row) for row in conn.execute("SELECT * FROM paper_accounts ORDER BY market").fetchall()]
     positions = [
-        dict(row)
+        _position_payload(dict(row))
         for row in conn.execute(
             """
-            SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual
+            SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual,
+                   t.risk_mode, t.auto_exit_enabled, t.auto_exit_reason
             FROM paper_positions p
             LEFT JOIN paper_trades t ON t.id = p.trade_id
             ORDER BY p.market, p.symbol
@@ -168,6 +169,8 @@ def create_manual_trade(
     stop_loss = _to_float(payload.get("stop_loss"))
     target_price = _to_float(payload.get("target_price"))
     entry_reason = str(payload.get("entry_reason") or payload.get("manual_reason") or "手動虛擬交易").strip()
+    risk_mode = _normalize_risk_mode(payload.get("risk_mode"), default="manual_only")
+    auto_exit_enabled = 0 if risk_mode == "manual_only" else 1
     with conn:
         _ensure_accounts(conn, captured_at, config)
     validation = _validate_manual_trade(conn, market, symbol, entry_price, quantity, stop_loss, target_price, config)
@@ -186,13 +189,14 @@ def create_manual_trade(
             """
             INSERT INTO paper_trades (
               id, account_id, recommendation_id, market, symbol, name_zh, name_en,
-              source, is_manual, manual_reason, created_by, side, status,
+              source, is_manual, manual_reason, created_by, risk_mode, auto_exit_enabled,
+              side, status,
               grade, entry_status, lifecycle_status, entry_time, entry_price, entry_reason,
               quantity, position_value, stop_loss, target_price, max_favorable_excursion,
               max_adverse_excursion, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 1, ?, 'user', 'long', 'open',
-                    'manual', 'manual', 'manual', ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'manual', 1, ?, 'user', ?, ?,
+                    'long', 'open', 'manual', 'manual', 'manual', ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
             """,
             (
                 trade_id,
@@ -203,6 +207,8 @@ def create_manual_trade(
                 name_zh,
                 name_en,
                 entry_reason,
+                risk_mode,
+                auto_exit_enabled,
                 timestamp,
                 round(entry_price, 2),
                 entry_reason,
@@ -471,11 +477,13 @@ def _open_trade(
         """
         INSERT INTO paper_trades (
           id, account_id, recommendation_id, market, symbol, name_zh, name_en, side, status,
-          source, is_manual, grade, entry_status, lifecycle_status, entry_time, entry_price, entry_reason,
+          source, is_manual, risk_mode, auto_exit_enabled, grade, entry_status, lifecycle_status,
+          entry_time, entry_price, entry_reason,
           quantity, position_value, stop_loss, target_price, max_favorable_excursion,
           max_adverse_excursion, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'open', 'system', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'open', 'system', 0, 'follow_system', 1,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
         """,
         (
             trade_id,
@@ -546,9 +554,11 @@ def _insert_skipped_trade(
         """
         INSERT INTO paper_trades (
           id, account_id, recommendation_id, market, symbol, name_zh, name_en, side, status,
-          source, is_manual, grade, entry_status, lifecycle_status, skipped_reason, created_at, updated_at
+          source, is_manual, risk_mode, auto_exit_enabled, grade, entry_status, lifecycle_status,
+          skipped_reason, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'skipped', 'system', 0, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'long', 'skipped', 'system', 0, 'follow_system', 1,
+                ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO NOTHING
         """,
         (
@@ -576,7 +586,14 @@ def _evaluate_open_positions(
     config: PaperTradingConfig,
 ) -> int:
     closed = 0
-    rows = conn.execute("SELECT * FROM paper_positions ORDER BY opened_at").fetchall()
+    rows = conn.execute(
+        """
+        SELECT p.*, t.source, t.is_manual, t.risk_mode, t.auto_exit_enabled, t.auto_exit_reason
+        FROM paper_positions p
+        LEFT JOIN paper_trades t ON t.id = p.trade_id
+        ORDER BY p.opened_at
+        """
+    ).fetchall()
     for position in rows:
         price_info = price_map.get((position["market"], position["symbol"]))
         if not price_info or not price_info.get("price"):
@@ -599,6 +616,16 @@ def _exit_signal(
     entry = float(position["entry_price"])
     stop_loss = position["stop_loss"]
     target_price = position["target_price"]
+    risk_mode = _position_risk_mode(position)
+    auto_exit_enabled = _position_auto_exit_enabled(position)
+    if not auto_exit_enabled or risk_mode == "manual_only":
+        return None, None
+    if risk_mode == "auto_stop_take_profit":
+        if stop_loss is not None and price <= float(stop_loss):
+            return "auto_stop_loss", price
+        if target_price is not None and price >= float(target_price):
+            return "auto_take_profit", price
+        return None, None
     high = max(float(position["highest_price_since_entry"] or entry), price)
     gain_from_entry = (price - entry) / entry if entry else 0.0
     pullback = (high - price) / high if high else 0.0
@@ -677,15 +704,33 @@ def _close_position(
     value = exit_price * quantity
     pnl = (exit_price - entry) * quantity
     pnl_pct = ((exit_price - entry) / entry * 100) if entry else 0.0
-    status = "closed" if reason == "manual_close" else reason
+    status_map = {
+        "manual_close": "closed",
+        "auto_stop_loss": "stopped",
+        "auto_take_profit": "target_hit",
+    }
+    status = status_map.get(reason, reason)
     conn.execute(
         """
         UPDATE paper_trades
         SET status = ?, exit_time = ?, exit_price = ?, exit_reason = ?,
-            realized_pnl = ?, realized_pnl_pct = ?, updated_at = ?
+            realized_pnl = ?, realized_pnl_pct = ?,
+            auto_exit_reason = CASE WHEN ? = 'manual_close' THEN auto_exit_reason ELSE ? END,
+            updated_at = ?
         WHERE id = ?
         """,
-        (status, timestamp, round(exit_price, 2), reason, round(pnl, 2), round(pnl_pct, 2), timestamp, position["trade_id"]),
+        (
+            status,
+            timestamp,
+            round(exit_price, 2),
+            reason,
+            round(pnl, 2),
+            round(pnl_pct, 2),
+            reason,
+            reason,
+            timestamp,
+            position["trade_id"],
+        ),
     )
     conn.execute("DELETE FROM paper_positions WHERE id = ?", (position["id"],))
     conn.execute(
@@ -821,6 +866,56 @@ def _symbol_metadata(conn: sqlite3.Connection, market: str, symbol: str) -> dict
         (symbol,),
     ).fetchone()
     return dict(row) if row else {"symbol": symbol}
+
+
+def _normalize_risk_mode(value, default: str = "manual_only") -> str:
+    mode = str(value or default or "manual_only").strip()
+    return mode if mode in {"manual_only", "auto_stop_take_profit", "follow_system"} else default
+
+
+def _position_risk_mode(position) -> str:
+    source = position["source"] if "source" in position.keys() else None
+    is_manual = position["is_manual"] if "is_manual" in position.keys() else 0
+    fallback = "manual_only" if source == "manual" or is_manual else "follow_system"
+    return _normalize_risk_mode(position["risk_mode"] if "risk_mode" in position.keys() else None, fallback)
+
+
+def _position_auto_exit_enabled(position) -> bool:
+    risk_mode = _position_risk_mode(position)
+    if risk_mode == "manual_only":
+        return False
+    if "auto_exit_enabled" in position.keys() and position["auto_exit_enabled"] is not None:
+        return bool(position["auto_exit_enabled"])
+    return True
+
+
+def _risk_alert(position: dict) -> str:
+    current = _to_float(position.get("current_price"))
+    stop_loss = _to_float(position.get("stop_loss"))
+    target_price = _to_float(position.get("target_price"))
+    if current <= 0:
+        return ""
+    if stop_loss > 0:
+        if current <= stop_loss:
+            return "已達停損提醒"
+        if current <= stop_loss * 1.005:
+            return "接近停損"
+    if target_price > 0:
+        if current >= target_price:
+            return "已達停利提醒"
+        if current >= target_price * 0.995:
+            return "接近停利"
+    return ""
+
+
+def _position_payload(row: dict) -> dict:
+    row["risk_mode"] = _normalize_risk_mode(
+        row.get("risk_mode"),
+        "manual_only" if row.get("source") == "manual" or row.get("is_manual") else "follow_system",
+    )
+    row["auto_exit_enabled"] = 0 if row["risk_mode"] == "manual_only" else int(row.get("auto_exit_enabled") if row.get("auto_exit_enabled") is not None else 1)
+    row["risk_alert"] = _risk_alert(row)
+    return row
 
 
 def _to_float(value) -> float:

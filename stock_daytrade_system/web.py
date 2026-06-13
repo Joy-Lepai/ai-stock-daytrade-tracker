@@ -174,7 +174,8 @@ class StockWebHandler(BaseHTTPRequestHandler):
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 rows = conn.execute(
                     """
-                    SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual
+                    SELECT p.*, t.name_zh, t.name_en, t.entry_reason, t.source, t.is_manual,
+                           t.risk_mode, t.auto_exit_enabled, t.auto_exit_reason
                     FROM paper_positions p
                     LEFT JOIN paper_trades t ON t.id = p.trade_id
                     ORDER BY p.market, p.symbol
@@ -626,6 +627,13 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
             <option value="TW">TW paper account</option>
           </select>
         </label>
+        <label>風控模式 risk_mode
+          <select id="manual-risk-mode" name="risk_mode">
+            <option value="manual_only">manual_only 手動管理</option>
+            <option value="auto_stop_take_profit">auto_stop_take_profit 自動停損 / 停利</option>
+            <option value="follow_system">follow_system 跟隨系統風控</option>
+          </select>
+        </label>
         <label class="manual-reason">進場理由 entry_reason
           <input id="manual-entry-reason" name="entry_reason" placeholder="例如：測試突破 VWAP 後的虛擬買進">
         </label>
@@ -641,9 +649,9 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <h2>等待觸發的 B+ 練習訊號</h2>
     <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>進場狀態</th><th>生命週期</th><th>觸發條件</th><th>距離觸發</th><th>Readiness</th></tr></thead><tbody id="paper-b-plus-waiting"></tbody></table></div>
     <h2>目前持倉</h2>
-    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th><th>操作</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>風控模式</th><th>自動出場</th><th>風控提醒</th><th>進場價</th><th>現價</th><th>數量</th><th>未實現損益</th><th>停損</th><th>停利</th><th>操作</th></tr></thead><tbody id="paper-positions"></tbody></table></div>
     <h2>今日交易 / 最近交易</h2>
-    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>狀態</th><th>分級</th><th>進場狀態</th><th>進場</th><th>出場</th><th>損益</th><th>原因</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>來源</th><th>風控模式</th><th>自動出場</th><th>狀態</th><th>分級</th><th>進場狀態</th><th>進場</th><th>出場</th><th>損益</th><th>原因</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
     <h2>跳過紀錄</h2>
     <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>訊號</th><th>原因</th><th>時間</th></tr></thead><tbody id="paper-skipped"></tbody></table></div>
     <h2>策略績效</h2>
@@ -1071,6 +1079,7 @@ def paper_dashboard_script() -> str:
       const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
       const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
       const sourceLabel = (value) => value === "manual" ? "手動模擬" : "系統訊號";
+      const autoExitLabel = (value) => Number(value) ? "是" : "否";
       const status = $("paper-refresh-status");
       const formStatus = $("manual-form-status");
 
@@ -1165,12 +1174,15 @@ def paper_dashboard_script() -> str:
 
       function renderPositions(items) {
         if (!items.length) {
-          $("paper-positions").innerHTML = '<tr><td colspan="10">目前尚無持倉。你可以等待系統訊號觸發，也可以使用上方手動虛擬交易建立一筆模擬交易。</td></tr>';
+          $("paper-positions").innerHTML = '<tr><td colspan="13">目前尚無持倉。你可以等待系統訊號觸發，也可以使用上方手動虛擬交易建立一筆模擬交易。</td></tr>';
           return;
         }
         $("paper-positions").innerHTML = items.map((item) => `<tr>
           <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
           <td><span class="source-pill">${sourceLabel(item.source)}</span></td>
+          <td>${escapeHtml(item.risk_mode || "-")}</td>
+          <td>${autoExitLabel(item.auto_exit_enabled)}</td>
+          <td>${escapeHtml(item.risk_alert || "無")}</td>
           <td>${money(item.entry_price)}</td><td>${money(item.current_price)}</td>
           <td>${money(item.quantity)}</td><td class="${cls(item.unrealized_pnl)}">${money(item.unrealized_pnl)}<br><span class="muted">${pct(item.unrealized_pnl_pct)}</span></td>
           <td>${money(item.stop_loss)}</td><td>${money(item.target_price)}</td>
@@ -1185,12 +1197,14 @@ def paper_dashboard_script() -> str:
       function renderTrades(items) {
         const tradable = items.filter((item) => item.status !== "skipped").slice(0, 40);
         if (!tradable.length) {
-          $("paper-trades").innerHTML = '<tr><td colspan="10">今日尚無虛擬交易，等待符合條件的訊號，或使用上方手動虛擬交易測試。</td></tr>';
+          $("paper-trades").innerHTML = '<tr><td colspan="12">今日尚無虛擬交易，等待符合條件的訊號，或使用上方手動虛擬交易測試。</td></tr>';
           return;
         }
         $("paper-trades").innerHTML = tradable.map((item) => `<tr>
           <td>${escapeHtml(item.market)}</td><td>${escapeHtml(item.symbol)}<br><span class="muted">${escapeHtml(item.name_zh)}</span></td>
           <td><span class="source-pill">${sourceLabel(item.source)}</span></td>
+          <td>${escapeHtml(item.risk_mode || "-")}</td>
+          <td>${autoExitLabel(item.auto_exit_enabled)}<br><span class="muted">${escapeHtml(item.auto_exit_reason || "")}</span></td>
           <td>${escapeHtml(item.status)}</td><td>${escapeHtml(item.grade)}</td><td>${escapeHtml(item.entry_status)}</td>
           <td>${escapeHtml(item.entry_time)}<br>${money(item.entry_price)}</td>
           <td>${escapeHtml(item.exit_time)}<br>${money(item.exit_price)}</td>
@@ -1284,6 +1298,7 @@ def paper_dashboard_script() -> str:
           quantity: Number($("manual-quantity").value),
           stop_loss: Number($("manual-stop-loss").value),
           target_price: Number($("manual-target-price").value),
+          risk_mode: $("manual-risk-mode").value,
           entry_reason: $("manual-entry-reason").value.trim(),
         };
       }
@@ -1352,6 +1367,7 @@ def paper_dashboard_script() -> str:
         $("manual-trade-form").reset();
         $("manual-market").value = "US";
         $("manual-account").value = "US";
+        $("manual-risk-mode").value = "manual_only";
         $("manual-quote-status").textContent = "輸入股票代號後可嘗試帶入名稱與參考行情。";
         setFormStatus("");
       });

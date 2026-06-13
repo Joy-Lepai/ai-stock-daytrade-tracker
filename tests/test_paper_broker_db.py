@@ -1,5 +1,6 @@
 from datetime import datetime
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from zoneinfo import ZoneInfo
@@ -205,13 +206,14 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
                 )
                 account = conn.execute("SELECT cash_balance FROM paper_accounts WHERE id = 'US'").fetchone()
                 position = conn.execute("SELECT * FROM paper_positions WHERE symbol = 'NVDA'").fetchone()
-                trade = conn.execute("SELECT source, is_manual, name_zh FROM paper_trades WHERE symbol = 'NVDA'").fetchone()
+                trade = conn.execute("SELECT source, is_manual, name_zh, risk_mode, auto_exit_enabled FROM paper_trades WHERE symbol = 'NVDA'").fetchone()
 
         self.assertTrue(result["ok"])
         self.assertIn("已建立手動虛擬買進：NVDA｜輝達", result["message"])
         self.assertEqual(account["cash_balance"], 29_800)
         self.assertEqual(position["quantity"], 2)
         self.assertEqual((trade["source"], trade["is_manual"], trade["name_zh"]), ("manual", 1, "輝達"))
+        self.assertEqual((trade["risk_mode"], trade["auto_exit_enabled"]), ("manual_only", 0))
 
     def test_us_quote_uses_builtin_chinese_name_when_symbol_table_is_empty(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -314,6 +316,149 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
         self.assertEqual(trade["realized_pnl_pct"], 10)
         self.assertEqual(account["cash_balance"], 30_020)
         self.assertEqual(account["realized_pnl"], 20)
+
+    def test_manual_only_trade_does_not_auto_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1, "stop_loss": 98, "target_price": 104},
+                    US_NOW,
+                )
+                insert_us_price(conn, price=97)
+
+                summary = run_paper_trading(conn, US_NOW)
+                trade = conn.execute("SELECT status, exit_reason FROM paper_trades WHERE source = 'manual'").fetchone()
+                position = conn.execute("SELECT current_price, unrealized_pnl FROM paper_positions WHERE symbol = 'NVDA'").fetchone()
+
+        self.assertEqual(summary.closed, 0)
+        self.assertEqual((trade["status"], trade["exit_reason"]), ("open", None))
+        self.assertEqual(position["current_price"], 97)
+        self.assertEqual(position["unrealized_pnl"], -3)
+
+    def test_manual_only_reaching_stop_shows_alert_in_dashboard_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 1, "stop_loss": 98, "target_price": 104},
+                    US_NOW,
+                )
+                insert_us_price(conn, price=97)
+
+                payload = paper_dashboard_payload(conn, US_NOW)
+                position = next(item for item in payload["positions"] if item["symbol"] == "NVDA")
+
+        self.assertEqual(position["risk_mode"], "manual_only")
+        self.assertEqual(position["auto_exit_enabled"], 0)
+        self.assertEqual(position["risk_alert"], "已達停損提醒")
+
+    def test_manual_auto_stop_take_profit_closes_at_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                create_manual_trade(
+                    conn,
+                    {
+                        "market": "US",
+                        "symbol": "NVDA",
+                        "entry_price": 100,
+                        "quantity": 1,
+                        "stop_loss": 98,
+                        "target_price": 104,
+                        "risk_mode": "auto_stop_take_profit",
+                    },
+                    US_NOW,
+                )
+                insert_us_price(conn, price=97)
+
+                summary = run_paper_trading(conn, US_NOW)
+                trade = conn.execute("SELECT status, exit_reason, auto_exit_reason FROM paper_trades WHERE source = 'manual'").fetchone()
+                positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions WHERE symbol = 'NVDA'").fetchone()["total"]
+
+        self.assertEqual(summary.closed, 1)
+        self.assertEqual(positions, 0)
+        self.assertEqual((trade["status"], trade["exit_reason"], trade["auto_exit_reason"]), ("stopped", "auto_stop_loss", "auto_stop_loss"))
+
+    def test_manual_auto_stop_take_profit_closes_at_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                create_manual_trade(
+                    conn,
+                    {
+                        "market": "US",
+                        "symbol": "NVDA",
+                        "entry_price": 100,
+                        "quantity": 1,
+                        "stop_loss": 98,
+                        "target_price": 104,
+                        "risk_mode": "auto_stop_take_profit",
+                    },
+                    US_NOW,
+                )
+                insert_us_price(conn, price=105)
+
+                summary = run_paper_trading(conn, US_NOW)
+                trade = conn.execute("SELECT status, exit_reason, auto_exit_reason, realized_pnl FROM paper_trades WHERE source = 'manual'").fetchone()
+
+        self.assertEqual(summary.closed, 1)
+        self.assertEqual((trade["status"], trade["exit_reason"], trade["auto_exit_reason"]), ("target_hit", "auto_take_profit", "auto_take_profit"))
+        self.assertEqual(trade["realized_pnl"], 5)
+
+    def test_manual_follow_system_uses_system_risk_rules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                insert_us_price(conn, price=100)
+                create_manual_trade(
+                    conn,
+                    {
+                        "market": "US",
+                        "symbol": "NVDA",
+                        "entry_price": 100,
+                        "quantity": 1,
+                        "stop_loss": 98,
+                        "target_price": 104,
+                        "risk_mode": "follow_system",
+                    },
+                    US_NOW,
+                )
+                insert_us_price(conn, price=97)
+
+                summary = run_paper_trading(conn, US_NOW)
+                trade = conn.execute("SELECT status, exit_reason FROM paper_trades WHERE source = 'manual'").fetchone()
+
+        self.assertEqual(summary.closed, 1)
+        self.assertEqual((trade["status"], trade["exit_reason"]), ("stopped", "stopped"))
+
+    def test_old_manual_trades_migrate_to_manual_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "db.sqlite"
+            raw = sqlite3.connect(db_path)
+            raw.execute(
+                """
+                CREATE TABLE paper_trades (
+                  id TEXT PRIMARY KEY,
+                  source TEXT,
+                  is_manual INTEGER
+                )
+                """
+            )
+            raw.execute("INSERT INTO paper_trades (id, source, is_manual) VALUES ('old-manual', 'manual', 1)")
+            raw.execute("INSERT INTO paper_trades (id, source, is_manual) VALUES ('old-system', 'system', 0)")
+            raw.commit()
+            raw.close()
+
+            with connect(db_path) as conn:
+                rows = {
+                    row["id"]: row
+                    for row in conn.execute("SELECT id, risk_mode, auto_exit_enabled FROM paper_trades").fetchall()
+                }
+
+        self.assertEqual((rows["old-manual"]["risk_mode"], rows["old-manual"]["auto_exit_enabled"]), ("manual_only", 0))
+        self.assertEqual((rows["old-system"]["risk_mode"], rows["old-system"]["auto_exit_enabled"]), ("follow_system", 1))
 
 
 if __name__ == "__main__":

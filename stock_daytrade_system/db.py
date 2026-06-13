@@ -222,6 +222,9 @@ CREATE TABLE IF NOT EXISTS paper_trades (
   is_manual INTEGER NOT NULL DEFAULT 0,
   manual_reason TEXT,
   created_by TEXT,
+  risk_mode TEXT NOT NULL DEFAULT 'follow_system',
+  auto_exit_enabled INTEGER NOT NULL DEFAULT 1,
+  auto_exit_reason TEXT,
   side TEXT NOT NULL,
   status TEXT NOT NULL,
   grade TEXT,
@@ -1288,17 +1291,44 @@ def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str
 
 def _ensure_paper_trade_columns(conn: sqlite3.Connection) -> None:
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(paper_trades)").fetchall()}
+    had_risk_mode = "risk_mode" in existing
+    had_auto_exit_enabled = "auto_exit_enabled" in existing
     columns = {
         "source": "TEXT NOT NULL DEFAULT 'system'",
         "is_manual": "INTEGER NOT NULL DEFAULT 0",
         "manual_reason": "TEXT",
         "created_by": "TEXT",
+        "risk_mode": "TEXT NOT NULL DEFAULT 'follow_system'",
+        "auto_exit_enabled": "INTEGER NOT NULL DEFAULT 1",
+        "auto_exit_reason": "TEXT",
     }
     for name, column_type in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {name} {column_type}")
     conn.execute("UPDATE paper_trades SET source = 'system' WHERE source IS NULL OR source = ''")
     conn.execute("UPDATE paper_trades SET is_manual = 0 WHERE is_manual IS NULL")
+    conn.execute(
+        """
+        UPDATE paper_trades
+        SET risk_mode = CASE WHEN COALESCE(source, 'system') = 'manual' OR COALESCE(is_manual, 0) = 1
+                             THEN 'manual_only'
+                             ELSE 'follow_system'
+                        END
+        WHERE risk_mode IS NULL OR risk_mode = ''
+           OR (? = 0 AND (COALESCE(source, 'system') = 'manual' OR COALESCE(is_manual, 0) = 1))
+        """,
+        (1 if had_risk_mode else 0,),
+    )
+    conn.execute(
+        """
+        UPDATE paper_trades
+        SET auto_exit_enabled = CASE WHEN risk_mode = 'manual_only' THEN 0 ELSE 1 END
+        WHERE auto_exit_enabled IS NULL
+           OR ? = 0
+           OR (? = 0 AND (COALESCE(source, 'system') = 'manual' OR COALESCE(is_manual, 0) = 1))
+        """,
+        (1 if had_auto_exit_enabled else 0, 1 if had_risk_mode else 0),
+    )
 
 
 def _delete_stale_recommendations(
