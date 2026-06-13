@@ -13,8 +13,10 @@ from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tr
 from stock_daytrade_system.config import load_config
 from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import backtest_summary, connect, default_db_path, save_long_candidates, update_backtests
+from stock_daytrade_system.decision_center import build_decision_center, paper_activity_stats
 from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confirmation
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
+from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.paper_trading import update_paper_trades
 from stock_daytrade_system.performance import record_signal_performance
@@ -356,6 +358,8 @@ def run_tracker(
             "executable": sum(1 for item in long_candidates if item.entry_status == "executable"),
             "wait_volume": sum(1 for item in visible_long_candidates if item.entry_status == "wait_volume"),
             "wait_vwap": sum(1 for item in visible_long_candidates if item.entry_status == "wait_vwap"),
+            "wait_breakout": sum(1 for item in visible_long_candidates if item.entry_status == "wait_breakout"),
+            "wait_pullback": sum(1 for item in visible_long_candidates if item.entry_status == "wait_pullback"),
             "high_risk": sum(1 for item in visible_long_candidates if item.entry_status == "high_risk"),
             "avoid": sum(1 for item in long_candidates if item.entry_status == "avoid"),
             "recommendations": int(backtest_data.get("recommendation_count", 0)),
@@ -375,6 +379,21 @@ def run_tracker(
             "candidates_count_from_current_run": len(long_candidates),
             "visible_candidates_count": len(visible_long_candidates),
         }
+        paper_stats = paper_activity_stats(conn, market="TW")
+        clock = taiwan_market_session(now)
+        decision_center = build_decision_center(
+            market="TW",
+            market_session=clock.session,
+            market_status=market_bias.direction,
+            candidates=visible_long_candidates,
+            checklist=recommendation_checklist,
+            b_plus_triggers=b_plus_triggers,
+            data_source_status={
+                "ok": data_missing_count == 0,
+                "failed_symbols": warning_symbols + list(taifex_errors.keys()) + list(cmoney_errors.keys()),
+            },
+            paper_stats=paper_stats,
+        )
         long_summary = build_long_model_summary(
             long_candidates,
             market_indicators,
@@ -383,6 +402,8 @@ def run_tracker(
             recommendation_checklist,
             b_plus_triggers,
             debug_info,
+            paper_stats,
+            decision_center,
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)
     paper_summary = update_paper_trades(now, tracked_symbols, intraday_data, output_dir)

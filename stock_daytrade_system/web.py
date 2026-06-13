@@ -518,6 +518,8 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     </header>
     <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。</section>
     <section id="us-error" class="warn" hidden>資料暫時無法更新。</section>
+    <section id="us-decision-center" class="decision-center"></section>
+    <section id="us-signal-center" class="decision-center"></section>
     <section class="summary" id="us-summary"></section>
     <h2>資料來源狀態</h2>
     <div class="table-wrap"><table><tbody id="us-source"></tbody></table></div>
@@ -585,6 +587,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     </header>
     <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。</section>
     <section id="paper-error" class="warn" hidden>正在載入虛擬交易資料……</section>
+    <section id="paper-decision-summary" class="decision-center"></section>
     <section class="manual-panel" aria-labelledby="manual-trade-title">
       <div class="section-title-row">
         <h2 id="manual-trade-title">手動虛擬交易</h2>
@@ -804,6 +807,11 @@ def base_css() -> str:
     .refresh-status { white-space:nowrap; font-size:13px; color:var(--muted); }
     button, .topbar a { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:6px 10px; font:inherit; text-decoration:none; cursor:pointer; }
     button:hover, .topbar a:hover { border-color:var(--accent); color:var(--accent); }
+    .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:12px 0; }
+    .metric { background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
+    .metric strong { display:block; font-size:20px; margin-top:2px; }
+    .muted { color:var(--muted); }
+    .warn { margin:12px 0; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
     .login-body { min-height:100vh; display:grid; place-items:center; padding:20px; }
     .login-panel { width:min(360px,100%); background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:22px; }
     .login-panel h1 { margin:0 0 18px; font-size:24px; }
@@ -812,6 +820,19 @@ def base_css() -> str:
     .login-panel button { width:100%; margin-top:8px; background:var(--accent); color:white; border-color:var(--accent); }
     .error { margin-bottom:10px; padding:8px 10px; border:1px solid #fecdd3; background:#fff1f2; color:#9f1239; border-radius:6px; }
     .empty { margin:28px; padding:16px; background:#fff; border:1px solid var(--line); border-radius:8px; }
+    .decision-center { margin:16px 0; background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .decision-center h2 { margin:0 0 10px; font-size:18px; }
+    .decision-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin-top:12px; }
+    .decision-panel { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fbfcfe; }
+    .decision-panel strong { display:block; margin-bottom:4px; }
+    .signal-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-top:12px; }
+    .signal-column { border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; min-height:120px; }
+    .signal-column h3 { margin:0 0 10px; font-size:15px; }
+    .signal-card { border-top:1px solid var(--line); padding:10px 0; }
+    .signal-card:first-of-type { border-top:0; padding-top:0; }
+    .signal-title { font-weight:750; }
+    .signal-meta { color:var(--muted); font-size:12px; white-space:normal; }
+    .signal-next { margin-top:6px; color:var(--accent); font-weight:700; }
     @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } }
     """
 
@@ -980,8 +1001,73 @@ def us_dashboard_script() -> str:
           row("recommendations count", text(debug.recommendations_count)),
           row("data source status", escapeHtml(debug.data_source_status)),
         ].join("");
+        renderDecisionCenter(payload.decision_center || {});
+        renderSignalCenter((payload.decision_center || {}).signal_center || {});
         renderCandidates(payload.candidates || []);
         renderBPlusTriggers(payload.b_plus_triggers || []);
+      }
+
+      function renderDecisionCenter(data) {
+        if (!data || !data.operation_tendency) {
+          $("us-decision-center").innerHTML = '<h2>AI 今日決策中心</h2><p class="muted">目前資料不足，系統僅能提供有限判斷。</p>';
+          return;
+        }
+        const counts = data.counts || {};
+        const confidence = data.confidence_summary || {};
+        const panels = [
+          ["今日操作傾向", data.operation_tendency, data.summary_text],
+          ["可執行訊號摘要", `${counts.executable || 0} 檔 executable`, data.executable_summary],
+          ["主要等待條件", (data.main_waiting_conditions || []).join("、") || "無明顯等待條件", data.main_waiting_summary],
+          ["主要風險", (data.major_risks || []).join("、") || "無明顯集中風險", data.major_risk_summary],
+          ["今日建議動作", "策略追蹤與虛擬交易", data.action_suggestion],
+        ];
+        const radar = [
+          metric("A級數量", counts.grade_a || 0),
+          metric("B+數量", counts.grade_b_plus || 0),
+          metric("B級數量", counts.grade_b || 0),
+          metric("triggered", counts.triggered || 0),
+          metric("paper open positions", data.paper_stats?.paper_open_positions || 0),
+          metric("manual trades", data.paper_stats?.manual_trades || 0),
+          metric("system trades", data.paper_stats?.system_trades || 0),
+          metric("信心摘要", `高 ${confidence.high || 0} / 中 ${confidence.medium || 0} / 低 ${confidence.low || 0}`),
+        ].join("");
+        const panelHtml = panels.map(([title, headline, body]) => `<div class="decision-panel">
+          <strong>${escapeHtml(title)}</strong>
+          <div>${escapeHtml(headline)}</div>
+          <p class="muted">${escapeHtml(body || "")}</p>
+        </div>`).join("");
+        const noTrade = data.no_trade_reason
+          ? `<div class="warn"><strong>今日不交易理由</strong><br>${escapeHtml(data.no_trade_reason)}</div>`
+          : "";
+        $("us-decision-center").innerHTML = `<h2>AI 今日決策中心</h2><section class="summary">${radar}</section><div class="decision-grid">${panelHtml}</div>${noTrade}<section class="notice">${escapeHtml(data.disclaimer || "")}</section>`;
+      }
+
+      function renderSignalCenter(center) {
+        const columns = [
+          ["executable", "可執行 executable"],
+          ["b_plus", "B+ 練習觀察"],
+          ["waiting", "等待確認"],
+          ["risk", "風險過高 / 避開"],
+        ];
+        $("us-signal-center").innerHTML = `<h2>訊號中心</h2><div class="signal-grid">${columns.map(([key, title]) => {
+          const items = Array.isArray(center[key]) ? center[key] : [];
+          const cards = items.length ? items.map(signalCard).join("") : '<p class="muted">目前沒有標的。</p>';
+          return `<div class="signal-column"><h3>${escapeHtml(title)}（${items.length}）</h3>${cards}</div>`;
+        }).join("")}</div>`;
+      }
+
+      function signalCard(item) {
+        const label = `${escapeHtml(item.symbol)}｜${escapeHtml(item.name_zh)}${item.name_en ? `｜${escapeHtml(item.name_en)}` : ""}`;
+        const meta = `${escapeHtml(item.grade)}｜${escapeHtml(item.entry_status)}｜${escapeHtml(item.lifecycle_status)}｜Readiness ${escapeHtml(item.trigger_readiness)}`;
+        const metrics = `現價 ${number(item.current_price)}｜VWAP ${number(item.vwap)}｜量比 ${number(item.volume_ratio)}x｜停損 ${number(item.stop_loss)}｜停利 ${number(item.target_price)}`;
+        return `<div class="signal-card">
+          <div class="signal-title">${label}</div>
+          <div class="signal-meta">${meta}</div>
+          <div class="signal-meta">${escapeHtml(metrics)}</div>
+          <div class="signal-meta">信心：${escapeHtml(item.confidence_level || "-")}</div>
+          <div class="signal-meta">${escapeHtml(item.reason || "")}</div>
+          <div class="signal-next">下一步：${escapeHtml(item.next_step || "-")}</div>
+        </div>`;
       }
 
       function renderBPlusTriggers(items) {
@@ -1120,6 +1206,7 @@ def paper_dashboard_script() -> str:
           }
         };
         const performance = asObject(payload.performance);
+        safeRender("AI 虛擬交易摘要", () => renderPaperDecision(asObject(payload.decision_summary)));
         safeRender("帳戶總覽", () => renderAccounts(asArray(payload.accounts), performance));
         safeRender("B+ 等待觸發", () => renderBPlusWaiting(asArray(payload.b_plus_triggers)));
         safeRender("目前持倉", () => renderPositions(asArray(payload.positions)));
@@ -1143,6 +1230,25 @@ def paper_dashboard_script() -> str:
           $("paper-error").hidden = true;
           $("paper-error").textContent = "";
         }
+      }
+
+      function renderPaperDecision(data) {
+        if (!data || !data.summary_text) {
+          $("paper-decision-summary").innerHTML = '<h2>AI 虛擬交易摘要</h2><p class="muted">目前資料不足，系統僅能提供有限判斷。</p>';
+          return;
+        }
+        $("paper-decision-summary").innerHTML = `<h2>AI 虛擬交易摘要</h2>
+          <p>${escapeHtml(data.summary_text)}</p>
+          <section class="summary">
+            ${metric("手動交易數", data.manual_trades || 0)}
+            ${metric("系統交易數", data.system_trades || 0)}
+            ${metric("open positions", data.open_positions || 0)}
+            ${metric("今日 realized pnl", `<span class="${cls(data.today_realized_pnl)}">${money(data.today_realized_pnl)}</span>`)}
+            ${metric("B+ waiting", data.b_plus_waiting || 0)}
+            ${metric("B+ triggered", data.b_plus_triggered || 0)}
+            ${metric("可練習標的", data.practice_available ? "有" : "無")}
+          </section>
+          <section class="notice">${escapeHtml(data.disclaimer || "")}</section>`;
       }
 
       function renderAccounts(accounts, performance) {
@@ -1534,6 +1640,18 @@ def _static_paper_fallback_payload(primary_error: str, fallback_error: str) -> d
         "skipped": [],
         "skipped_trades": [],
         "b_plus_triggers": [],
+        "decision_summary": {
+            "version": "decision_center_v1_2026-06-13",
+            "summary_text": "目前虛擬交易資料庫暫時忙碌，系統僅能顯示空狀態。請稍後重試或等待下一次更新。",
+            "manual_trades": 0,
+            "system_trades": 0,
+            "open_positions": 0,
+            "today_realized_pnl": 0,
+            "b_plus_waiting": 0,
+            "b_plus_triggered": 0,
+            "practice_available": False,
+            "disclaimer": "本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。",
+        },
         "performance": {
             "total_trades": 0,
             "closed_trades": 0,

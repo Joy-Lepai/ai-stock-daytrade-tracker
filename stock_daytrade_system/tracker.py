@@ -355,6 +355,14 @@ def render_tracker_html(
       border-radius: 8px;
       color: #7c2d12;
     }}
+    .notice {{
+      margin: 12px 0;
+      padding: 10px 12px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #7c2d12;
+    }}
     .data-status {{
       margin-top: 14px;
       padding: 10px 12px;
@@ -419,6 +427,50 @@ def render_tracker_html(
     th.sort-asc::after {{ content: " ▲"; color: var(--blue); }}
     th.sort-desc::after {{ content: " ▼"; color: var(--blue); }}
     .notes {{ white-space: normal; min-width: 220px; color: var(--muted); }}
+    .decision-center {{
+      margin-top: 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }}
+    .decision-center h2 {{ margin-top: 0; }}
+    .decision-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }}
+    .decision-panel {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfe;
+    }}
+    .decision-panel strong {{ display: block; margin-bottom: 4px; }}
+    .decision-list {{ margin: 6px 0 0; padding-left: 18px; color: var(--muted); }}
+    .signal-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }}
+    .signal-column {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      padding: 12px;
+      min-height: 120px;
+    }}
+    .signal-column h3 {{ margin: 0 0 10px; font-size: 15px; }}
+    .signal-card {{
+      border-top: 1px solid var(--line);
+      padding: 10px 0;
+    }}
+    .signal-card:first-of-type {{ border-top: 0; padding-top: 0; }}
+    .signal-title {{ font-weight: 750; }}
+    .signal-meta {{ color: var(--muted); font-size: 12px; white-space: normal; }}
+    .signal-next {{ margin-top: 6px; font-weight: 700; color: var(--blue); }}
     @media (max-width: 760px) {{
       header, main {{ padding-left: 14px; padding-right: 14px; }}
       h1 {{ font-size: 22px; }}
@@ -441,6 +493,8 @@ def render_tracker_html(
     {_debug_block(long_summary)}
   </header>
   <main>
+    {_ai_decision_center(long_summary)}
+    {_signal_center(long_summary)}
     <h2>信心雷達</h2>
     {_confidence_radar(long_summary)}
     <h2>今日做多候選股 MVP</h2>
@@ -553,6 +607,117 @@ def _metric(label: str, value: int) -> str:
 
 def _metric_text(label: str, value: str) -> str:
     return f'<div class="metric"><span class="muted">{escape(label)}</span><strong>{escape(value)}</strong></div>'
+
+
+def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
+    if summary is None or not summary.decision_center:
+        return (
+            '<section class="decision-center"><h2>AI 今日決策中心</h2>'
+            '<p class="muted">目前資料不足，系統僅能提供有限判斷。</p>'
+            '<section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>'
+            "</section>"
+        )
+    data = summary.decision_center
+    counts = data.get("counts", {})
+    confidence = data.get("confidence_summary", {})
+    panels = [
+        ("今日操作傾向", data.get("operation_tendency", "保守觀望"), data.get("summary_text", "")),
+        ("可執行訊號摘要", f"{int(counts.get('executable', 0))} 檔 executable", data.get("executable_summary", "")),
+        ("主要等待條件", "、".join(data.get("main_waiting_conditions", [])) or "無明顯等待條件", data.get("main_waiting_summary", "")),
+        ("主要風險", "、".join(data.get("major_risks", [])) or "無明顯集中風險", data.get("major_risk_summary", "")),
+        ("今日建議動作", "策略追蹤與虛擬交易", data.get("action_suggestion", "")),
+    ]
+    panel_html = "".join(
+        "<div class=\"decision-panel\">"
+        f"<strong>{escape(title)}</strong>"
+        f"<div>{escape(str(headline))}</div>"
+        f"<p class=\"muted\">{escape(str(body))}</p>"
+        "</div>"
+        for title, headline, body in panels
+    )
+    no_trade = (
+        f"<div class=\"warn\"><strong>今日不交易理由</strong><br>{escape(data.get('no_trade_reason', ''))}</div>"
+        if data.get("no_trade_reason")
+        else ""
+    )
+    confidence_text = f"高 {confidence.get('high', 0)} / 中 {confidence.get('medium', 0)} / 低 {confidence.get('low', 0)}"
+    radar = (
+        "<div class=\"summary\">"
+        f"{_metric('A級數量', int(counts.get('grade_a', 0)))}"
+        f"{_metric('B+數量', int(counts.get('grade_b_plus', 0)))}"
+        f"{_metric('B級數量', int(counts.get('grade_b', 0)))}"
+        f"{_metric('triggered', int(counts.get('triggered', 0)))}"
+        f"{_metric('paper open positions', int(data.get('paper_stats', {}).get('paper_open_positions', 0)))}"
+        f"{_metric('manual trades', int(data.get('paper_stats', {}).get('manual_trades', 0)))}"
+        f"{_metric('system trades', int(data.get('paper_stats', {}).get('system_trades', 0)))}"
+        f"{_metric_text('信心摘要', confidence_text)}"
+        "</div>"
+    )
+    return (
+        "<section class=\"decision-center\">"
+        "<h2>AI 今日決策中心</h2>"
+        f"{radar}"
+        f"<div class=\"decision-grid\">{panel_html}</div>"
+        f"{no_trade}"
+        f"<section class=\"notice\">{escape(data.get('disclaimer', '本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。'))}</section>"
+        "</section>"
+    )
+
+
+def _signal_center(summary: Optional[LongModelSummary]) -> str:
+    center = (summary.decision_center or {}).get("signal_center") if summary else None
+    if not center:
+        return (
+            "<section class=\"decision-center\"><h2>訊號中心</h2>"
+            "<p class=\"muted\">目前沒有符合條件的候選股。</p></section>"
+        )
+    columns = [
+        ("executable", "可執行 executable"),
+        ("b_plus", "B+ 練習觀察"),
+        ("waiting", "等待確認"),
+        ("risk", "風險過高 / 避開"),
+    ]
+    html = []
+    for key, title in columns:
+        cards = "".join(_signal_card(item) for item in center.get(key, []))
+        empty = '<p class="muted">目前沒有標的。</p>'
+        html.append(
+            "<div class=\"signal-column\">"
+            f"<h3>{escape(title)}（{len(center.get(key, []))}）</h3>"
+            f"{cards or empty}"
+            "</div>"
+        )
+    return (
+        "<section class=\"decision-center\">"
+        "<h2>訊號中心</h2>"
+        "<div class=\"signal-grid\">"
+        + "".join(html)
+        + "</div></section>"
+    )
+
+
+def _signal_card(item: dict) -> str:
+    name = f"{item.get('symbol', '')}｜{item.get('name_zh', '')}"
+    if item.get("name_en"):
+        name += f"｜{item.get('name_en')}"
+    meta = (
+        f"{item.get('grade', '-')}｜{item.get('entry_status', '-')}｜{item.get('lifecycle_status', '-')}"
+        f"｜Readiness {item.get('trigger_readiness', '-')}"
+    )
+    metrics = (
+        f"現價 {_fmt(item.get('current_price'))}｜VWAP {_fmt(item.get('vwap'))}｜"
+        f"量比 {_fmt(item.get('volume_ratio'))}x｜停損 {_fmt(item.get('stop_loss'))}｜停利 {_fmt(item.get('target_price'))}"
+    )
+    return (
+        "<div class=\"signal-card\">"
+        f"<div class=\"signal-title\">{escape(name)}</div>"
+        f"<div class=\"signal-meta\">{escape(meta)}</div>"
+        f"<div class=\"signal-meta\">{escape(metrics)}</div>"
+        f"<div class=\"signal-meta\">信心：{escape(str(item.get('confidence_level', '-')))}</div>"
+        f"<div class=\"signal-meta\">{escape(str(item.get('reason', '')))}</div>"
+        f"<div class=\"signal-next\">下一步：{escape(str(item.get('next_step', '-')))}</div>"
+        "</div>"
+    )
 
 
 def _warning_block(warnings: List[str]) -> str:

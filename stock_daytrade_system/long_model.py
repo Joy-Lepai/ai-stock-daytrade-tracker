@@ -98,6 +98,8 @@ class LongModelSummary:
     recommendation_checklist: dict
     b_plus_triggers: List[dict] = field(default_factory=list)
     debug_info: dict = field(default_factory=dict)
+    paper_stats: dict = field(default_factory=dict)
+    decision_center: dict = field(default_factory=dict)
 
 
 def build_long_candidates(
@@ -140,6 +142,8 @@ def build_long_model_summary(
     recommendation_checklist: Optional[dict] = None,
     b_plus_triggers: Optional[List[dict]] = None,
     debug_info: Optional[dict] = None,
+    paper_stats: Optional[dict] = None,
+    decision_center: Optional[dict] = None,
 ) -> LongModelSummary:
     visible = [
         item for item in candidates
@@ -156,6 +160,8 @@ def build_long_model_summary(
         recommendation_checklist=recommendation_checklist or {},
         b_plus_triggers=b_plus_triggers or [],
         debug_info=debug_info or {},
+        paper_stats=paper_stats or {},
+        decision_center=decision_center or {},
     )
 
 

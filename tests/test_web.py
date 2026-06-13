@@ -25,6 +25,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("/api/paper/manual-trade", html)
         self.assertIn("/api/paper/close-trade", html)
         self.assertIn("手動虛擬交易", html)
+        self.assertIn("paper-decision-summary", html)
+        self.assertIn("AI 虛擬交易摘要", html)
         self.assertIn("建立虛擬買進", html)
         self.assertIn("不串接券商", html)
         self.assertIn("目前持倉", html)

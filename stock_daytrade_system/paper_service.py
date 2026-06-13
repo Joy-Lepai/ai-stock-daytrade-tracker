@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
+from stock_daytrade_system.decision_center import build_paper_decision_summary
 from stock_daytrade_system.paper_broker import (
     PAPER_ENGINE_VERSION,
     empty_paper_dashboard_payload,
@@ -19,6 +20,7 @@ def build_paper_dashboard(conn, project_root: Path) -> dict:
     b_plus_triggers = build_b_plus_trigger_tracker(conn)
     manual_debug = _manual_debug(conn)
     payload["b_plus_triggers"] = b_plus_triggers
+    payload["decision_summary"] = build_paper_decision_summary(payload)
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
@@ -45,6 +47,7 @@ def build_empty_paper_dashboard(conn, project_root: Path, last_error: str = "") 
     b_plus_triggers = build_b_plus_trigger_tracker(conn)
     manual_debug = _manual_debug(conn)
     payload["b_plus_triggers"] = b_plus_triggers
+    payload["decision_summary"] = build_paper_decision_summary(payload)
     payload["debug"] = {
         "app_version": _current_commit_hash(project_root),
         "engine_version": PAPER_ENGINE_VERSION,
