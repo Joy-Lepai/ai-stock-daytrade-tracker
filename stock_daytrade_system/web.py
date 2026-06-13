@@ -1049,11 +1049,21 @@ def us_dashboard_script() -> str:
 def paper_dashboard_script() -> str:
     return r"""
     (() => {
-      const state = { interval: 300, remaining: 300, quoteTimer: null };
+      const state = {
+        interval: 300,
+        remaining: 300,
+        quoteTimer: null,
+        fetchStatus: "idle",
+        lastFetchTime: "",
+        renderStatus: "pending",
+        renderErrorMessage: "",
+      };
       const $ = (id) => document.getElementById(id);
       const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
       const money = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-";
       const pct = (value) => Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}%` : "-";
+      const asArray = (value) => Array.isArray(value) ? value : [];
+      const asObject = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
       const escapeHtml = (value) => text(value)
         .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -1067,34 +1077,59 @@ def paper_dashboard_script() -> str:
       async function loadDashboard() {
         status.textContent = "更新中...";
         $("paper-error").hidden = true;
+        let payload = null;
         try {
           const response = await fetch("/api/paper/dashboard", { cache: "no-store" });
-          const payload = await response.json();
+          payload = await response.json();
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          state.fetchStatus = "success";
+          state.lastFetchTime = new Date().toLocaleString();
           render(payload);
           state.interval = Number(payload.refresh_interval_seconds || 300);
           state.remaining = state.interval;
           status.textContent = `上次更新：${new Date().toLocaleTimeString()}｜下一次更新 ${state.remaining}s`;
         } catch (error) {
+          state.fetchStatus = "failed";
+          state.lastFetchTime = new Date().toLocaleString();
+          state.renderStatus = "failed";
+          state.renderErrorMessage = error.message;
           $("paper-error").hidden = false;
           $("paper-error").textContent = `虛擬交易 API 暫時無法更新：${error.message}`;
+          renderDebug(payload?.debug || {}, payload?.run || {}, payload || {});
           state.remaining = Math.max(state.interval, 60);
           status.textContent = "更新失敗，稍後自動重試";
         }
       }
 
       function render(payload) {
-        renderAccounts(payload.accounts || [], payload.performance || {});
-        renderBPlusWaiting(payload.b_plus_triggers || []);
-        renderPositions(payload.positions || []);
-        renderTrades(payload.trades || []);
-        renderSkipped(payload.skipped_trades || payload.skipped || []);
-        renderPerformance(payload.performance || {});
-        renderDebug(payload.debug || {}, payload.run || {});
-        const errors = payload.errors || [];
-        if (payload.api_status === "degraded" && errors.length) {
+        const renderErrors = [];
+        const safeRender = (label, fn) => {
+          try {
+            fn();
+          } catch (error) {
+            renderErrors.push(`${label}: ${error.message}`);
+          }
+        };
+        const performance = asObject(payload.performance);
+        safeRender("帳戶總覽", () => renderAccounts(asArray(payload.accounts), performance));
+        safeRender("B+ 等待觸發", () => renderBPlusWaiting(asArray(payload.b_plus_triggers)));
+        safeRender("目前持倉", () => renderPositions(asArray(payload.positions)));
+        safeRender("今日交易", () => renderTrades(asArray(payload.trades)));
+        safeRender("跳過紀錄", () => renderSkipped(asArray(payload.skipped_trades).length ? asArray(payload.skipped_trades) : asArray(payload.skipped)));
+        safeRender("策略績效", () => renderPerformance(performance));
+        state.renderStatus = renderErrors.length ? "partial" : "success";
+        state.renderErrorMessage = renderErrors.join("；");
+        renderDebug(asObject(payload.debug), asObject(payload.run), payload);
+        const errors = asArray(payload.errors);
+        if (payload.api_status === "error") {
+          $("paper-error").hidden = false;
+          $("paper-error").textContent = `虛擬交易 API 暫時無法更新：${errors.join("；") || payload.message || "unknown error"}`;
+        } else if (payload.api_status === "degraded" && errors.length) {
           $("paper-error").hidden = false;
           $("paper-error").textContent = `虛擬交易以空狀態顯示：${errors.join("；")}`;
+        } else if (renderErrors.length) {
+          $("paper-error").hidden = false;
+          $("paper-error").textContent = `部分區塊暫時無法顯示：${state.renderErrorMessage}`;
         } else {
           $("paper-error").hidden = true;
           $("paper-error").textContent = "虛擬交易 API 暫時無法更新。";
@@ -1178,10 +1213,10 @@ def paper_dashboard_script() -> str:
 
       function renderPerformance(performance) {
         const sections = [
-          tableFor("依來源", performance.by_source || [], "source"),
-          tableFor("依市場", performance.by_market || [], "market"),
-          tableFor("依分級", performance.by_grade || [], "grade"),
-          tableFor("依進場狀態", performance.by_entry_status || [], "entry_status"),
+          tableFor("依來源", asArray(performance.by_source), "source"),
+          tableFor("依市場", asArray(performance.by_market), "market"),
+          tableFor("依分級", asArray(performance.by_grade), "grade"),
+          tableFor("依進場狀態", asArray(performance.by_entry_status), "entry_status"),
         ];
         $("paper-performance").innerHTML = sections.join("");
       }
@@ -1191,28 +1226,42 @@ def paper_dashboard_script() -> str:
         return `<h3>${title}</h3><table><thead><tr><th>分類</th><th>筆數</th><th>勝率</th><th>已實現損益</th></tr></thead><tbody>${body}</tbody></table>`;
       }
 
-      function renderDebug(debug, run) {
+      function renderDebug(debug, run, payload = {}) {
+        const accounts = asArray(payload.accounts);
+        const positions = asArray(payload.positions);
+        const trades = asArray(payload.trades);
+        const skipped = asArray(payload.skipped_trades).length ? asArray(payload.skipped_trades) : asArray(payload.skipped);
+        const bPlusTriggers = asArray(payload.b_plus_triggers);
+        const manualTrades = trades.filter((item) => item.source === "manual").length;
+        const systemTrades = trades.filter((item) => (item.source || "system") === "system").length;
+        const bPlusWaiting = bPlusTriggers.filter((item) => item.lifecycle_status === "observed").length;
+        const bPlusTriggered = bPlusTriggers.filter((item) => item.lifecycle_status === "triggered").length;
         $("paper-debug").innerHTML = [
           row("commit hash", escapeHtml(debug.app_version)),
           row("engine version", escapeHtml(debug.engine_version)),
           row("generated_at", escapeHtml(debug.generated_at)),
-        row("API status", escapeHtml(debug.api_status || "ok")),
-        row("refresh interval", `${text(debug.refresh_interval)} 秒`),
-        row("accounts count", text(debug.accounts_count)),
-        row("open positions count", text(debug.open_positions_count)),
-        row("trades count", text(debug.trades_count)),
-        row("skipped count", text(debug.skipped_count)),
-        row("recommendations scanned count", text(debug.recommendations_scanned_count)),
-        row("executable / triggered count", text(debug.executable_triggered_count)),
-        row("B+ waiting count", text(debug.b_plus_waiting_count)),
-        row("B+ ready count", text(debug.b_plus_ready_count)),
-        row("manual trades count", text(debug.manual_trades_count)),
-        row("system trades count", text(debug.system_trades_count)),
-        row("open manual positions count", text(debug.open_manual_positions_count)),
-        row("last manual trade created_at", escapeHtml(debug.last_manual_trade_created_at || "")),
-        row("last close trade status", escapeHtml(debug.last_close_trade_status || "")),
-        row("quote API status", escapeHtml(debug.quote_api_status || "")),
-        row("last error", escapeHtml(debug.last_error || "")),
+          row("API status", escapeHtml(payload.api_status || debug.api_status || "ok")),
+          row("API fetch status", escapeHtml(state.fetchStatus)),
+          row("last fetch time", escapeHtml(state.lastFetchTime)),
+          row("render status", escapeHtml(state.renderStatus)),
+          row("render error message", escapeHtml(state.renderErrorMessage || "")),
+          row("refresh interval", `${text(debug.refresh_interval || payload.refresh_interval_seconds)} 秒`),
+          row("accounts count", text(debug.accounts_count ?? accounts.length)),
+          row("positions count", text(debug.open_positions_count ?? positions.length)),
+          row("trades count", text(debug.trades_count ?? trades.length)),
+          row("skipped count", text(debug.skipped_count ?? skipped.length)),
+          row("recommendations scanned count", text(debug.recommendations_scanned_count)),
+          row("executable / triggered count", text(debug.executable_triggered_count)),
+          row("B+ waiting count", text(debug.b_plus_waiting_count ?? bPlusWaiting)),
+          row("B+ triggered count", text(bPlusTriggered)),
+          row("B+ ready count", text(debug.b_plus_ready_count)),
+          row("manual trades count", text(debug.manual_trades_count ?? manualTrades)),
+          row("system trades count", text(debug.system_trades_count ?? systemTrades)),
+          row("open manual positions count", text(debug.open_manual_positions_count)),
+          row("last manual trade created_at", escapeHtml(debug.last_manual_trade_created_at || "")),
+          row("last close trade status", escapeHtml(debug.last_close_trade_status || "")),
+          row("quote API status", escapeHtml(debug.quote_api_status || "")),
+          row("last error", escapeHtml(debug.last_error || "")),
           row("本次開倉", text(run.opened)),
           row("本次平倉", text(run.closed)),
           row("本次跳過", text(run.skipped)),
