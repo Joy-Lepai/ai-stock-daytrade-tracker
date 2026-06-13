@@ -583,7 +583,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
       <div class="session-pill">不串接券商｜不自動下單</div>
     </header>
     <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利；本頁不會送出任何真實委託。</section>
-    <section id="paper-error" class="warn" hidden>虛擬交易 API 暫時無法更新。</section>
+    <section id="paper-error" class="warn" hidden>正在載入虛擬交易資料……</section>
     <section class="manual-panel" aria-labelledby="manual-trade-title">
       <div class="section-title-row">
         <h2 id="manual-trade-title">手動虛擬交易</h2>
@@ -1132,7 +1132,7 @@ def paper_dashboard_script() -> str:
           $("paper-error").textContent = `部分區塊暫時無法顯示：${state.renderErrorMessage}`;
         } else {
           $("paper-error").hidden = true;
-          $("paper-error").textContent = "虛擬交易 API 暫時無法更新。";
+          $("paper-error").textContent = "";
         }
       }
 
