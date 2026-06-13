@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
+import subprocess
 import urllib.parse
 from datetime import datetime
 from http import HTTPStatus
@@ -83,7 +85,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
     web_app: WebApp
 
     def do_GET(self) -> None:
-        path = urllib.parse.urlparse(self.path).path
+        parsed_url = urllib.parse.urlparse(self.path)
+        path = parsed_url.path
+        query = urllib.parse.parse_qs(parsed_url.query)
         if path == "/login":
             if not self.web_app.require_auth:
                 self._redirect("/dashboard")
@@ -98,7 +102,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             self._redirect("/login")
             return
         if path in {"/", "/dashboard"}:
-            self._send_html(self._dashboard_html())
+            self._send_html(self._dashboard_html(force_refresh="final" in query))
             return
         if path == "/us":
             self._redirect("/us/dashboard")
@@ -255,9 +259,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self._send_html(render_login_page("帳號或密碼錯誤"), status=HTTPStatus.UNAUTHORIZED)
 
     def _handle_refresh(self) -> None:
-        from stock_daytrade_system.cli import DEFAULT_CONFIG, run_tracker
-
-        run_tracker(DEFAULT_CONFIG, self.web_app.report_dir, "6mo", "1d", "5m", 3)
+        _run_tracker_refresh(self.web_app.report_dir)
         self._redirect("/dashboard")
 
     def _read_json_body(self) -> dict:
@@ -273,8 +275,12 @@ class StockWebHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}
 
-    def _dashboard_html(self) -> str:
+    def _dashboard_html(self, force_refresh: bool = False) -> str:
         latest = latest_tracker_file(self.web_app.report_dir)
+        refresh_error = ""
+        if latest is None or force_refresh:
+            refresh_error = _safe_refresh_tracker(self.web_app.report_dir)
+            latest = latest_tracker_file(self.web_app.report_dir)
         if latest is None:
             return render_shell(
                 "<p class=\"empty\">尚未產生追蹤器資料。</p>",
@@ -282,7 +288,17 @@ class StockWebHandler(BaseHTTPRequestHandler):
                 show_logout=self.web_app.require_auth,
             )
         html = latest.read_text(encoding="utf-8")
+        if _tracker_html_needs_refresh(html):
+            refresh_error = _safe_refresh_tracker(self.web_app.report_dir)
+            latest = latest_tracker_file(self.web_app.report_dir) or latest
+            html = latest.read_text(encoding="utf-8")
         body = _extract_body(html)
+        if refresh_error:
+            body = (
+                '<main><section class="warn"><strong>Dashboard 自動更新失敗</strong><br>'
+                f'{_escape(refresh_error)}<br>目前暫時顯示最近一次可用的 tracker HTML。</section></main>'
+                + body
+            )
         return render_shell(body, active_file=latest.name, extra_css=_extract_style(html), show_logout=self.web_app.require_auth)
 
     def _symbol_html(self, raw_symbol: str) -> str:
@@ -456,6 +472,55 @@ class StockWebHandler(BaseHTTPRequestHandler):
 def latest_tracker_file(report_dir: Path) -> Optional[Path]:
     files = sorted(report_dir.glob("*-tracker.html"), reverse=True)
     return files[0] if files else None
+
+
+def _tracker_html_needs_refresh(html: str) -> bool:
+    current_commit = _current_commit_hash()
+    required_markers = (
+        "AI 今日決策中心",
+        "訊號中心",
+        "B+ 觸發條件追蹤",
+        "B+可練習觀察數量",
+    )
+    if any(marker not in html for marker in required_markers):
+        return True
+    if "long_model_v2_volume_vwap_2026-06-12" in html:
+        return True
+    if current_commit != "unknown" and current_commit not in html:
+        return True
+    return False
+
+
+def _safe_refresh_tracker(report_dir: Path) -> str:
+    try:
+        _run_tracker_refresh(report_dir)
+        return ""
+    except Exception as exc:
+        return str(exc)
+
+
+def _run_tracker_refresh(report_dir: Path) -> None:
+    from stock_daytrade_system.cli import DEFAULT_CONFIG, run_tracker
+
+    run_tracker(DEFAULT_CONFIG, report_dir, "6mo", "1d", "5m", 3)
+
+
+def _current_commit_hash() -> str:
+    for key in ("RENDER_GIT_COMMIT", "SOURCE_VERSION"):
+        value = os.environ.get(key)
+        if value:
+            return value[:12]
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return completed.stdout.strip()
+    except Exception:
+        return "unknown"
 
 
 def render_login_page(error: str = "") -> str:

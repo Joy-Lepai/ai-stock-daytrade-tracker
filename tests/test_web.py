@@ -1,6 +1,13 @@
 import unittest
 
-from stock_daytrade_system.web import _extract_body, _extract_style, latest_tracker_file, render_paper_dashboard_page
+from stock_daytrade_system.web import (
+    _current_commit_hash,
+    _extract_body,
+    _extract_style,
+    _tracker_html_needs_refresh,
+    latest_tracker_file,
+    render_paper_dashboard_page,
+)
 
 
 class WebTests(unittest.TestCase):
@@ -16,6 +23,31 @@ class WebTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             self.assertIsNone(latest_tracker_file(Path(directory)))
+
+    def test_tracker_html_needs_refresh_when_static_file_is_old(self):
+        html = """
+        <html><body>
+          app version / commit：4acbeb16719c
+          scoring model：long_model_v2_volume_vwap_2026-06-12
+        </body></html>
+        """
+
+        self.assertTrue(_tracker_html_needs_refresh(html))
+
+    def test_tracker_html_with_current_markers_does_not_need_refresh(self):
+        commit = _current_commit_hash()
+        html = f"""
+        <html><body>
+          app version / commit：{commit}
+          scoring model：long_model_v2_b_plus_practice_2026-06-13
+          AI 今日決策中心
+          訊號中心
+          B+ 觸發條件追蹤
+          B+可練習觀察數量
+        </body></html>
+        """
+
+        self.assertFalse(_tracker_html_needs_refresh(html))
 
     def test_paper_dashboard_page_has_required_sections(self):
         html = render_paper_dashboard_page()
