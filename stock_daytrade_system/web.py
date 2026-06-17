@@ -5,8 +5,10 @@ import os
 import secrets
 import subprocess
 import sys
+import threading
+import time as time_module
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,6 +44,10 @@ DEFAULT_AUTH = PROJECT_ROOT / "config" / "auth.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports"
 SESSION_COOKIE = "ai_stock_session"
 TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "45"))
+WEB_SCHEDULER_POLL_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_POLL_SECONDS", "30"))
+TW_PREMARKET_REFRESH_SECONDS = int(os.getenv("STOCK_TW_PREMARKET_REFRESH_SECONDS", "1800"))
+TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "300"))
+TW_AFTER_CLOSE_REFRESH_SECONDS = int(os.getenv("STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS", "900"))
 
 
 class WebApp:
@@ -50,6 +56,11 @@ class WebApp:
         self.report_dir = report_dir
         self.require_auth = require_auth
         self.sessions: Dict[str, str] = {}
+        self.refresh_lock = threading.Lock()
+        self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "1").lower() not in {"0", "false", "no"}
+        self.scheduler_thread: Optional[threading.Thread] = None
+        self.last_scheduled_refresh_at: Optional[datetime] = None
+        self.last_scheduled_refresh_status = "尚未執行"
 
     def create_session(self, username: str) -> str:
         token = secrets.token_urlsafe(32)
@@ -65,6 +76,27 @@ class WebApp:
         if token:
             self.sessions.pop(token, None)
 
+    def start_scheduler(self) -> None:
+        if not self.scheduler_enabled or self.scheduler_thread is not None:
+            return
+        self.scheduler_thread = threading.Thread(target=self._scheduler_loop, name="tw-tracker-scheduler", daemon=True)
+        self.scheduler_thread.start()
+
+    def _scheduler_loop(self) -> None:
+        while True:
+            now = datetime.now(ZoneInfo("Asia/Taipei"))
+            interval, label = _scheduled_tracker_interval(now)
+            if interval is not None and self._scheduled_refresh_due(now, interval):
+                self.last_scheduled_refresh_at = now
+                message = _safe_refresh_tracker(self.report_dir, self.refresh_lock, wait=False)
+                self.last_scheduled_refresh_status = message or f"{label} 更新完成"
+            time_module.sleep(max(WEB_SCHEDULER_POLL_SECONDS, 5))
+
+    def _scheduled_refresh_due(self, now: datetime, interval_seconds: int) -> bool:
+        if self.last_scheduled_refresh_at is None:
+            return True
+        return (now - self.last_scheduled_refresh_at).total_seconds() >= interval_seconds
+
 
 def serve(
     host: str = "127.0.0.1",
@@ -75,6 +107,7 @@ def serve(
 ) -> None:
     auth_config = load_auth_config(auth_path) if require_auth else None
     app = WebApp(auth_config, report_dir, require_auth=require_auth)
+    app.start_scheduler()
 
     class Handler(StockWebHandler):
         web_app = app
@@ -272,7 +305,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self._send_html(render_login_page("帳號或密碼錯誤"), status=HTTPStatus.UNAUTHORIZED)
 
     def _handle_refresh(self) -> None:
-        _run_tracker_refresh(self.web_app.report_dir)
+        _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=True)
         self._redirect("/dashboard")
 
     def _read_json_body(self) -> dict:
@@ -292,7 +325,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
         latest = latest_tracker_file(self.web_app.report_dir)
         refresh_error = ""
         if latest is None or force_refresh:
-            refresh_error = _safe_refresh_tracker(self.web_app.report_dir)
+            refresh_error = _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=False)
             latest = latest_tracker_file(self.web_app.report_dir)
         if latest is None:
             return render_shell(
@@ -302,7 +335,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             )
         html = latest.read_text(encoding="utf-8")
         if _tracker_html_needs_refresh(html):
-            refresh_error = _safe_refresh_tracker(self.web_app.report_dir)
+            refresh_error = _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=False)
             latest = latest_tracker_file(self.web_app.report_dir) or latest
             html = latest.read_text(encoding="utf-8")
         body = _extract_body(html)
@@ -511,7 +544,30 @@ def _tracker_html_needs_refresh(html: str) -> bool:
     return False
 
 
-def _safe_refresh_tracker(report_dir: Path) -> str:
+def _scheduled_tracker_interval(now: Optional[datetime] = None) -> tuple[Optional[int], str]:
+    local_now = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=ZoneInfo("Asia/Taipei"))
+    else:
+        local_now = local_now.astimezone(ZoneInfo("Asia/Taipei"))
+    if local_now.weekday() >= 5:
+        return None, "週末休市"
+    current = local_now.time()
+    if dt_time(7, 0) <= current < dt_time(9, 0):
+        return TW_PREMARKET_REFRESH_SECONDS, "開盤前觀察池"
+    if dt_time(9, 0) <= current < dt_time(13, 30):
+        return TW_INTRADAY_REFRESH_SECONDS, "台股盤中"
+    if dt_time(13, 30) <= current < dt_time(14, 30):
+        return TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後回測"
+    return None, "非排程更新時段"
+
+
+def _safe_refresh_tracker(report_dir: Path, refresh_lock: Optional[threading.Lock] = None, wait: bool = True) -> str:
+    locked = False
+    if refresh_lock is not None:
+        locked = refresh_lock.acquire(blocking=wait)
+        if not locked:
+            return "tracker 正在更新中，已先顯示最近一次可用資料。"
     try:
         _run_tracker_refresh(report_dir)
         return ""
@@ -519,6 +575,9 @@ def _safe_refresh_tracker(report_dir: Path) -> str:
         return f"tracker 更新超過 {TRACKER_REFRESH_TIMEOUT_SECONDS} 秒，已先顯示最近一次可用資料。"
     except Exception as exc:
         return str(exc)
+    finally:
+        if refresh_lock is not None and locked:
+            refresh_lock.release()
 
 
 def _run_tracker_refresh(report_dir: Path) -> None:

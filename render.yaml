@@ -8,3 +8,11 @@ services:
     envVars:
       - key: STOCK_WEB_HOST
         value: 0.0.0.0
+      - key: STOCK_ENABLE_WEB_SCHEDULER
+        value: "1"
+      - key: STOCK_TW_PREMARKET_REFRESH_SECONDS
+        value: "1800"
+      - key: STOCK_TW_INTRADAY_REFRESH_SECONDS
+        value: "300"
+      - key: STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS
+        value: "900"

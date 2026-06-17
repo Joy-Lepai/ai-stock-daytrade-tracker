@@ -163,6 +163,23 @@ python3 -m py_compile stock_daytrade_system/*.py
 
 ## 建議排程
 
+公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：
+
+- 台股交易日 07:00-09:00：每 30 分鐘更新開盤前觀察池。
+- 台股交易日 09:00-13:30：每 5 分鐘更新盤中 VWAP、量比、突破、B+ 觸發與回測狀態。
+- 台股交易日 13:30-14:30：每 15 分鐘更新收盤後回測與明日觀察池。
+
+可用環境變數調整：
+
+```text
+STOCK_ENABLE_WEB_SCHEDULER=1
+STOCK_TW_PREMARKET_REFRESH_SECONDS=1800
+STOCK_TW_INTRADAY_REFRESH_SECONDS=300
+STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS=900
+```
+
+注意：Render Free 方案如果服務睡著，內建排程也會暫停；第一次有人打開網站時會喚醒並重新整理。若需要完全無人值守的 07:00 固定更新，建議再加外部 uptime ping 或升級成不休眠方案。
+
 台股一般交易日 09:00 開盤，若要在開盤前兩小時執行，可在 macOS/Linux 用 cron 設定台北時間 07:00 執行：
 
 ```cron

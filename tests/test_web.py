@@ -1,9 +1,12 @@
 import unittest
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.web import (
     _current_commit_hash,
     _extract_body,
     _extract_style,
+    _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
     latest_tracker_file,
     render_paper_dashboard_page,
@@ -67,6 +70,26 @@ class WebTests(unittest.TestCase):
         self.assertIn("虛擬交易 API 暫時無法更新", html)
         self.assertNotIn("虛擬交易資料暫時無法更新", html)
         self.assertNotIn("!response.ok || payload.error", html)
+
+    def test_scheduled_tracker_interval_uses_taiwan_market_windows(self):
+        tw = ZoneInfo("Asia/Taipei")
+
+        self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 17, 7, 5, tzinfo=tw)),
+            (1800, "開盤前觀察池"),
+        )
+        self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 17, 9, 30, tzinfo=tw)),
+            (300, "台股盤中"),
+        )
+        self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 17, 13, 45, tzinfo=tw)),
+            (900, "收盤後回測"),
+        )
+        self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 20, 9, 30, tzinfo=tw)),
+            (None, "週末休市"),
+        )
 
 
 if __name__ == "__main__":
