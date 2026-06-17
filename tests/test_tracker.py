@@ -12,6 +12,7 @@ from stock_daytrade_system.tracker import (
     _data_status_block,
     _entry_status_message,
     _recommendation_checklist_table,
+    _tomorrow_long_watch_pool,
     _tracked_table,
     bullish_profile,
     build_tracked_symbols,
@@ -190,6 +191,107 @@ class TrackerStatusTests(unittest.TestCase):
             _entry_status_message("high_risk"),
             "多方動能強，但追價風險偏高，避免直接追高。",
         )
+
+    def test_tomorrow_watch_pool_surfaces_more_than_executable_names(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            momentum_scan={
+                "items": [
+                    {
+                        "symbol": "3443.TW",
+                        "name": "創意",
+                        "sector": "semiconductor",
+                        "latest_price": 5075,
+                        "change_pct": 3.15,
+                        "volume_ratio": 1.22,
+                        "turnover": 15_680_724_850,
+                        "vwap": 5010.96,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": True,
+                        "ai_grade": "A",
+                        "entry_status": "executable",
+                        "trade_bias": "long",
+                        "trade_bias_label": "買多",
+                        "trade_bias_reason": "站上 VWAP、量能達標且訊號可執行。",
+                        "not_selected_reason": "已進入正式候選",
+                    },
+                    {
+                        "symbol": "2892.TW",
+                        "name": "第一金",
+                        "sector": "financial",
+                        "latest_price": 32.5,
+                        "change_pct": 2.2,
+                        "volume_ratio": 0.86,
+                        "turnover": 1_804_164_050,
+                        "vwap": 32.35,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": True,
+                        "ai_grade": "B+",
+                        "entry_status": "practice_long",
+                        "trade_bias": "long",
+                        "trade_bias_label": "買多",
+                        "trade_bias_reason": "練習買多條件成立",
+                        "not_selected_reason": "已進入正式候選",
+                    },
+                    {
+                        "symbol": "2330.TW",
+                        "name": "台積電",
+                        "sector": "semiconductor",
+                        "latest_price": 2310,
+                        "change_pct": 2.67,
+                        "volume_ratio": 0.48,
+                        "turnover": 49_805_004_480,
+                        "vwap": 2299.81,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": False,
+                        "ai_grade": "D",
+                        "entry_status": "wait_volume",
+                        "trade_bias": "watch",
+                        "trade_bias_label": "觀察",
+                        "trade_bias_reason": "量能尚未確認",
+                        "not_selected_reason": "量比不足",
+                    },
+                    {
+                        "symbol": "2327.TW",
+                        "name": "國巨",
+                        "sector": "passive_components",
+                        "latest_price": 984,
+                        "change_pct": 3.58,
+                        "volume_ratio": 1.15,
+                        "turnover": 55_219_128_000,
+                        "vwap": 966.96,
+                        "above_vwap": True,
+                        "break_prev_high": False,
+                        "break_5d_high": False,
+                        "ai_grade": "C",
+                        "entry_status": "high_risk",
+                        "trade_bias": "watch",
+                        "trade_bias_label": "觀察",
+                        "trade_bias_reason": "風險或結構衝突偏高",
+                        "not_selected_reason": "強勢但追價風險高，不列為 A，可列入觀察。",
+                    },
+                ]
+            },
+        )
+
+        html = _tomorrow_long_watch_pool(summary)
+
+        self.assertIn("明日觀察池", html)
+        self.assertIn("正式買多", html)
+        self.assertIn("練習買多", html)
+        self.assertIn("盤中等待確認", html)
+        self.assertIn("強勢但高風險", html)
+        self.assertIn("台積電", html)
+        self.assertIn("國巨", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])

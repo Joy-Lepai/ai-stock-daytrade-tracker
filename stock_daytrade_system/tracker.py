@@ -530,6 +530,8 @@ def render_tracker_html(
   <main>
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    <h2>明日買多觀察池</h2>
+    <div class="table-wrap">{_tomorrow_long_watch_pool(long_summary)}</div>
     <h2>今日異動股掃描</h2>
     <div class="table-wrap">{_momentum_scan_table(long_summary)}</div>
     {_manual_scan_panel()}
@@ -847,6 +849,126 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
         + "".join(rows)
         + "</tbody></table>"
     )
+
+
+def _tomorrow_long_watch_pool(summary: Optional[LongModelSummary]) -> str:
+    scan = summary.momentum_scan if summary else {}
+    items = scan.get("items", []) if scan else []
+    pool = _tomorrow_pool_items(items)
+    if not pool:
+        return (
+            "<table><tbody><tr><td>目前沒有足夠資料建立明日買多觀察池。"
+            "明天開盤後請先等待 VWAP、量比與突破條件確認。</td></tr></tbody></table>"
+        )
+    official = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "正式買多")
+    practice = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "練習買多")
+    waiting = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "盤中等待確認")
+    risky = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "強勢但高風險")
+    metrics = (
+        "<div class=\"summary\">"
+        f"{_metric('明日觀察池', len(pool))}"
+        f"{_metric('正式買多', official)}"
+        f"{_metric('練習買多', practice)}"
+        f"{_metric('盤中等待確認', waiting)}"
+        f"{_metric('強勢但高風險', risky)}"
+        "</div>"
+        '<section class="notice">收盤後觀察池不是明天直接買進名單；明天仍要等盤中 VWAP、量比、突破與風險條件重新確認。</section>'
+    )
+    rows = []
+    for item in pool:
+        status, next_condition = _tomorrow_pool_status(item)
+        rows.append(
+            "<tr>"
+            f"<td><strong>{escape(str(item.get('symbol', '')))}｜{escape(str(item.get('name', '')))}</strong><br><span class=\"muted\">{escape(str(item.get('sector', '')))}</span></td>"
+            f"<td>{escape(status)}</td>"
+            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}<br><span class=\"muted\">{escape(str(item.get('trade_bias_reason', '')))}</span></td>"
+            f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
+            f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
+            f"{_change_cell(item.get('change_pct'))}"
+            f"<td data-sort-value=\"{_sort_value(item.get('turnover'))}\">{_money(float(item.get('turnover') or 0)) if item.get('turnover') is not None else '-'}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('volume_ratio'))}\">{_fmt(item.get('volume_ratio'))}x</td>"
+            f"<td>{_yes_no(bool(item.get('above_vwap')))}<br><span class=\"muted\">{_fmt(item.get('vwap'))}</span></td>"
+            f"<td>{_yes_no(bool(item.get('break_prev_high')))}</td>"
+            f"<td>{_yes_no(bool(item.get('break_5d_high')))}</td>"
+            f"<td class=\"notes\">{escape(next_condition)}</td>"
+            f"<td class=\"notes\">{escape(str(item.get('not_selected_reason') or item.get('data_error') or '-'))}</td>"
+            "</tr>"
+        )
+    return (
+        metrics
+        + "<table class=\"sortable\"><thead><tr>"
+        "<th data-sort=\"text\">股票</th><th data-sort=\"text\">觀察層級</th><th data-sort=\"text\">當下狀態</th>"
+        "<th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th><th data-sort=\"number\">今日漲幅</th>"
+        "<th data-sort=\"number\">成交金額</th><th data-sort=\"number\">量比</th><th data-sort=\"text\">站上 VWAP</th>"
+        "<th data-sort=\"text\">突破昨高</th><th data-sort=\"text\">突破5日高</th><th>明天盤中確認條件</th><th>目前未直接買進原因</th>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
+def _tomorrow_pool_items(items: List[dict], limit: int = 50) -> List[dict]:
+    eligible = [
+        item
+        for item in items
+        if not item.get("data_error")
+        and (
+            item.get("ai_grade") in {"A", "B+", "B"}
+            or item.get("entry_status") in {"high_risk", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback"}
+            or bool(item.get("source_reasons"))
+            or float(item.get("turnover") or 0) >= 500_000_000
+        )
+    ]
+    eligible.sort(key=_tomorrow_pool_sort_key)
+    return eligible[:limit]
+
+
+def _tomorrow_pool_sort_key(item: dict) -> tuple:
+    status_order = {
+        "正式買多": 0,
+        "練習買多": 1,
+        "盤中等待確認": 2,
+        "強勢但高風險": 3,
+        "明日觀察": 4,
+        "暫不追價": 5,
+    }
+    grade_order = {"A": 0, "B+": 1, "B": 2, "C": 3, "D": 4, "-": 5}
+    status, _ = _tomorrow_pool_status(item)
+    return (
+        status_order.get(status, 6),
+        grade_order.get(str(item.get("ai_grade", "-")), 5),
+        -(float(item.get("turnover") or 0)),
+        -(float(item.get("change_pct") or -999)),
+        str(item.get("symbol", "")),
+    )
+
+
+def _tomorrow_pool_status(item: dict) -> tuple[str, str]:
+    entry_status = str(item.get("entry_status", ""))
+    grade = str(item.get("ai_grade", "-"))
+    trade_bias = str(item.get("trade_bias", "watch"))
+    above_vwap = bool(item.get("above_vwap"))
+    volume_ratio = float(item.get("volume_ratio") or 0)
+    break_prev_high = bool(item.get("break_prev_high"))
+    break_5d_high = bool(item.get("break_5d_high"))
+    high_risk = entry_status == "high_risk" or "風險高" in str(item.get("not_selected_reason", ""))
+    if trade_bias == "long" and entry_status == "executable":
+        return "正式買多", "明天開盤後若仍站上 VWAP、量比維持 1.0x 以上且未追價過熱，可列入盤中可執行觀察。"
+    if entry_status == "practice_long" or grade == "B+":
+        return "練習買多", "明天開盤後若站穩 VWAP，量比放大到 0.8x～1.0x 以上，可用虛擬交易練習追蹤。"
+    if entry_status == "wait_volume":
+        return "盤中等待確認", "等待量比放大；量比低於 0.8x 不直接買多。"
+    if entry_status == "wait_vwap":
+        return "盤中等待確認", "等待股價重新站回 VWAP，且站回後不要立刻跌破。"
+    if entry_status == "wait_breakout":
+        return "盤中等待確認", "等待突破昨高、5日高或開盤區間高點後再評估。"
+    if entry_status == "wait_pullback":
+        return "盤中等待確認", "等待拉回 VWAP 附近不破，避免直接追高。"
+    if high_risk:
+        return "強勢但高風險", "強勢但追價風險偏高，明天以回測 VWAP 不破或風險降溫後再觀察。"
+    if above_vwap and volume_ratio >= 0.8 and (break_prev_high or break_5d_high):
+        return "明日觀察", "條件接近，明天需確認量能與突破延續。"
+    return "暫不追價", "先放在觀察池，不列為明天直接買多；等待 VWAP、量比與突破重新成立。"
 
 
 def _manual_scan_panel() -> str:
