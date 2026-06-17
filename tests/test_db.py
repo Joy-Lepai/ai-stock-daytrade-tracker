@@ -162,8 +162,11 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(summary["target"], 1)
         self.assertEqual(summary["by_entry_status"][0]["entry_status"], "executable")
         self.assertEqual(summary["by_entry_status"][0]["trackable"], 1)
+        self.assertEqual(summary["by_signal_type"][0]["signal_type"], "breakout")
+        self.assertEqual(summary["by_signal_type"][0]["triggered"], 1)
         self.assertEqual(backtest_row["same_day_high"], 103)
         self.assertEqual(backtest_row["same_day_close"], 102)
+        self.assertEqual(backtest_row["signal_type"], "breakout")
         self.assertEqual(backtest_row["hit_stop_loss"], 0)
         self.assertGreater(backtest_row["max_gain_after_recommend"], 0)
 
@@ -197,6 +200,31 @@ class DatabaseTests(unittest.TestCase):
             ("2317.TW", "B", "wait_volume"),
             ("2330.TW", "A", "executable"),
         ])
+
+    def test_recommendations_store_signal_type_for_setup_backtests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(
+                    conn,
+                    datetime(2026, 1, 1, 9, 5),
+                    [
+                        candidate(grade="A", entry_status="executable"),
+                        replace(candidate(grade="B+", entry_status="practice_long"), symbol="2303.TW", name="聯電", change_pct=4),
+                        replace(candidate(grade="B", entry_status="wait_pullback"), symbol="2317.TW", name="鴻海"),
+                    ],
+                )
+                rows = conn.execute(
+                    "SELECT symbol, signal_type FROM recommendations ORDER BY symbol"
+                ).fetchall()
+
+        self.assertEqual(
+            [(row["symbol"], row["signal_type"]) for row in rows],
+            [
+                ("2303.TW", "continuation"),
+                ("2317.TW", "vwap_pullback"),
+                ("2330.TW", "breakout"),
+            ],
+        )
 
     def test_wait_vwap_triggers_lifecycle_without_losing_entry_status(self):
         wait_candidate = replace(

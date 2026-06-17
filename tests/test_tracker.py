@@ -7,6 +7,7 @@ from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.long_model import LongModelSummary
 from stock_daytrade_system.scoring import CandidateScore
 from stock_daytrade_system.tracker import (
+    _backtest_table,
     _bullish_focus_table,
     _change_number,
     _data_status_block,
@@ -178,6 +179,41 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("triggered 已觸發", html)
         self.assertIn("今日已觸發回測數量", html)
         self.assertIn("<strong>4</strong>", html)
+
+    def test_backtest_table_surfaces_signal_type_performance(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={
+                "recommendation_count": 1,
+                "trackable_count": 1,
+                "triggered_backtest_count": 1,
+                "avg_return": 1.2,
+                "by_signal_type": [
+                    {
+                        "signal_type": "vwap_pullback",
+                        "total": 1,
+                        "triggered": 1,
+                        "target": 1,
+                        "stop": 0,
+                        "win_rate": 100,
+                        "avg_return": 1.2,
+                        "avg_max_gain": 2.3,
+                        "avg_max_drawdown": -0.5,
+                    }
+                ],
+            },
+            recommendation_checklist={},
+        )
+
+        html = _backtest_table(summary)
+
+        self.assertIn("依訊號型態回測", html)
+        self.assertIn("VWAP 回測買點", html)
+        self.assertIn("100.00%", html)
 
     def test_entry_status_messages_explain_wait_states(self):
         self.assertEqual(
