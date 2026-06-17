@@ -41,7 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AUTH = PROJECT_ROOT / "config" / "auth.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports"
 SESSION_COOKIE = "ai_stock_session"
-TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "15"))
+TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "45"))
 
 
 class WebApp:
