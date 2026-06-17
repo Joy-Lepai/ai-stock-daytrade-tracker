@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.config import WatchSymbol
@@ -11,10 +12,11 @@ from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.sectors import SectorStrength
+from stock_daytrade_system.session_policy import apply_tw_entry_timing_policy
 from stock_daytrade_system.trade_bias import evaluate_trade_bias
 
 
-SCORING_MODEL_VERSION = "long_model_v3_practice_long_2026-06-17"
+SCORING_MODEL_VERSION = "long_model_v4_time_policy_2026-06-18"
 
 MAJOR_CONFLICT_CODES = {
     "breakout_below_vwap",
@@ -115,6 +117,7 @@ def build_long_candidates(
     sector_strengths: Iterable[SectorStrength],
     market_bias: MarketBias,
     institutional_rankings: Optional[dict] = None,
+    captured_at: Optional[datetime] = None,
 ) -> List[LongCandidate]:
     opening_map = {item.symbol: item for item in opening_signals}
     sector_map = {item.sector: item for item in sector_strengths}
@@ -132,6 +135,7 @@ def build_long_candidates(
             sector_map.get(symbol.sector),
             market_bias,
             ranking_map.get(symbol.symbol),
+            captured_at,
         )
         if item is not None:
             candidates.append(item)
@@ -180,6 +184,7 @@ def _build_candidate(
     sector: Optional[SectorStrength],
     market_bias: MarketBias,
     ranking,
+    captured_at: Optional[datetime],
 ) -> Optional[LongCandidate]:
     last = bars[-1]
     previous = bars[-2]
@@ -298,6 +303,22 @@ def _build_candidate(
             *reasons,
             "B+練習觀察：條件接近，可列入虛擬交易練習觀察，尚未達到A級高信心標準",
         ]
+    timing_policy = apply_tw_entry_timing_policy(
+        captured_at=captured_at,
+        grade=grade,
+        entry_status=entry_status,
+        above_vwap=above_vwap,
+        volume_ratio=volume_ratio,
+        vwap_distance_pct=vwap_distance_pct,
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+    )
+    if timing_policy.entry_status != entry_status:
+        entry_status = timing_policy.entry_status
+        if timing_policy.reason:
+            reasons = [*reasons, timing_policy.reason]
+    elif timing_policy.reason:
+        reasons = [*reasons, timing_policy.reason]
     trade_bias = evaluate_trade_bias(
         entry_status=entry_status,
         grade=grade,

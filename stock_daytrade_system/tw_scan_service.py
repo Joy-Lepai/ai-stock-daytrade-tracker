@@ -45,6 +45,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         [],
         market_bias,
         {},
+        captured_at=captured_at,
     )
     model = candidates[0] if candidates else None
     scan_item = scan_single_symbol(

@@ -23,6 +23,7 @@ from stock_daytrade_system.performance import record_signal_performance
 from stock_daytrade_system.report import render_opening_report, render_report
 from stock_daytrade_system.scoring import CandidateScore, score_market_bias, score_symbol
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
+from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
 from stock_daytrade_system.taifex import TaifexClient, TaifexDataError
 from stock_daytrade_system.tracker import build_tracked_symbols, render_tracker_html
 from stock_daytrade_system.tw_momentum_scanner import build_momentum_universe, scan_momentum_candidates
@@ -337,6 +338,7 @@ def run_tracker(
             sector_strengths,
             market_bias,
             cmoney_ranking_map,
+            captured_at=now,
         )
         momentum_scan = scan_momentum_candidates(all_watch_items, daily_data, intraday_data, long_candidates)
         save_long_candidates(conn, now, long_candidates)
@@ -381,6 +383,7 @@ def run_tracker(
         debug_info = {
             "app_version": _current_commit_hash(),
             "scoring_model_version": SCORING_MODEL_VERSION,
+            "session_policy_version": SESSION_POLICY_VERSION,
             "dashboard_generated_at": now.isoformat(timespec="seconds"),
             "recommendations_count_from_db": int(backtest_data.get("recommendation_count", 0)),
             "candidates_count_from_current_run": len(long_candidates),

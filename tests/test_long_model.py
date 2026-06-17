@@ -72,6 +72,62 @@ class LongModelTests(unittest.TestCase):
         self.assertGreaterEqual(candidates[0].bullish_score, 60)
         self.assertTrue(candidates[0].above_vwap)
 
+    def test_pre_open_time_policy_does_not_mark_candidate_executable(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=180_000) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2330.TW", "台積電", "semiconductor")],
+            {"2330.TW": bars},
+            {"2330.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+            captured_at=datetime(2026, 1, 31, 8, 30),
+        )
+
+        self.assertEqual(candidates[0].grade, "A")
+        self.assertNotEqual(candidates[0].entry_status, "executable")
+        self.assertIn("非盤中不直接列為可執行", "；".join(candidates[0].reasons))
+
+    def test_main_entry_time_policy_keeps_high_quality_executable(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=180_000) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2330.TW", "台積電", "semiconductor")],
+            {"2330.TW": bars},
+            {"2330.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+            captured_at=datetime(2026, 1, 31, 9, 30),
+        )
+
+        self.assertEqual(candidates[0].grade, "A")
+        self.assertEqual(candidates[0].entry_status, "executable")
+
+    def test_late_session_time_policy_avoids_new_chase_entries(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=180_000) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2330.TW", "台積電", "semiconductor")],
+            {"2330.TW": bars},
+            {"2330.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+            captured_at=datetime(2026, 1, 31, 11, 45),
+        )
+
+        self.assertEqual(candidates[0].grade, "A")
+        self.assertEqual(candidates[0].entry_status, "wait_pullback")
+        self.assertIn("11:30 後避免新追價", "；".join(candidates[0].reasons))
+
     def test_high_gain_with_long_upper_shadow_is_not_a_grade(self):
         bars = [daily_bar(index, 90 + index * 0.2) for index in range(30)]
         bars.append(daily_bar(30, 105, high=112, low=101, volume=2_000_000))
