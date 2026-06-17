@@ -613,10 +613,10 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
             <th>標的</th><th>價格</th><th>漲跌幅</th><th>成交量</th><th>量比 Volume Ratio</th>
             <th>均價線 VWAP</th><th>盤前高點</th><th>突破</th><th>多方分數 Bullish Score</th>
             <th>風險分數 Risk Score</th><th>分級</th><th>進場狀態 Entry Status</th>
-            <th>信心</th><th>衝突</th><th>生命週期 Lifecycle</th><th>理由</th><th>風險理由</th>
+            <th>當下狀態</th><th>信心</th><th>衝突</th><th>生命週期 Lifecycle</th><th>理由</th><th>風險理由</th>
           </tr>
         </thead>
-        <tbody id="us-candidates"><tr><td colspan="17">讀取中...</td></tr></tbody>
+        <tbody id="us-candidates"><tr><td colspan="18">讀取中...</td></tr></tbody>
       </table>
     </div>
     <h2 id="debug">Debug</h2>
@@ -1037,6 +1037,9 @@ def us_dashboard_script() -> str:
           metric("B+練習觀察", summary.grade_b_plus || 0),
           metric("B級", summary.grade_b || 0),
           metric("executable 可執行", summary.executable || 0),
+          metric("當下買多", summary.trade_long || 0),
+          metric("當下賣空", summary.trade_short || 0),
+          metric("當下觀察", summary.trade_watch || 0),
           metric("wait_volume 等量能", summary.wait_volume || 0),
           metric("wait_vwap 等VWAP", summary.wait_vwap || 0),
           metric("wait_breakout 等突破", summary.wait_breakout || 0),
@@ -1138,6 +1141,7 @@ def us_dashboard_script() -> str:
         const metrics = `現價 ${number(item.current_price)}｜VWAP ${number(item.vwap)}｜量比 ${number(item.volume_ratio)}x｜停損 ${number(item.stop_loss)}｜停利 ${number(item.target_price)}`;
         return `<div class="signal-card">
           <div class="signal-title">${label}</div>
+          <div class="signal-meta">當下狀態：${escapeHtml(item.trade_bias_label || "觀察")}</div>
           <div class="signal-meta">${meta}</div>
           <div class="signal-meta">${escapeHtml(metrics)}</div>
           <div class="signal-meta">信心：${escapeHtml(item.confidence_level || "-")}</div>
@@ -1169,7 +1173,7 @@ def us_dashboard_script() -> str:
 
       function renderCandidates(items) {
         if (!items.length) {
-          $("us-candidates").innerHTML = '<tr><td colspan="17">目前沒有美股候選資料。</td></tr>';
+          $("us-candidates").innerHTML = '<tr><td colspan="18">目前沒有美股候選資料。</td></tr>';
           return;
         }
         $("us-candidates").innerHTML = items.map((item) => {
@@ -1192,6 +1196,7 @@ def us_dashboard_script() -> str:
             <td>${number(item.risk_score)}</td>
             <td><span class="badge grade-${escapeHtml(item.grade)}">${escapeHtml(item.grade)}</span></td>
             <td>${escapeHtml(item.entry_status)}</td>
+            <td>${escapeHtml(item.trade_bias_label || "觀察")}<br><span class="muted">${escapeHtml(item.trade_bias_reason || "")}</span></td>
             <td>${number(item.confidence_score)}<br><span class="muted">${escapeHtml(item.confidence_level_label || item.confidence_level)}</span></td>
             <td>${escapeHtml(item.conflicts_count || 0)}<br><span class="muted">${escapeHtml(item.conflict_summary || "無明顯衝突")}</span></td>
             <td>${escapeHtml(lifecycle)}</td>

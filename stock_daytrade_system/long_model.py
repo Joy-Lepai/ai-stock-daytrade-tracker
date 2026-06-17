@@ -11,6 +11,7 @@ from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.sectors import SectorStrength
+from stock_daytrade_system.trade_bias import evaluate_trade_bias
 
 
 SCORING_MODEL_VERSION = "long_model_v2_b_plus_practice_2026-06-13"
@@ -67,6 +68,9 @@ class LongCandidate:
     conflict_summary: str
     confidence_summary: str
     confidence_adjustment_reason: str
+    trade_bias: str
+    trade_bias_label: str
+    trade_bias_reason: str
     trigger_price: float
     stop_loss: float
     target_price: float
@@ -282,6 +286,21 @@ def _build_candidate(
             *reasons,
             "B+練習觀察：條件接近，可列入虛擬交易練習觀察，尚未達到A級高信心標準",
         ]
+    trade_bias = evaluate_trade_bias(
+        entry_status=entry_status,
+        grade=grade,
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+        confidence_score=confidence.confidence_score,
+        above_vwap=above_vwap,
+        last_price=last_price,
+        vwap=vwap,
+        change_pct=change_pct,
+        volume_ratio=volume_ratio,
+        market_status=market_bias.direction,
+        break_prev_high=break_prev_high,
+        risk_reasons=risk_reasons,
+    )
     return LongCandidate(
         symbol=symbol.symbol,
         name=symbol.name,
@@ -324,6 +343,9 @@ def _build_candidate(
         conflict_summary=confidence.conflict_summary,
         confidence_summary=confidence.confidence_summary,
         confidence_adjustment_reason=confidence.confidence_adjustment_reason,
+        trade_bias=trade_bias.bias,
+        trade_bias_label=trade_bias.label,
+        trade_bias_reason=trade_bias.reason,
         trigger_price=round(trigger_price, 2),
         stop_loss=round(stop_loss, 2),
         target_price=round(target_price, 2),

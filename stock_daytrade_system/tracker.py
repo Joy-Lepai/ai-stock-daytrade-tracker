@@ -417,6 +417,9 @@ def render_tracker_html(
     .b-看漲 {{ color: var(--long); background: #fff1f3; border-color: #fecdd3; }}
     .b-偏多觀察 {{ color: #9a3412; background: #fff7ed; border-color: #fed7aa; }}
     .b-低度偏多, .b-不明確 {{ color: #475467; background: #f2f4f7; }}
+    .bias-long {{ color: #fff; background: var(--long); border-color: var(--long); }}
+    .bias-short {{ color: #fff; background: var(--short); border-color: var(--short); }}
+    .bias-watch {{ color: #475467; background: #f2f4f7; border-color: var(--line); }}
     .dir-long {{ color: var(--long); font-weight: 700; }}
     .dir-short {{ color: var(--short); font-weight: 700; }}
     .num-up {{ color: var(--long); font-weight: 700; }}
@@ -630,6 +633,7 @@ def render_tracker_html(
             <strong>${{escapeHtml(payload.symbol)}}｜${{escapeHtml(payload.name)}}：${{escapeHtml(payload.message)}}</strong><br>
             最新價 ${{escapeHtml(scan.latest_price)}}｜漲跌幅 ${{escapeHtml(scan.change_pct)}}%｜量比 ${{escapeHtml(scan.volume_ratio)}}x｜
             AI 評級 ${{escapeHtml(candidate.grade || scan.ai_grade)}}｜entry_status ${{escapeHtml(candidate.entry_status || scan.entry_status)}}<br>
+            當下狀態：${{escapeHtml(candidate.trade_bias_label || scan.trade_bias_label || "觀察")}}｜${{escapeHtml(candidate.trade_bias_reason || scan.trade_bias_reason || "")}}<br>
             未入選原因：${{escapeHtml(candidate.not_selected_reason || scan.not_selected_reason || scan.data_error || "-")}}<br>
             <span class="muted">${{escapeHtml(candidate.confidence_summary || (scan.source_reasons || []).join("；"))}}</span>
           </section>`;
@@ -781,6 +785,7 @@ def _signal_card(item: dict) -> str:
     return (
         "<div class=\"signal-card\">"
         f"<div class=\"signal-title\">{escape(name)}</div>"
+        f"<div class=\"signal-meta\">當下狀態：{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}</div>"
         f"<div class=\"signal-meta\">{escape(meta)}</div>"
         f"<div class=\"signal-meta\">{escape(metrics)}</div>"
         f"<div class=\"signal-meta\">信心：{escape(str(item.get('confidence_level', '-')))}</div>"
@@ -823,6 +828,7 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
             f"<td>{_yes_no(bool(item.get('break_prev_high')))}</td>"
             f"<td>{_yes_no(bool(item.get('break_5d_high')))}</td>"
             f"<td>{_yes_no(bool(item.get('break_20d_high')))}</td>"
+            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}<br><span class=\"muted\">{escape(str(item.get('trade_bias_reason', '')))}</span></td>"
             f"<td class=\"notes\">{escape(str(item.get('initial_status', '-')))}<br><span class=\"muted\">{escape('；'.join(item.get('source_reasons') or []))}</span></td>"
             f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
             f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
@@ -835,7 +841,7 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
         "<th data-sort=\"text\">股票</th><th data-sort=\"number\">最新價</th><th data-sort=\"number\">漲跌幅</th>"
         "<th data-sort=\"number\">量比</th><th data-sort=\"number\">成交金額</th><th data-sort=\"text\">站上 VWAP</th>"
         "<th data-sort=\"text\">突破昨高</th><th data-sort=\"text\">突破5日高</th><th data-sort=\"text\">突破20日高</th>"
-        "<th>初步狀態</th><th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th><th>未入選原因</th>"
+        "<th data-sort=\"text\">當下狀態</th><th>初步狀態</th><th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th><th>未入選原因</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
@@ -933,6 +939,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
             f"<td>{_yes_no(item.break_10d_high)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.bullish_score)}\">{_fmt(item.bullish_score)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.risk_score)}\">{_fmt(item.risk_score)}</td>"
+            f"<td>{_trade_bias_badge(item.trade_bias, item.trade_bias_label)}<br><span class=\"muted\">{escape(item.trade_bias_reason)}</span></td>"
             f"<td>{escape(_entry_status_label(item.entry_status))}<br><span class=\"muted\">{escape(_entry_status_message(item.entry_status))}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.confidence_score)}\">{_fmt(item.confidence_score)}<br><span class=\"muted\">{escape(item.confidence_level_label)}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.conflicts_count)}\">{item.conflicts_count}<br><span class=\"muted\">{escape(item.conflict_summary)}</span></td>"
@@ -946,7 +953,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
         "<th data-sort=\"text\">分級</th><th data-sort=\"text\">標的</th><th data-sort=\"number\">現價</th>"
         "<th data-sort=\"number\">今日漲幅</th><th data-sort=\"number\">成交金額</th><th data-sort=\"number\">量比</th>"
         "<th data-sort=\"number\">VWAP</th><th data-sort=\"text\">破昨高</th><th data-sort=\"text\">破5日高</th><th data-sort=\"text\">破10日高</th>"
-        "<th data-sort=\"number\">多方分數</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">狀態</th>"
+        "<th data-sort=\"number\">多方分數</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">當下狀態</th><th data-sort=\"text\">進場狀態</th>"
         "<th data-sort=\"number\">信心分數</th><th data-sort=\"number\">衝突</th><th>信心摘要</th><th>多方理由</th><th>風險理由</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
@@ -1054,6 +1061,9 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('C/D避開數量', int(data.get('grade_cd', 0)))}"
         f"{_metric('今日可虛擬交易觀察數量', int(data.get('paper_practice_observable', 0)))}"
         f"{_metric('executable 可執行', int(data.get('executable', 0)))}"
+        f"{_metric('當下買多', int(data.get('trade_long', 0)))}"
+        f"{_metric('當下賣空', int(data.get('trade_short', 0)))}"
+        f"{_metric('當下觀察', int(data.get('trade_watch', 0)))}"
         f"{_metric('wait_volume 等量能', int(data.get('wait_volume', 0)))}"
         f"{_metric('wait_vwap 等VWAP', int(data.get('wait_vwap', 0)))}"
         f"{_metric('high_risk 風險過高', int(data.get('high_risk', 0)))}"
@@ -1191,6 +1201,12 @@ def _entry_status_message(value: str) -> str:
         "high_risk": "多方動能強，但追價風險偏高，避免直接追高。",
         "avoid": "條件不足或跌破VWAP，暫不追蹤。",
     }.get(value, "")
+
+
+def _trade_bias_badge(value: str, label: str) -> str:
+    bias = value if value in {"long", "short", "watch"} else "watch"
+    text = label or {"long": "買多", "short": "賣空", "watch": "觀察"}[bias]
+    return f'<span class="badge bias-{escape(bias)}">{escape(text)}</span>'
 
 
 def _debug_block(summary: Optional[LongModelSummary]) -> str:

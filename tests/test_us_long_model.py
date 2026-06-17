@@ -48,6 +48,7 @@ class USLongModelTests(unittest.TestCase):
 
         self.assertEqual(candidates[0].grade, "A")
         self.assertEqual(candidates[0].entry_status, "executable")
+        self.assertEqual(candidates[0].trade_bias, "long")
         self.assertGreaterEqual(candidates[0].bullish_score, 80)
 
     def test_high_score_with_low_volume_waits_for_volume(self):
@@ -75,6 +76,7 @@ class USLongModelTests(unittest.TestCase):
 
         self.assertEqual(candidates[0].grade, "D")
         self.assertEqual(candidates[0].entry_status, "avoid")
+        self.assertEqual(candidates[0].trade_bias, "watch")
 
 
 if __name__ == "__main__":

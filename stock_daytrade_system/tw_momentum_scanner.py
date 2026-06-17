@@ -73,6 +73,9 @@ class MomentumScanItem:
     data_error: str = ""
     ai_grade: str = "-"
     entry_status: str = "-"
+    trade_bias: str = "watch"
+    trade_bias_label: str = "觀察"
+    trade_bias_reason: str = "尚未進入模型評分。"
     not_selected_reason: str = ""
 
     def to_dict(self) -> dict:
@@ -256,12 +259,37 @@ def _with_model_result(item: MomentumScanItem, model: Optional[object], selected
     grade = str(getattr(model, "grade", "-"))
     entry_status = str(getattr(model, "entry_status", "-"))
     reason = _not_selected_reason(model, selected)
-    return _replace_model(item, grade, entry_status, reason)
+    return _replace_model(
+        item,
+        grade,
+        entry_status,
+        reason,
+        str(getattr(model, "trade_bias", "watch")),
+        str(getattr(model, "trade_bias_label", "觀察")),
+        str(getattr(model, "trade_bias_reason", "")),
+    )
 
 
-def _replace_model(item: MomentumScanItem, grade: str, entry_status: str, reason: str) -> MomentumScanItem:
+def _replace_model(
+    item: MomentumScanItem,
+    grade: str,
+    entry_status: str,
+    reason: str,
+    trade_bias: str = "watch",
+    trade_bias_label: str = "觀察",
+    trade_bias_reason: str = "",
+) -> MomentumScanItem:
     data = item.to_dict()
-    data.update({"ai_grade": grade, "entry_status": entry_status, "not_selected_reason": reason})
+    data.update(
+        {
+            "ai_grade": grade,
+            "entry_status": entry_status,
+            "trade_bias": trade_bias or "watch",
+            "trade_bias_label": trade_bias_label or "觀察",
+            "trade_bias_reason": trade_bias_reason or reason,
+            "not_selected_reason": reason,
+        }
+    )
     return MomentumScanItem(**data)
 
 

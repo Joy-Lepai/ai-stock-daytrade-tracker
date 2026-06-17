@@ -344,6 +344,9 @@ def _signal_card(raw: Any, trigger_map: dict[tuple[str, str], dict]) -> dict:
         "stop_loss": _number(_get(raw, "stop_loss"), trigger.get("stop_loss")),
         "target_price": _number(_get(raw, "target_price"), trigger.get("target_price")),
         "confidence_level": _string(_get(raw, "confidence_level_label") or _get(raw, "confidence_level")),
+        "trade_bias": _string(_get(raw, "trade_bias") or "watch"),
+        "trade_bias_label": _string(_get(raw, "trade_bias_label") or "觀察"),
+        "trade_bias_reason": _string(_get(raw, "trade_bias_reason")),
         "reason": reason,
         "next_step": next_step,
     }

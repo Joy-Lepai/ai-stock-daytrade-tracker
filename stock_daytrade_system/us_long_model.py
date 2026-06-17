@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Iterable, List
 
 from stock_daytrade_system.confidence_model import evaluate_signal
+from stock_daytrade_system.trade_bias import evaluate_trade_bias
 from stock_daytrade_system.us_data import USMarketSnapshot
 
 
@@ -50,6 +51,9 @@ class USLongCandidate:
     conflict_summary: str
     confidence_summary: str
     confidence_adjustment_reason: str
+    trade_bias: str
+    trade_bias_label: str
+    trade_bias_reason: str
     lifecycle_status: str
     trigger_price: float
     stop_loss: float
@@ -188,6 +192,22 @@ def _score_snapshot(
     risk_per_share = max(trigger_price - min(item.vwap or trigger_price, item.low), item.latest_price * 0.006, 0.01)
     stop_loss = max(0.01, trigger_price - risk_per_share)
     target_price = trigger_price + risk_per_share * 1.5
+    trade_bias = evaluate_trade_bias(
+        entry_status=entry_status,
+        grade=grade,
+        bullish_score=bullish,
+        risk_score=risk,
+        confidence_score=confidence.confidence_score,
+        above_vwap=item.above_vwap,
+        last_price=item.latest_price,
+        vwap=item.vwap,
+        change_pct=item.change_pct,
+        volume_ratio=item.volume_ratio,
+        market_status=market_status,
+        break_prev_high=item.break_previous_high,
+        break_orb=item.break_opening_range_high,
+        risk_reasons=risk_reasons,
+    )
     return USLongCandidate(
         symbol=item.symbol,
         name_en=item.name_en,
@@ -227,6 +247,9 @@ def _score_snapshot(
         conflict_summary=confidence.conflict_summary,
         confidence_summary=confidence.confidence_summary,
         confidence_adjustment_reason=confidence.confidence_adjustment_reason,
+        trade_bias=trade_bias.bias,
+        trade_bias_label=trade_bias.label,
+        trade_bias_reason=trade_bias.reason,
         lifecycle_status="observed",
         trigger_price=round(trigger_price, 2),
         stop_loss=round(stop_loss, 2),
