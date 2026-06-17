@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
   adjusted_entry_status TEXT,
   confidence_adjustment_reason TEXT,
   signal_type TEXT,
+  time_bucket TEXT,
   expired_at TEXT,
   closed_at TEXT,
   PRIMARY KEY (date, symbol)
@@ -137,6 +138,7 @@ CREATE TABLE IF NOT EXISTS backtest_results (
   confidence_level TEXT,
   entry_status_at_signal TEXT,
   signal_type TEXT,
+  time_bucket TEXT,
   PRIMARY KEY (date, symbol)
 );
 
@@ -301,6 +303,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_backtest_columns(conn)
     _ensure_confidence_columns(conn)
     _ensure_signal_type_columns(conn)
+    _ensure_time_bucket_columns(conn)
     _ensure_paper_trade_columns(conn)
     return conn
 
@@ -308,6 +311,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candidates: Iterable[object]) -> None:
     date_text = captured_at.strftime("%Y-%m-%d")
     captured_text = captured_at.isoformat(timespec="seconds")
+    recommendation_time_bucket = _time_bucket_for_market(captured_at, "TW")
     candidate_rows = [asdict(item) for item in candidates]
     eligible_recommendation_symbols = {
         data["symbol"]
@@ -407,6 +411,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
             )
             if data["grade"] in {"A", "B+", "B"}:
                 signal_type = _signal_type_from_long_candidate(data)
+                time_bucket = recommendation_time_bucket
                 initial_trigger = data["entry_status"] in {"executable", "practice_long"}
                 lifecycle_status = "triggered" if initial_trigger else "observed"
                 trigger_time = captured_text if initial_trigger else None
@@ -425,9 +430,9 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                       trigger_reason, stop_loss, target_price, signal_price,
                       confidence_score, confidence_level, conflicts_count, conflicts, conflict_summary,
                       confidence_summary, original_entry_status, adjusted_entry_status,
-                      confidence_adjustment_reason, signal_type
+                      confidence_adjustment_reason, signal_type, time_bucket
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(date, symbol) DO UPDATE SET
                       latest_seen_at=excluded.latest_seen_at,
                       grade=excluded.grade,
@@ -473,7 +478,11 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                       original_entry_status=excluded.original_entry_status,
                       adjusted_entry_status=excluded.adjusted_entry_status,
                       confidence_adjustment_reason=excluded.confidence_adjustment_reason,
-                      signal_type=excluded.signal_type
+                      signal_type=excluded.signal_type,
+                      time_bucket=CASE
+                        WHEN recommendations.trigger_time IS NOT NULL THEN recommendations.time_bucket
+                        ELSE excluded.time_bucket
+                      END
                     """,
                     (
                         date_text,
@@ -502,6 +511,7 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                         data.get("adjusted_entry_status"),
                         data.get("confidence_adjustment_reason"),
                         signal_type,
+                        time_bucket,
                     ),
                 )
 
@@ -627,6 +637,8 @@ def _upsert_us_recommendation(
     data: dict,
     market_session: str,
 ) -> None:
+    captured_dt = _parse_datetime(captured_text)
+    recommendation_time_bucket = _time_bucket_for_market(captured_dt, "US")
     existing = conn.execute(
         "SELECT * FROM recommendations WHERE market = 'US' AND date = ? AND symbol = ?",
         (date_text, data["symbol"]),
@@ -659,6 +671,7 @@ def _upsert_us_recommendation(
     expired_at = captured_text if lifecycle_status == "expired" else None
     closed_at = captured_text if lifecycle_status in {"closed", "expired"} else None
     signal_type = _signal_type_from_us_candidate(data)
+    time_bucket = recommendation_time_bucket
     conn.execute(
         """
         INSERT INTO recommendations (
@@ -666,9 +679,9 @@ def _upsert_us_recommendation(
           entry_status, lifecycle_status, observed_at, trigger_time, trigger_price,
           trigger_reason, stop_loss, target_price, signal_price, confidence_score, confidence_level,
           conflicts_count, conflicts, conflict_summary, confidence_summary, original_entry_status,
-          adjusted_entry_status, confidence_adjustment_reason, signal_type, expired_at, closed_at
+          adjusted_entry_status, confidence_adjustment_reason, signal_type, time_bucket, expired_at, closed_at
         )
-        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(date, symbol) DO UPDATE SET
           market='US',
           latest_seen_at=excluded.latest_seen_at,
@@ -695,6 +708,10 @@ def _upsert_us_recommendation(
           adjusted_entry_status=excluded.adjusted_entry_status,
           confidence_adjustment_reason=excluded.confidence_adjustment_reason,
           signal_type=excluded.signal_type,
+          time_bucket=CASE
+            WHEN recommendations.trigger_time IS NOT NULL THEN recommendations.time_bucket
+            ELSE excluded.time_bucket
+          END,
           expired_at=COALESCE(recommendations.expired_at, excluded.expired_at),
           closed_at=COALESCE(recommendations.closed_at, excluded.closed_at)
         """,
@@ -725,6 +742,7 @@ def _upsert_us_recommendation(
             data.get("adjusted_entry_status"),
             data.get("confidence_adjustment_reason"),
             signal_type,
+            time_bucket,
             expired_at,
             closed_at,
         ),
@@ -735,11 +753,19 @@ def _upsert_us_recommendation(
         conn.execute(
             """
             INSERT OR REPLACE INTO backtest_results (
-              market, date, symbol, lifecycle_status, entry_status, signal_type, expired_without_trigger, outcome
+              market, date, symbol, lifecycle_status, entry_status, signal_type, time_bucket, expired_without_trigger, outcome
             )
-            VALUES ('US', ?, ?, ?, ?, ?, 1, ?)
+            VALUES ('US', ?, ?, ?, ?, ?, ?, 1, ?)
             """,
-            (date_text, data["symbol"], lifecycle_status, data["entry_status"], _signal_type_from_us_candidate(data), "未觸發過期"),
+            (
+                date_text,
+                data["symbol"],
+                lifecycle_status,
+                data["entry_status"],
+                _signal_type_from_us_candidate(data),
+                time_bucket,
+                "未觸發過期",
+            ),
         )
 
 
@@ -762,6 +788,7 @@ def _upsert_us_backtest(
     max_gain = ((max_price - entry_price) / entry_price * 100) if entry_price else 0.0
     max_drawdown = ((min_price - entry_price) / entry_price * 100) if entry_price else 0.0
     return_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0.0
+    time_bucket = _time_bucket_for_market(_parse_datetime(trigger_time or captured_text), "US")
     conn.execute(
         """
         INSERT OR REPLACE INTO backtest_results (
@@ -772,9 +799,9 @@ def _upsert_us_backtest(
           max_gain_after_recommend, max_drawdown_after_recommend,
           max_gain_after_trigger, max_drawdown_after_trigger,
           hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct,
-          confidence_score, confidence_level, entry_status_at_signal, signal_type
+          confidence_score, confidence_level, entry_status_at_signal, signal_type, time_bucket
         )
-        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+        VALUES ('US', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             date_text,
@@ -805,6 +832,7 @@ def _upsert_us_backtest(
             data.get("confidence_level"),
             data.get("original_entry_status") or data.get("entry_status"),
             _signal_type_from_us_candidate(data),
+            time_bucket,
         ),
     )
 
@@ -876,11 +904,12 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                 if trigger is not None:
                     lifecycle_status = "triggered"
                     trigger_time, trigger_price, trigger_reason = trigger
+                    trigger_time_bucket = _time_bucket_for_market(trigger_time, "TW")
                     conn.execute(
                         """
                         UPDATE recommendations
                         SET lifecycle_status = ?, trigger_time = ?, trigger_price = ?,
-                            trigger_reason = ?
+                            trigger_reason = ?, time_bucket = ?
                         WHERE market = 'TW' AND date = ? AND symbol = ?
                         """,
                         (
@@ -888,6 +917,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                             trigger_time.isoformat(timespec="seconds"),
                             round(trigger_price, 2),
                             trigger_reason,
+                            trigger_time_bucket,
                             row["date"],
                             row["symbol"],
                         ),
@@ -940,6 +970,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
             max_gain = ((max_price - entry_price) / entry_price * 100) if entry_price else 0
             max_drawdown = ((min_price - entry_price) / entry_price * 100) if entry_price else 0
             return_pct = ((close_price - entry_price) / entry_price * 100) if entry_price else 0
+            time_bucket = _time_bucket_for_market(trigger_time, "TW")
             conn.execute(
                 """
                 UPDATE recommendations
@@ -958,9 +989,9 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                   max_gain_after_recommend, max_drawdown_after_recommend,
                   max_gain_after_trigger, max_drawdown_after_trigger,
                   hit_target, hit_stop, hit_stop_loss, expired_without_trigger, outcome, return_pct,
-                  confidence_score, confidence_level, entry_status_at_signal, signal_type
+                  confidence_score, confidence_level, entry_status_at_signal, signal_type, time_bucket
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row["date"],
@@ -992,6 +1023,7 @@ def update_backtests(conn: sqlite3.Connection, captured_at: datetime, intraday_b
                     row["confidence_level"],
                     row["original_entry_status"] or row["entry_status"],
                     row["signal_type"] or _signal_type_from_recommendation(row),
+                    time_bucket,
                 ),
             )
 
@@ -1122,6 +1154,7 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None, marke
           r.entry_status,
           r.grade,
           r.signal_type,
+          r.time_bucket,
           r.lifecycle_status,
           r.symbol,
           b.outcome,
@@ -1160,6 +1193,7 @@ def backtest_summary(conn: sqlite3.Connection, day: Optional[date] = None, marke
         "by_entry_status": _summarize_by_entry_status(status_rows),
         "by_grade": _summarize_by_grade(status_rows),
         "by_signal_type": _summarize_by_signal_type(status_rows),
+        "by_time_bucket": _summarize_by_time_bucket(status_rows),
     }
 
 
@@ -1256,6 +1290,38 @@ def _summarize_by_signal_type(rows: Iterable[sqlite3.Row]) -> List[dict]:
     return result
 
 
+def _summarize_by_time_bucket(rows: Iterable[sqlite3.Row]) -> List[dict]:
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        grouped.setdefault(row["time_bucket"] or "unknown", []).append(row)
+
+    result = []
+    for time_bucket, items in grouped.items():
+        tracked = [item for item in items if item["trigger_time"]]
+        total = len(items)
+        triggered = len(tracked)
+        target = sum(1 for item in tracked if item["outcome"] == "達標")
+        stop = sum(1 for item in tracked if item["outcome"] == "停損")
+        avg_return = round(sum(item["return_pct"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        avg_max_gain = round(sum(item["max_gain_after_trigger"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        avg_max_drawdown = round(sum(item["max_drawdown_after_trigger"] or 0 for item in tracked) / triggered, 2) if triggered else 0.0
+        result.append(
+            {
+                "time_bucket": time_bucket,
+                "total": total,
+                "triggered": triggered,
+                "target": target,
+                "stop": stop,
+                "win_rate": round(target / triggered * 100, 2) if triggered else 0.0,
+                "avg_return": avg_return,
+                "avg_max_gain": avg_max_gain,
+                "avg_max_drawdown": avg_max_drawdown,
+            }
+        )
+    result.sort(key=lambda item: _time_bucket_order(item["time_bucket"]))
+    return result
+
+
 def _entry_status_order(value: str) -> int:
     return {
         "executable": 0,
@@ -1280,6 +1346,24 @@ def _signal_type_order(value: str) -> int:
         "watch": 3,
         "unknown": 9,
     }.get(value, 8)
+
+
+def _time_bucket_order(value: str) -> int:
+    return {
+        "pre_open": 0,
+        "opening_observation": 1,
+        "main_entry": 2,
+        "pullback_only": 3,
+        "late_avoid": 4,
+        "after_close": 5,
+        "premarket": 10,
+        "us_opening": 11,
+        "us_main": 12,
+        "us_late": 13,
+        "afterhours": 14,
+        "closed": 15,
+        "unknown": 99,
+    }.get(value, 90)
 
 
 def _ensure_backtest_columns(conn: sqlite3.Connection) -> None:
@@ -1391,6 +1475,53 @@ def _ensure_signal_type_columns(conn: sqlite3.Connection) -> None:
     )
 
 
+def _ensure_time_bucket_columns(conn: sqlite3.Connection) -> None:
+    _add_missing_columns(
+        conn,
+        "recommendations",
+        {"time_bucket": "TEXT"},
+    )
+    _add_missing_columns(
+        conn,
+        "backtest_results",
+        {"time_bucket": "TEXT"},
+    )
+    recommendation_rows = conn.execute(
+        """
+        SELECT market, date, symbol, COALESCE(trigger_time, first_seen_at) AS bucket_time
+        FROM recommendations
+        WHERE time_bucket IS NULL OR time_bucket = ''
+        """
+    ).fetchall()
+    for row in recommendation_rows:
+        bucket = _time_bucket_for_market(_parse_datetime(row["bucket_time"]), row["market"] or "TW")
+        conn.execute(
+            """
+            UPDATE recommendations
+            SET time_bucket = ?
+            WHERE market = ? AND date = ? AND symbol = ?
+            """,
+            (bucket, row["market"] or "TW", row["date"], row["symbol"]),
+        )
+    backtest_rows = conn.execute(
+        """
+        SELECT market, date, symbol, trigger_time
+        FROM backtest_results
+        WHERE time_bucket IS NULL OR time_bucket = ''
+        """
+    ).fetchall()
+    for row in backtest_rows:
+        bucket = _time_bucket_for_market(_parse_datetime(row["trigger_time"]), row["market"] or "TW")
+        conn.execute(
+            """
+            UPDATE backtest_results
+            SET time_bucket = ?
+            WHERE market = ? AND date = ? AND symbol = ?
+            """,
+            (bucket, row["market"] or "TW", row["date"], row["symbol"]),
+        )
+
+
 def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
     existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     for name, column_type in columns.items():
@@ -1496,6 +1627,36 @@ def _signal_type_from_recommendation(row: sqlite3.Row) -> str:
     if entry_status == "practice_long" or grade == "B+" or entry_status in {"wait_volume", "wait_vwap", "wait_breakout"}:
         return "continuation"
     return "watch"
+
+
+def _time_bucket_for_market(moment: Optional[datetime], market: str = "TW") -> str:
+    if moment is None:
+        return "unknown"
+    local_time = moment.replace(tzinfo=None)
+    hm = (local_time.hour, local_time.minute)
+    if str(market).upper() == "US":
+        if hm < (9, 30):
+            return "premarket"
+        if hm < (10, 0):
+            return "us_opening"
+        if hm < (15, 0):
+            return "us_main"
+        if hm < (16, 0):
+            return "us_late"
+        if hm < (20, 0):
+            return "afterhours"
+        return "closed"
+    if hm < (9, 0):
+        return "pre_open"
+    if hm < (9, 20):
+        return "opening_observation"
+    if hm < (10, 30):
+        return "main_entry"
+    if hm < (11, 30):
+        return "pullback_only"
+    if hm < (13, 30):
+        return "late_avoid"
+    return "after_close"
 
 
 def _delete_stale_recommendations(
@@ -1606,9 +1767,18 @@ def _upsert_expired_backtest(conn: sqlite3.Connection, row: sqlite3.Row, lifecyc
     conn.execute(
         """
         INSERT OR REPLACE INTO backtest_results (
-          date, symbol, lifecycle_status, entry_status, signal_type, expired_without_trigger, outcome
+          date, symbol, lifecycle_status, entry_status, signal_type, time_bucket, expired_without_trigger, outcome
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (row["date"], row["symbol"], lifecycle_status, row["entry_status"], row["signal_type"] or _signal_type_from_recommendation(row), 1, "未觸發過期"),
+        (
+            row["date"],
+            row["symbol"],
+            lifecycle_status,
+            row["entry_status"],
+            row["signal_type"] or _signal_type_from_recommendation(row),
+            row["time_bucket"] or _time_bucket_for_market(_parse_datetime(row["first_seen_at"]), row["market"] or "TW"),
+            1,
+            "未觸發過期",
+        ),
     )

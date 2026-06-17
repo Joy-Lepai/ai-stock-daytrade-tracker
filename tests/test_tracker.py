@@ -205,6 +205,19 @@ class TrackerStatusTests(unittest.TestCase):
                         "avg_max_drawdown": -0.5,
                     }
                 ],
+                "by_time_bucket": [
+                    {
+                        "time_bucket": "main_entry",
+                        "total": 1,
+                        "triggered": 1,
+                        "target": 1,
+                        "stop": 0,
+                        "win_rate": 100,
+                        "avg_return": 1.2,
+                        "avg_max_gain": 2.3,
+                        "avg_max_drawdown": -0.5,
+                    }
+                ],
             },
             recommendation_checklist={},
         )
@@ -213,6 +226,8 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("依訊號型態回測", html)
         self.assertIn("VWAP 回測買點", html)
+        self.assertIn("依時間區間回測", html)
+        self.assertIn("主進場區 09:20-10:30", html)
         self.assertIn("100.00%", html)
 
     def test_entry_status_messages_explain_wait_states(self):

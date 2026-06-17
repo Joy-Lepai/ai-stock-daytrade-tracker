@@ -164,9 +164,12 @@ class DatabaseTests(unittest.TestCase):
         self.assertEqual(summary["by_entry_status"][0]["trackable"], 1)
         self.assertEqual(summary["by_signal_type"][0]["signal_type"], "breakout")
         self.assertEqual(summary["by_signal_type"][0]["triggered"], 1)
+        self.assertEqual(summary["by_time_bucket"][0]["time_bucket"], "opening_observation")
+        self.assertEqual(summary["by_time_bucket"][0]["triggered"], 1)
         self.assertEqual(backtest_row["same_day_high"], 103)
         self.assertEqual(backtest_row["same_day_close"], 102)
         self.assertEqual(backtest_row["signal_type"], "breakout")
+        self.assertEqual(backtest_row["time_bucket"], "opening_observation")
         self.assertEqual(backtest_row["hit_stop_loss"], 0)
         self.assertGreater(backtest_row["max_gain_after_recommend"], 0)
 
@@ -214,17 +217,55 @@ class DatabaseTests(unittest.TestCase):
                     ],
                 )
                 rows = conn.execute(
-                    "SELECT symbol, signal_type FROM recommendations ORDER BY symbol"
+                    "SELECT symbol, signal_type, time_bucket FROM recommendations ORDER BY symbol"
                 ).fetchall()
 
         self.assertEqual(
-            [(row["symbol"], row["signal_type"]) for row in rows],
+            [(row["symbol"], row["signal_type"], row["time_bucket"]) for row in rows],
             [
-                ("2303.TW", "continuation"),
-                ("2317.TW", "vwap_pullback"),
-                ("2330.TW", "breakout"),
+                ("2303.TW", "continuation", "opening_observation"),
+                ("2317.TW", "vwap_pullback", "opening_observation"),
+                ("2330.TW", "breakout", "opening_observation"),
             ],
         )
+
+    def test_triggered_wait_signal_uses_trigger_time_bucket(self):
+        wait_candidate = replace(
+            candidate(grade="B+", entry_status="wait_vwap"),
+            above_vwap=False,
+            vwap=101,
+            last_price=100,
+            trigger_price=101,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_long_candidates(conn, datetime(2026, 1, 1, 9, 5), [wait_candidate])
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap, above_vwap,
+                      volume_ratio, opening_range_high, opening_range_low
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    ("2026-01-01T09:30:00", "2026-01-01", "2330.TW", 101.2, 200000, 0, 101, 1, 1.1, None, None),
+                )
+                update_backtests(
+                    conn,
+                    datetime(2026, 1, 1, 9, 30),
+                    {"2330.TW": [bar(0, 101, 99, 100), bar(5, 103, 100, 102)]},
+                )
+                recommendation = conn.execute(
+                    "SELECT lifecycle_status, time_bucket FROM recommendations WHERE symbol = ?",
+                    ("2330.TW",),
+                ).fetchone()
+                backtest_row = conn.execute("SELECT time_bucket FROM backtest_results WHERE symbol = ?", ("2330.TW",)).fetchone()
+                summary = backtest_summary(conn)
+
+        self.assertIn(recommendation["lifecycle_status"], {"triggered", "hit_target", "stopped", "closed"})
+        self.assertEqual(recommendation["time_bucket"], "main_entry")
+        self.assertEqual(backtest_row["time_bucket"], "main_entry")
+        self.assertEqual(summary["by_time_bucket"][0]["time_bucket"], "main_entry")
 
     def test_wait_vwap_triggers_lifecycle_without_losing_entry_status(self):
         wait_candidate = replace(
