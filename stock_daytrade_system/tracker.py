@@ -987,6 +987,9 @@ def _is_tomorrow_continuation_candidate(item: dict, turnover_rank: int) -> bool:
     volume_ratio = float(item.get("volume_ratio") or 0)
     risk_score = float(item.get("risk_score") or 0)
     turnover = float(item.get("turnover") or 0)
+    entry_status = str(item.get("entry_status") or "")
+    if entry_status in {"high_risk", "avoid"}:
+        return False
     if change_pct < 3:
         return False
     if volume_ratio < 0.7:
@@ -1030,6 +1033,9 @@ def _has_obvious_upper_shadow_risk(item: dict) -> bool:
     )
     risk_score = float(item.get("risk_score") or 0)
     volume_ratio = float(item.get("volume_ratio") or 0)
+    upper_shadow_pct = float(item.get("upper_shadow_pct") or 0)
+    if upper_shadow_pct >= 1.2:
+        return True
     if "長上影" in reason_text or "上影線" in reason_text or "爆量不漲" in reason_text:
         return True
     return volume_ratio >= 2.5 and risk_score >= 55

@@ -75,6 +75,9 @@ class TWMomentumScannerTests(unittest.TestCase):
         self.assertEqual(result.summary.model_scored, 1)
         self.assertEqual(result.items[0].symbol, "6770.TW")
         self.assertIn(result.items[0].ai_grade, {"A", "B+", "B", "C", "D"})
+        self.assertIsNotNone(result.items[0].risk_score)
+        self.assertIsNotNone(result.items[0].upper_shadow_pct)
+        self.assertIsNotNone(result.items[0].confidence_score)
 
     def test_high_risk_reason_for_overextended_stock(self):
         symbol = WatchSymbol("3016.TW", "嘉晶", "semiconductor")

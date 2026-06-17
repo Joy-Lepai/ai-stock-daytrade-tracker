@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.config import WatchSymbol
@@ -77,6 +77,12 @@ class MomentumScanItem:
     trade_bias_label: str = "觀察"
     trade_bias_reason: str = "尚未進入模型評分。"
     not_selected_reason: str = ""
+    risk_score: Optional[float] = None
+    risk_reasons: List[str] = field(default_factory=list)
+    upper_shadow_pct: Optional[float] = None
+    confidence_score: Optional[float] = None
+    confidence_level: str = ""
+    confidence_summary: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -267,6 +273,12 @@ def _with_model_result(item: MomentumScanItem, model: Optional[object], selected
         str(getattr(model, "trade_bias", "watch")),
         str(getattr(model, "trade_bias_label", "觀察")),
         str(getattr(model, "trade_bias_reason", "")),
+        float(getattr(model, "risk_score", 0) or 0),
+        list(getattr(model, "risk_reasons", []) or []),
+        float(getattr(model, "upper_shadow_pct", 0) or 0),
+        float(getattr(model, "confidence_score", 0) or 0),
+        str(getattr(model, "confidence_level", "")),
+        str(getattr(model, "confidence_summary", "")),
     )
 
 
@@ -278,6 +290,12 @@ def _replace_model(
     trade_bias: str = "watch",
     trade_bias_label: str = "觀察",
     trade_bias_reason: str = "",
+    risk_score: Optional[float] = None,
+    risk_reasons: Optional[List[str]] = None,
+    upper_shadow_pct: Optional[float] = None,
+    confidence_score: Optional[float] = None,
+    confidence_level: str = "",
+    confidence_summary: str = "",
 ) -> MomentumScanItem:
     data = item.to_dict()
     data.update(
@@ -288,6 +306,12 @@ def _replace_model(
             "trade_bias_label": trade_bias_label or "觀察",
             "trade_bias_reason": trade_bias_reason or reason,
             "not_selected_reason": reason,
+            "risk_score": round(risk_score, 2) if risk_score is not None else None,
+            "risk_reasons": risk_reasons or [],
+            "upper_shadow_pct": round(upper_shadow_pct, 2) if upper_shadow_pct is not None else None,
+            "confidence_score": round(confidence_score, 2) if confidence_score is not None else None,
+            "confidence_level": confidence_level,
+            "confidence_summary": confidence_summary,
         }
     )
     return MomentumScanItem(**data)
