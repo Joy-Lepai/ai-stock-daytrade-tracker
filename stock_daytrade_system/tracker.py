@@ -1629,6 +1629,7 @@ def _debug_block(summary: Optional[LongModelSummary]) -> str:
     rows = [
         ("app version / commit", str(info.get("app_version", "-"))),
         ("scoring model version", str(info.get("scoring_model_version", "-"))),
+        ("session policy version", str(info.get("session_policy_version", "-"))),
         ("dashboard generated_at", str(info.get("dashboard_generated_at", "-"))),
         ("recommendations count from DB", str(info.get("recommendations_count_from_db", "-"))),
         ("candidates count from current run", str(info.get("candidates_count_from_current_run", "-"))),

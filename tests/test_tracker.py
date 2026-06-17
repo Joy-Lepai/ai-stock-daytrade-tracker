@@ -451,6 +451,7 @@ class TrackerStatusTests(unittest.TestCase):
             debug_info={
                 "app_version": "abc123",
                 "scoring_model_version": "long_model_v2_volume_vwap_2026-06-12",
+                "session_policy_version": "session_policy_v1_time_gated_entry_2026-06-18",
                 "dashboard_generated_at": "2026-01-01T09:05:00",
                 "recommendations_count_from_db": 2,
                 "candidates_count_from_current_run": 17,
@@ -475,6 +476,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("今日推薦檢查表", html)
         self.assertIn("系統版本 / Debug", html)
         self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
+        self.assertIn("session_policy_v1_time_gated_entry_2026-06-18", html)
         self.assertIn("recommendations count from DB", html)
         self.assertIn("executable 可執行", html)
         self.assertIn("wait_volume 等量能", html)
