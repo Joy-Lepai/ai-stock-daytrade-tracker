@@ -32,6 +32,7 @@ def build_decision_center(
     waiting = _waiting_conditions(counts, market_status)
     risks = _major_risks(counts, market_status, data_state, confidence, items)
     executable = int(counts.get("executable", 0))
+    practice_long = int(counts.get("practice_long", 0))
     triggered = int(counts.get("triggered", 0))
     b_plus = int(counts.get("grade_b_plus", 0))
 
@@ -44,7 +45,7 @@ def build_decision_center(
     else:
         executable_summary = (
             f"目前有 {executable} 檔 executable、{triggered} 檔 triggered、"
-            f"{b_plus} 檔 B+ 練習觀察；等待量能 {counts.get('wait_volume', 0)} 檔、"
+            f"{practice_long} 檔練習買多、{b_plus} 檔 B+ 練習觀察；等待量能 {counts.get('wait_volume', 0)} 檔、"
             f"等待 VWAP {counts.get('wait_vwap', 0)} 檔、等待突破 {counts.get('wait_breakout', 0)} 檔。"
         )
 
@@ -104,7 +105,7 @@ def build_signal_center(candidates: Iterable[Any], b_plus_triggers: Iterable[dic
         grade = item["grade"]
         entry = item["entry_status"]
         lifecycle = item["lifecycle_status"]
-        if entry == "executable" or lifecycle == "triggered":
+        if entry in {"executable", "practice_long"} or lifecycle == "triggered":
             buckets["executable"].append(item)
         elif grade == "B+":
             buckets["b_plus"].append(item)
@@ -196,6 +197,7 @@ def _counts(items: list[Any], checklist: dict, triggers: list[dict]) -> dict:
         "grade_b_plus": _int(checklist.get("grade_b_plus"), sum(1 for item in items if _get(item, "grade") == "B+")),
         "grade_b": _int(checklist.get("grade_b"), sum(1 for item in items if _get(item, "grade") == "B")),
         "executable": _int(checklist.get("executable"), status_count("executable")),
+        "practice_long": _int(checklist.get("practice_long"), status_count("practice_long")),
         "wait_volume": _int(checklist.get("wait_volume"), status_count("wait_volume")),
         "wait_vwap": _int(checklist.get("wait_vwap"), status_count("wait_vwap")),
         "wait_breakout": _int(checklist.get("wait_breakout"), status_count("wait_breakout")),
@@ -355,6 +357,8 @@ def _signal_card(raw: Any, trigger_map: dict[tuple[str, str], dict]) -> dict:
 def _next_step(entry: str, lifecycle: str, readiness: Any) -> str:
     if entry == "executable" or lifecycle == "triggered":
         return "可進入虛擬交易觀察"
+    if entry == "practice_long":
+        return "可作為練習買多，使用虛擬交易累積樣本"
     if readiness == "ready":
         return "等待系統轉 triggered 或可手動練習"
     if entry == "wait_vwap":

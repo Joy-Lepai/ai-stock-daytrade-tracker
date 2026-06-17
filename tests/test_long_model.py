@@ -107,7 +107,7 @@ class LongModelTests(unittest.TestCase):
 
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0].grade, "B")
-        self.assertEqual(candidates[0].entry_status, "wait_pullback")
+        self.assertEqual(candidates[0].entry_status, "practice_long")
         self.assertTrue(candidates[0].break_prev_high)
         self.assertFalse(candidates[0].break_5d_high)
 
@@ -130,7 +130,7 @@ class LongModelTests(unittest.TestCase):
         self.assertEqual(candidates[0].grade, "D")
         self.assertEqual(candidates[0].entry_status, "wait_volume")
 
-    def test_b_plus_with_sub_one_volume_waits_for_volume_confirmation(self):
+    def test_b_plus_with_sub_one_volume_becomes_practice_long(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
         bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
         intraday = [intraday_bar(index, 104 + index * 0.2, volume=112_500) for index in range(8)]
@@ -148,7 +148,7 @@ class LongModelTests(unittest.TestCase):
         self.assertGreaterEqual(candidates[0].volume_ratio, 0.8)
         self.assertLess(candidates[0].volume_ratio, 1.0)
         self.assertEqual(candidates[0].grade, "B+")
-        self.assertEqual(candidates[0].entry_status, "wait_volume")
+        self.assertEqual(candidates[0].entry_status, "practice_long")
         self.assertIn("B+練習觀察", "；".join(candidates[0].reasons))
 
     def test_near_vwap_but_not_above_waits_for_vwap(self):

@@ -14,7 +14,7 @@ from stock_daytrade_system.sectors import SectorStrength
 from stock_daytrade_system.trade_bias import evaluate_trade_bias
 
 
-SCORING_MODEL_VERSION = "long_model_v2_b_plus_practice_2026-06-13"
+SCORING_MODEL_VERSION = "long_model_v3_practice_long_2026-06-17"
 
 MAJOR_CONFLICT_CODES = {
     "breakout_below_vwap",
@@ -279,7 +279,19 @@ def _build_candidate(
         confidence_score=confidence.confidence_score,
         conflicts=confidence.conflicts,
     )
-    if grade == "B+" and entry_status == "executable":
+    if grade in {"B+", "B"} and _practice_long_allowed(
+        bullish_score=bullish_score,
+        risk_score=risk_score,
+        above_vwap=above_vwap,
+        volume_ratio=volume_ratio,
+        vwap_distance_pct=vwap_distance_pct,
+    ):
+        entry_status = "practice_long"
+        reasons = [
+            *reasons,
+            "練習買多觀察：條件接近，可用虛擬交易累積樣本，尚未等同正式A級訊號",
+        ]
+    elif grade == "B+" and entry_status == "executable":
         entry_status = "wait_pullback"
     if grade == "B+":
         reasons = [
@@ -523,11 +535,28 @@ def _entry_status(
         return "wait_volume"
     if grade == "A":
         return "executable"
+    if grade in {"B+", "B"} and above_vwap and volume_ratio >= 0.8:
+        return "practice_long"
     if grade == "B+":
         return "wait_pullback"
     if grade == "B":
         return "wait_pullback"
     return "avoid"
+
+
+def _practice_long_allowed(
+    *,
+    bullish_score: float,
+    risk_score: float,
+    above_vwap: bool,
+    volume_ratio: float,
+    vwap_distance_pct: Optional[float],
+) -> bool:
+    if not above_vwap or volume_ratio < 0.8 or risk_score > 55 or bullish_score < 65:
+        return False
+    if vwap_distance_pct is not None and vwap_distance_pct > 2.5:
+        return False
+    return True
 
 
 def _apply_confidence_to_grade(

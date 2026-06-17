@@ -31,6 +31,7 @@ def build_us_dashboard_payload(conn, project_root: Path, now: Optional[datetime]
         "grade_b_plus": sum(1 for item in candidates if item.grade == "B+"),
         "grade_b": sum(1 for item in candidates if item.grade == "B"),
         "executable": sum(1 for item in candidates if item.entry_status == "executable"),
+        "practice_long": sum(1 for item in candidates if item.entry_status == "practice_long"),
         "trade_long": sum(1 for item in candidates if item.trade_bias == "long"),
         "trade_short": sum(1 for item in candidates if item.trade_bias == "short"),
         "trade_watch": sum(1 for item in candidates if item.trade_bias == "watch"),

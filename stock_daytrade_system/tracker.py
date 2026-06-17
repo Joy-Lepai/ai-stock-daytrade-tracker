@@ -518,6 +518,7 @@ def render_tracker_html(
     <div class="meta">產生時間：{escape(report_time.strftime('%Y-%m-%d %H:%M:%S'))} ｜ 市場背景：{escape(market_bias.direction)}（{market_bias.score:+.2f}）</div>
     <div class="summary">
       {_metric('executable 可執行', int(checklist.get('executable', 0)))}
+      {_metric('practice_long 練習買多', int(checklist.get('practice_long', 0)))}
       {_metric('wait_volume 等量能', int(checklist.get('wait_volume', 0)))}
       {_metric('wait_vwap 等VWAP', int(checklist.get('wait_vwap', 0)))}
       {_metric('high_risk 風險過高', int(checklist.get('high_risk', 0)))}
@@ -1061,6 +1062,7 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('C/D避開數量', int(data.get('grade_cd', 0)))}"
         f"{_metric('今日可虛擬交易觀察數量', int(data.get('paper_practice_observable', 0)))}"
         f"{_metric('executable 可執行', int(data.get('executable', 0)))}"
+        f"{_metric('practice_long 練習買多', int(data.get('practice_long', 0)))}"
         f"{_metric('當下買多', int(data.get('trade_long', 0)))}"
         f"{_metric('當下賣空', int(data.get('trade_short', 0)))}"
         f"{_metric('當下觀察', int(data.get('trade_watch', 0)))}"
@@ -1182,6 +1184,7 @@ def _grade_backtest_table(rows: List[dict]) -> str:
 def _entry_status_label(value: str) -> str:
     return {
         "executable": "executable 可執行觀察",
+        "practice_long": "practice_long 練習買多",
         "wait_volume": "wait_volume 等待量能確認",
         "wait_vwap": "wait_vwap 等待站回VWAP",
         "wait_breakout": "wait_breakout 等待突破",
@@ -1194,6 +1197,7 @@ def _entry_status_label(value: str) -> str:
 def _entry_status_message(value: str) -> str:
     return {
         "executable": "量能與VWAP條件成立，可列入做多觀察。",
+        "practice_long": "條件接近且風險可控，可用虛擬交易練習買多。",
         "wait_volume": "多方結構不錯，但量能不足，等待量比放大後再觀察。",
         "wait_vwap": "突破條件成立，但尚未站上 VWAP，等待站回均價線。",
         "wait_breakout": "站上 VWAP 或量能條件尚可，等待突破觸發價。",

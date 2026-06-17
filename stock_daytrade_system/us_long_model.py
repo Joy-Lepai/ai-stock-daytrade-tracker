@@ -8,7 +8,7 @@ from stock_daytrade_system.trade_bias import evaluate_trade_bias
 from stock_daytrade_system.us_data import USMarketSnapshot
 
 
-US_MODEL_VERSION = "us_long_model_v1_vwap_volume_breakout"
+US_MODEL_VERSION = "us_long_model_v2_practice_long"
 
 
 @dataclass(frozen=True)
@@ -296,6 +296,8 @@ def _entry_status(
         return "high_risk"
     if grade == "A" and above_vwap and volume_ratio >= 1.2:
         return "executable"
+    if grade in {"B", "C"} and above_vwap and volume_ratio >= 0.9 and risk <= 55 and bullish >= 55 and vwap_distance_pct <= 2.5:
+        return "practice_long"
     if bullish >= 55 and above_vwap and vwap_distance_pct > 3:
         return "wait_pullback"
     if bullish >= 55 and volume_ratio < 1.0:
@@ -335,10 +337,11 @@ def _grade_order(value: str) -> int:
 def _entry_order(value: str) -> int:
     return {
         "executable": 0,
-        "wait_volume": 1,
-        "wait_vwap": 2,
-        "wait_breakout": 3,
-        "wait_pullback": 4,
-        "high_risk": 5,
-        "avoid": 6,
+        "practice_long": 1,
+        "wait_volume": 2,
+        "wait_vwap": 3,
+        "wait_breakout": 4,
+        "wait_pullback": 5,
+        "high_risk": 6,
+        "avoid": 7,
     }.get(value, 9)

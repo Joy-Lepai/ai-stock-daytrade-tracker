@@ -52,8 +52,8 @@ def evaluate_b_plus_trigger(
         target = vwap
         readiness = _readiness_wait_pullback(current_price, vwap, blocked)
         distance = _distance_wait_pullback(current_price, vwap)
-    elif entry_status == "executable":
-        condition = "已符合可執行條件"
+    elif entry_status in {"executable", "practice_long"}:
+        condition = "練習買多條件成立" if entry_status == "practice_long" else "已符合可執行條件"
         target = trigger_price or current_price
         readiness = "ready" if not blocked else "blocked"
         distance = "已達觸發條件"
@@ -367,6 +367,8 @@ def _trigger_reason(entry_status: str, current_price: Optional[float], volume_ra
         return "B+回測VWAP不破"
     if entry_status == "executable":
         return "B+條件可執行"
+    if entry_status == "practice_long":
+        return "B+練習買多條件成立"
     return "B+觸發條件成立"
 
 

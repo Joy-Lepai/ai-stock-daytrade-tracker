@@ -359,6 +359,7 @@ def run_tracker(
                 if item.grade in {"A", "B+"} and item.entry_status not in {"high_risk", "avoid"}
             ),
             "executable": sum(1 for item in long_candidates if item.entry_status == "executable"),
+            "practice_long": sum(1 for item in visible_long_candidates if item.entry_status == "practice_long"),
             "trade_long": sum(1 for item in visible_long_candidates if item.trade_bias == "long"),
             "trade_short": sum(1 for item in visible_long_candidates if item.trade_bias == "short"),
             "trade_watch": sum(1 for item in visible_long_candidates if item.trade_bias == "watch"),

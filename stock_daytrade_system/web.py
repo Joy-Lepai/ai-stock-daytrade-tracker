@@ -1037,6 +1037,7 @@ def us_dashboard_script() -> str:
           metric("B+練習觀察", summary.grade_b_plus || 0),
           metric("B級", summary.grade_b || 0),
           metric("executable 可執行", summary.executable || 0),
+          metric("practice_long 練習買多", summary.practice_long || 0),
           metric("當下買多", summary.trade_long || 0),
           metric("當下賣空", summary.trade_short || 0),
           metric("當下觀察", summary.trade_watch || 0),

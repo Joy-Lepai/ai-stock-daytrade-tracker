@@ -403,10 +403,16 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
                 ),
             )
             if data["grade"] in {"A", "B+", "B"}:
-                lifecycle_status = "triggered" if data["entry_status"] == "executable" else "observed"
-                trigger_time = captured_text if data["entry_status"] == "executable" else None
-                trigger_price = data["last_price"] if data["entry_status"] == "executable" else data["trigger_price"]
-                trigger_reason = "initial_executable" if data["entry_status"] == "executable" else None
+                initial_trigger = data["entry_status"] in {"executable", "practice_long"}
+                lifecycle_status = "triggered" if initial_trigger else "observed"
+                trigger_time = captured_text if initial_trigger else None
+                trigger_price = data["last_price"] if initial_trigger else data["trigger_price"]
+                trigger_reason = (
+                    "initial_executable" if data["entry_status"] == "executable"
+                    else "practice_long"
+                    if data["entry_status"] == "practice_long"
+                    else None
+                )
                 conn.execute(
                     """
                     INSERT INTO recommendations (
@@ -619,10 +625,16 @@ def _upsert_us_recommendation(
         "SELECT * FROM recommendations WHERE market = 'US' AND date = ? AND symbol = ?",
         (date_text, data["symbol"]),
     ).fetchone()
-    lifecycle_status = "triggered" if data["entry_status"] == "executable" else "observed"
-    trigger_time = captured_text if data["entry_status"] == "executable" else None
-    trigger_price = data["latest_price"] if data["entry_status"] == "executable" else data["trigger_price"]
-    trigger_reason = "美股條件即時成立" if data["entry_status"] == "executable" else None
+    initial_trigger = data["entry_status"] in {"executable", "practice_long"}
+    lifecycle_status = "triggered" if initial_trigger else "observed"
+    trigger_time = captured_text if initial_trigger else None
+    trigger_price = data["latest_price"] if initial_trigger else data["trigger_price"]
+    trigger_reason = (
+        "美股條件即時成立" if data["entry_status"] == "executable"
+        else "美股練習買多條件成立"
+        if data["entry_status"] == "practice_long"
+        else None
+    )
     if existing and (existing["lifecycle_status"] or "observed") == "observed":
         trigger = _us_trigger_from_candidate(existing["entry_status"], data)
         if trigger:
@@ -788,6 +800,8 @@ def _upsert_us_backtest(
 
 
 def _us_trigger_from_candidate(entry_status: str, data: dict) -> Optional[str]:
+    if entry_status == "practice_long":
+        return "練習買多條件成立"
     if data.get("grade") == "B+":
         tracker = evaluate_b_plus_trigger(
             market="US",
@@ -1200,11 +1214,12 @@ def _summarize_by_grade(rows: Iterable[sqlite3.Row]) -> List[dict]:
 def _entry_status_order(value: str) -> int:
     return {
         "executable": 0,
-        "wait_pullback": 1,
-        "wait_volume": 2,
-        "wait_vwap": 3,
-        "high_risk": 4,
-        "avoid": 5,
+        "practice_long": 1,
+        "wait_pullback": 2,
+        "wait_volume": 3,
+        "wait_vwap": 4,
+        "high_risk": 5,
+        "avoid": 6,
     }.get(value, 9)
 
 
@@ -1389,6 +1404,8 @@ def _trigger_from_observation(
     entry_status = row["entry_status"]
     if entry_status == "executable":
         return captured_at, float(row["signal_price"] or row["trigger_price"] or 0), "initial_executable"
+    if entry_status == "practice_long":
+        return captured_at, float(row["signal_price"] or row["trigger_price"] or 0), "practice_long"
     if snapshot is None:
         return None
 
