@@ -25,6 +25,7 @@ from stock_daytrade_system.scoring import CandidateScore, score_market_bias, sco
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
 from stock_daytrade_system.taifex import TaifexClient, TaifexDataError
 from stock_daytrade_system.tracker import build_tracked_symbols, render_tracker_html
+from stock_daytrade_system.tw_momentum_scanner import build_momentum_universe, scan_momentum_candidates
 from stock_daytrade_system.web import DEFAULT_AUTH, serve
 
 
@@ -234,7 +235,8 @@ def run_tracker(
         cmoney_errors["CMoney 法人買超排行"] = str(exc)
     cmoney_ranking_map = rankings_by_symbol(cmoney_rankings)
     auto_universe = merge_cmoney_symbols(config.auto_universe, cmoney_rankings)
-    all_watch_items = _dedupe_watch_symbols(auto_universe + config.manual_symbols)
+    base_watch_items = _dedupe_watch_symbols(auto_universe + config.manual_symbols)
+    all_watch_items = _dedupe_watch_symbols(build_momentum_universe(base_watch_items))
     market_symbols = list(
         dict.fromkeys(
             config.market.us_market_symbols
@@ -336,6 +338,7 @@ def run_tracker(
             market_bias,
             cmoney_ranking_map,
         )
+        momentum_scan = scan_momentum_candidates(all_watch_items, daily_data, intraday_data, long_candidates)
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
         backtest_data = backtest_summary(conn, now.date())
@@ -378,6 +381,10 @@ def run_tracker(
             "recommendations_count_from_db": int(backtest_data.get("recommendation_count", 0)),
             "candidates_count_from_current_run": len(long_candidates),
             "visible_candidates_count": len(visible_long_candidates),
+            "momentum_scanner_version": momentum_scan.version,
+            "momentum_scan_total": momentum_scan.summary.total,
+            "momentum_scan_success": momentum_scan.summary.data_success,
+            "momentum_scan_model_scored": momentum_scan.summary.model_scored,
         }
         paper_stats = paper_activity_stats(conn, market="TW")
         clock = taiwan_market_session(now)
@@ -404,6 +411,7 @@ def run_tracker(
             debug_info,
             paper_stats,
             decision_center,
+            momentum_scan.to_dict(),
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)
     paper_summary = update_paper_trades(now, tracked_symbols, intraday_data, output_dir)

@@ -471,6 +471,37 @@ def render_tracker_html(
     .signal-title {{ font-weight: 750; }}
     .signal-meta {{ color: var(--muted); font-size: 12px; white-space: normal; }}
     .signal-next {{ margin-top: 6px; font-weight: 700; color: var(--blue); }}
+    .scan-form {{
+      display: flex;
+      align-items: end;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 12px 0;
+      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }}
+    .scan-form label {{ font-weight: 700; }}
+    .scan-form input {{
+      display: block;
+      min-width: 180px;
+      margin-top: 4px;
+      padding: 8px 9px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+    }}
+    .scan-form button {{
+      border: 1px solid var(--blue);
+      background: var(--blue);
+      color: #fff;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font: inherit;
+      cursor: pointer;
+    }}
+    .scan-result {{ margin: 8px 0 14px; }}
     @media (max-width: 760px) {{
       header, main {{ padding-left: 14px; padding-right: 14px; }}
       h1 {{ font-size: 22px; }}
@@ -495,6 +526,9 @@ def render_tracker_html(
   <main>
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    <h2>今日異動股掃描</h2>
+    <div class="table-wrap">{_momentum_scan_table(long_summary)}</div>
+    {_manual_scan_panel()}
     <h2>信心雷達</h2>
     {_confidence_radar(long_summary)}
     <h2>今日做多候選股 MVP</h2>
@@ -569,6 +603,42 @@ def render_tracker_html(
           }});
         }});
       }});
+
+      const scanInput = document.getElementById("tw-scan-symbol");
+      const scanResult = document.getElementById("tw-scan-result");
+      const escapeHtml = (value) => String(value ?? "-")
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      const scanSymbol = async (endpoint) => {{
+        const symbol = scanInput?.value.trim();
+        if (!symbol) {{
+          scanResult.innerHTML = '<section class="warn">請先輸入股票代號或名稱。</section>';
+          return;
+        }}
+        scanResult.innerHTML = '<section class="data-status">掃描中，正在抓取行情並跑模型...</section>';
+        try {{
+          const response = await fetch(endpoint, {{
+            method: "POST",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ symbol }}),
+          }});
+          const payload = await response.json();
+          const scan = payload.scan || {{}};
+          const candidate = payload.candidate || {{}};
+          const status = payload.ok ? "data-status" : "warn";
+          scanResult.innerHTML = `<section class="${{status}}">
+            <strong>${{escapeHtml(payload.symbol)}}｜${{escapeHtml(payload.name)}}：${{escapeHtml(payload.message)}}</strong><br>
+            最新價 ${{escapeHtml(scan.latest_price)}}｜漲跌幅 ${{escapeHtml(scan.change_pct)}}%｜量比 ${{escapeHtml(scan.volume_ratio)}}x｜
+            AI 評級 ${{escapeHtml(candidate.grade || scan.ai_grade)}}｜entry_status ${{escapeHtml(candidate.entry_status || scan.entry_status)}}<br>
+            未入選原因：${{escapeHtml(candidate.not_selected_reason || scan.not_selected_reason || scan.data_error || "-")}}<br>
+            <span class="muted">${{escapeHtml(candidate.confidence_summary || (scan.source_reasons || []).join("；"))}}</span>
+          </section>`;
+        }} catch (error) {{
+          scanResult.innerHTML = `<section class="warn">掃描失敗：${{escapeHtml(error.message)}}</section>`;
+        }}
+      }};
+      document.getElementById("tw-scan-button")?.addEventListener("click", () => scanSymbol("/api/tw/scan/symbol"));
+      document.getElementById("tw-add-watch-button")?.addEventListener("click", () => scanSymbol("/api/tw/watchlist/add"));
     }})();
   </script>
 </body>
@@ -718,6 +788,72 @@ def _signal_card(item: dict) -> str:
         f"<div class=\"signal-next\">下一步：{escape(str(item.get('next_step', '-')))}</div>"
         "</div>"
     )
+
+
+def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
+    scan = summary.momentum_scan if summary else {}
+    items = scan.get("items", []) if scan else []
+    summary_data = scan.get("summary", {}) if scan else {}
+    if not items:
+        return "<table><tbody><tr><td>目前沒有異動股掃描資料。</td></tr></tbody></table>"
+    metrics = (
+        "<div class=\"summary\">"
+        f"{_metric('今日異動股總數', int(summary_data.get('total', 0)))}"
+        f"{_metric('成功取得行情數', int(summary_data.get('data_success', 0)))}"
+        f"{_metric('進入評分模型數', int(summary_data.get('model_scored', 0)))}"
+        f"{_metric('A 數量', int(summary_data.get('grade_a', 0)))}"
+        f"{_metric('B+ 數量', int(summary_data.get('grade_b_plus', 0)))}"
+        f"{_metric('B 數量', int(summary_data.get('grade_b', 0)))}"
+        f"{_metric('high_risk 數量', int(summary_data.get('high_risk', 0)))}"
+        f"{_metric('被排除數量', int(summary_data.get('excluded', 0)))}"
+        f"{_metric('資料失敗數量', int(summary_data.get('data_failed', 0)))}"
+        "</div>"
+        '<section class="notice">異動股會先送入原本 VWAP / 量比 / 突破 / 風險 / 信心模型，不會直接變成推薦；A 級條件維持嚴格。</section>'
+    )
+    rows = []
+    for item in items:
+        rows.append(
+            "<tr>"
+            f"<td><strong>{escape(str(item.get('symbol', '')))}｜{escape(str(item.get('name', '')))}</strong><br><span class=\"muted\">{escape(str(item.get('sector', '')))}</span></td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('latest_price'))}\">{_fmt(item.get('latest_price'))}</td>"
+            f"{_change_cell(item.get('change_pct'))}"
+            f"<td data-sort-value=\"{_sort_value(item.get('volume_ratio'))}\">{_fmt(item.get('volume_ratio'))}x</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('turnover'))}\">{_money(float(item.get('turnover') or 0)) if item.get('turnover') is not None else '-'}</td>"
+            f"<td>{_yes_no(bool(item.get('above_vwap')))}<br><span class=\"muted\">{_fmt(item.get('vwap'))}</span></td>"
+            f"<td>{_yes_no(bool(item.get('break_prev_high')))}</td>"
+            f"<td>{_yes_no(bool(item.get('break_5d_high')))}</td>"
+            f"<td>{_yes_no(bool(item.get('break_20d_high')))}</td>"
+            f"<td class=\"notes\">{escape(str(item.get('initial_status', '-')))}<br><span class=\"muted\">{escape('；'.join(item.get('source_reasons') or []))}</span></td>"
+            f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
+            f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
+            f"<td class=\"notes\">{escape(str(item.get('not_selected_reason') or item.get('data_error') or '-'))}</td>"
+            "</tr>"
+        )
+    return (
+        metrics
+        + "<table class=\"sortable\"><thead><tr>"
+        "<th data-sort=\"text\">股票</th><th data-sort=\"number\">最新價</th><th data-sort=\"number\">漲跌幅</th>"
+        "<th data-sort=\"number\">量比</th><th data-sort=\"number\">成交金額</th><th data-sort=\"text\">站上 VWAP</th>"
+        "<th data-sort=\"text\">突破昨高</th><th data-sort=\"text\">突破5日高</th><th data-sort=\"text\">突破20日高</th>"
+        "<th>初步狀態</th><th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th><th>未入選原因</th>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
+def _manual_scan_panel() -> str:
+    return """
+    <section class="scan-form" aria-label="手動補追蹤">
+      <label>手動補追蹤 / 立即掃描
+        <input id="tw-scan-symbol" placeholder="例如 力積電、6770、3016">
+      </label>
+      <button type="button" id="tw-scan-button">立即掃描</button>
+      <button type="button" id="tw-add-watch-button">加入今日追蹤</button>
+      <span class="muted">輸入股票名稱或代號後，系統會抓 Yahoo Finance 並跑同一套模型。</span>
+    </section>
+    <div id="tw-scan-result" class="scan-result"></div>
+    """
 
 
 def _warning_block(warnings: List[str]) -> str:
@@ -1038,6 +1174,7 @@ def _entry_status_label(value: str) -> str:
         "executable": "executable 可執行觀察",
         "wait_volume": "wait_volume 等待量能確認",
         "wait_vwap": "wait_vwap 等待站回VWAP",
+        "wait_breakout": "wait_breakout 等待突破",
         "wait_pullback": "wait_pullback 等待回測",
         "high_risk": "high_risk 風險過高",
         "avoid": "avoid 暫不追蹤",
@@ -1049,6 +1186,7 @@ def _entry_status_message(value: str) -> str:
         "executable": "量能與VWAP條件成立，可列入做多觀察。",
         "wait_volume": "多方結構不錯，但量能不足，等待量比放大後再觀察。",
         "wait_vwap": "突破條件成立，但尚未站上 VWAP，等待站回均價線。",
+        "wait_breakout": "站上 VWAP 或量能條件尚可，等待突破觸發價。",
         "wait_pullback": "條件可追蹤，等待回測或整理後再評估。",
         "high_risk": "多方動能強，但追價風險偏高，避免直接追高。",
         "avoid": "條件不足或跌破VWAP，暫不追蹤。",
@@ -1066,6 +1204,10 @@ def _debug_block(summary: Optional[LongModelSummary]) -> str:
         ("recommendations count from DB", str(info.get("recommendations_count_from_db", "-"))),
         ("candidates count from current run", str(info.get("candidates_count_from_current_run", "-"))),
         ("visible candidates count", str(info.get("visible_candidates_count", "-"))),
+        ("momentum scanner version", str(info.get("momentum_scanner_version", "-"))),
+        ("momentum scan total", str(info.get("momentum_scan_total", "-"))),
+        ("momentum scan success", str(info.get("momentum_scan_success", "-"))),
+        ("momentum scan model scored", str(info.get("momentum_scan_model_scored", "-"))),
     ]
     items = "".join(f"<li><strong>{escape(label)}:</strong> {escape(value)}</li>" for label, value in rows)
     return f'<div class="debug-block"><strong>系統版本 / Debug</strong><ul>{items}</ul></div>'

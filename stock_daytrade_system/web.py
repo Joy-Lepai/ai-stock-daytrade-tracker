@@ -32,6 +32,7 @@ from stock_daytrade_system.db import (
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
 from stock_daytrade_system.paper_broker import close_manual_trade, create_manual_trade, paper_quote
 from stock_daytrade_system.paper_service import build_empty_paper_dashboard, build_paper_dashboard, build_paper_performance
+from stock_daytrade_system.tw_scan_service import add_tw_watchlist_symbol, scan_tw_symbol_payload
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
 
@@ -237,6 +238,16 @@ class StockWebHandler(BaseHTTPRequestHandler):
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 result = close_manual_trade(conn, payload)
             self._send_json(result, HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST)
+            return
+        if path == "/api/tw/watchlist/add":
+            payload = self._read_json_body()
+            result = add_tw_watchlist_symbol(PROJECT_ROOT, str(payload.get("symbol") or payload.get("query") or ""))
+            self._send_json(result, HTTPStatus.OK if result.get("symbol") else HTTPStatus.BAD_REQUEST)
+            return
+        if path == "/api/tw/scan/symbol":
+            payload = self._read_json_body()
+            result = scan_tw_symbol_payload(PROJECT_ROOT, str(payload.get("symbol") or payload.get("query") or ""))
+            self._send_json(result, HTTPStatus.OK if result.get("symbol") else HTTPStatus.BAD_REQUEST)
             return
         self._send_not_found()
 

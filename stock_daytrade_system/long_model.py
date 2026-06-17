@@ -100,6 +100,7 @@ class LongModelSummary:
     debug_info: dict = field(default_factory=dict)
     paper_stats: dict = field(default_factory=dict)
     decision_center: dict = field(default_factory=dict)
+    momentum_scan: dict = field(default_factory=dict)
 
 
 def build_long_candidates(
@@ -144,6 +145,7 @@ def build_long_model_summary(
     debug_info: Optional[dict] = None,
     paper_stats: Optional[dict] = None,
     decision_center: Optional[dict] = None,
+    momentum_scan: Optional[dict] = None,
 ) -> LongModelSummary:
     visible = [
         item for item in candidates
@@ -162,6 +164,7 @@ def build_long_model_summary(
         debug_info=debug_info or {},
         paper_stats=paper_stats or {},
         decision_center=decision_center or {},
+        momentum_scan=momentum_scan or {},
     )
 
 
