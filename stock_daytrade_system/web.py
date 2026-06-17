@@ -307,11 +307,17 @@ class StockWebHandler(BaseHTTPRequestHandler):
             html = latest.read_text(encoding="utf-8")
         body = _extract_body(html)
         if refresh_error:
-            body = (
-                '<main><section class="warn"><strong>Dashboard 自動更新失敗</strong><br>'
-                f'{_escape(refresh_error)}<br>目前暫時顯示最近一次可用的 tracker HTML。</section></main>'
-                + body
-            )
+            if _tracker_html_needs_refresh(html):
+                notice_html = (
+                    '<main><section class="warn"><strong>Dashboard 更新尚未完成</strong><br>'
+                    f'{_escape(refresh_error)}<br>目前暫時顯示最近一次可用資料。</section></main>'
+                )
+            else:
+                notice_html = (
+                    '<main><section class="notice"><strong>Dashboard 正在更新</strong><br>'
+                    f'{_escape(refresh_error)}<br>目前先顯示最新可用資料，請稍後重新整理取得下一輪更新。</section></main>'
+                )
+            body = notice_html + body
         return render_shell(body, active_file=latest.name, extra_css=_extract_style(html), show_logout=self.web_app.require_auth)
 
     def _symbol_html(self, raw_symbol: str) -> str:
