@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import subprocess
+import sys
 import urllib.parse
 from datetime import datetime
 from http import HTTPStatus
@@ -40,6 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AUTH = PROJECT_ROOT / "config" / "auth.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports"
 SESSION_COOKIE = "ai_stock_session"
+TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "15"))
 
 
 class WebApp:
@@ -506,14 +508,34 @@ def _safe_refresh_tracker(report_dir: Path) -> str:
     try:
         _run_tracker_refresh(report_dir)
         return ""
+    except subprocess.TimeoutExpired:
+        return f"tracker 更新超過 {TRACKER_REFRESH_TIMEOUT_SECONDS} 秒，已先顯示最近一次可用資料。"
     except Exception as exc:
         return str(exc)
 
 
 def _run_tracker_refresh(report_dir: Path) -> None:
-    from stock_daytrade_system.cli import DEFAULT_CONFIG, run_tracker
-
-    run_tracker(DEFAULT_CONFIG, report_dir, "6mo", "1d", "5m", 3)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "stock_daytrade_system.cli",
+            "tracker",
+            "--output-dir",
+            str(report_dir),
+            "--daily-range",
+            "6mo",
+            "--intraday-range",
+            "1d",
+            "--interval",
+            "5m",
+            "--opening-bars",
+            "3",
+        ],
+        cwd=PROJECT_ROOT,
+        check=True,
+        timeout=TRACKER_REFRESH_TIMEOUT_SECONDS,
+    )
 
 
 def _current_commit_hash() -> str:
