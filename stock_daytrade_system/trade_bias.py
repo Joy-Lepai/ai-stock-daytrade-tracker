@@ -40,15 +40,23 @@ def evaluate_trade_bias(
     has_breakout = break_prev_high or break_orb
 
     if (
-        status in {"executable", "practice_long"}
+        status == "practice_long"
+        and grade in {"B+", "B"}
+        and above_vwap
+        and volume_ratio >= 0.8
+        and risk_score <= 55
+        and confidence >= 55
+    ):
+        return TradeBias("long", "買多", "練習買多條件成立；尚未等同 A 級正式訊號，適合用虛擬交易累積樣本。")
+
+    if (
+        status == "executable"
         and grade in {"A", "B+", "B"}
         and above_vwap
         and volume_ratio >= 1.0
         and risk_score <= 55
         and confidence >= 60
     ):
-        if status == "practice_long":
-            return TradeBias("long", "買多", "條件接近且風險可控，可作為練習買多觀察。")
         return TradeBias("long", "買多", "站上 VWAP、量能達標且訊號可執行。")
 
     if (
