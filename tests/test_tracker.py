@@ -12,6 +12,7 @@ from stock_daytrade_system.tracker import (
     _data_status_block,
     _entry_status_message,
     _recommendation_checklist_table,
+    _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
     _tracked_table,
     bullish_profile,
@@ -292,6 +293,89 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("強勢但高風險", html)
         self.assertIn("台積電", html)
         self.assertIn("國巨", html)
+
+    def test_tomorrow_continuation_candidates_apply_relaxed_but_risk_controlled_rules(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            momentum_scan={
+                "items": [
+                    {
+                        "symbol": "8110.TW",
+                        "name": "華東",
+                        "sector": "memory",
+                        "latest_price": 58.4,
+                        "change_pct": 5.2,
+                        "volume_ratio": 0.82,
+                        "turnover": 2_300_000_000,
+                        "vwap": 57.3,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": False,
+                        "risk_score": 45,
+                        "ai_grade": "B",
+                        "entry_status": "wait_volume",
+                    },
+                    {
+                        "symbol": "2327.TW",
+                        "name": "國巨",
+                        "sector": "passive_components",
+                        "latest_price": 984,
+                        "change_pct": 4.5,
+                        "volume_ratio": 1.2,
+                        "turnover": 55_000_000_000,
+                        "vwap": 966.9,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "risk_score": 55,
+                        "entry_status": "high_risk",
+                        "not_selected_reason": "上影線偏長，追價風險高",
+                    },
+                    {
+                        "symbol": "2330.TW",
+                        "name": "台積電",
+                        "sector": "semiconductor",
+                        "latest_price": 2385,
+                        "change_pct": 3.5,
+                        "volume_ratio": 0.58,
+                        "turnover": 70_000_000_000,
+                        "vwap": 2363,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "risk_score": 20,
+                        "entry_status": "wait_volume",
+                    },
+                    {
+                        "symbol": "9999.TW",
+                        "name": "高風險",
+                        "sector": "test",
+                        "latest_price": 100,
+                        "change_pct": 8.0,
+                        "volume_ratio": 1.5,
+                        "turnover": 2_000_000_000,
+                        "vwap": 96,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "risk_score": 70,
+                        "entry_status": "high_risk",
+                    },
+                ]
+            },
+        )
+
+        html = _tomorrow_continuation_candidates(summary)
+
+        self.assertIn("續強候選", html)
+        self.assertIn("華東", html)
+        self.assertIn("明天開盤確認", html)
+        self.assertNotIn("國巨", html)
+        self.assertNotIn("台積電", html)
+        self.assertNotIn("高風險", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])

@@ -43,6 +43,7 @@ class WebTests(unittest.TestCase):
         <html><body>
           app version / commit：{commit}
           scoring model：long_model_v2_b_plus_practice_2026-06-13
+          明日續強候選股
           明日買多觀察池
           AI 今日決策中心
           訊號中心

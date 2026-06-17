@@ -529,6 +529,7 @@ def latest_tracker_file(report_dir: Path) -> Optional[Path]:
 def _tracker_html_needs_refresh(html: str) -> bool:
     current_commit = _current_commit_hash()
     required_markers = (
+        "明日續強候選股",
         "明日買多觀察池",
         "AI 今日決策中心",
         "訊號中心",

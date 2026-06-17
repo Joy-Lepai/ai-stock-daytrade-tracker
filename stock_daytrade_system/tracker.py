@@ -530,6 +530,8 @@ def render_tracker_html(
   <main>
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    <h2>明日續強候選股</h2>
+    <div class="table-wrap">{_tomorrow_continuation_candidates(long_summary)}</div>
     <h2>明日買多觀察池</h2>
     <div class="table-wrap">{_tomorrow_long_watch_pool(long_summary)}</div>
     <h2>今日異動股掃描</h2>
@@ -905,6 +907,189 @@ def _tomorrow_long_watch_pool(summary: Optional[LongModelSummary]) -> str:
         + "".join(rows)
         + "</tbody></table>"
     )
+
+
+def _tomorrow_continuation_candidates(summary: Optional[LongModelSummary]) -> str:
+    scan = summary.momentum_scan if summary else {}
+    items = list(scan.get("items") or [])
+    candidates = _tomorrow_continuation_items(items)
+    if not candidates:
+        return (
+            "<table><tbody><tr><td>目前沒有符合「明日續強候選」條件的標的；"
+            "可改看明日買多觀察池，明天開盤後再確認 VWAP、量比與突破。</td></tr></tbody></table>"
+        )
+    above_vwap_count = sum(1 for item in candidates if bool(item.get("above_vwap")))
+    high_turnover_count = sum(1 for item in candidates if _is_high_turnover_rank(item))
+    near_trigger_count = sum(1 for item in candidates if _continuation_needs(item))
+    metrics = (
+        '<div class="summary">'
+        + _metric("續強候選", len(candidates))
+        + _metric("站上 VWAP", above_vwap_count)
+        + _metric("成交金額前段", high_turnover_count)
+        + _metric("明天待確認", near_trigger_count)
+        + "</div>"
+        + '<section class="notice">明日續強候選股不是直接買進名單；這裡只代表今天動能較強、明天值得盯盤，開盤後仍需等 VWAP、量比、突破與風險重新確認。</section>'
+    )
+    rows = []
+    for item in candidates:
+        setup = _continuation_setup_text(item)
+        needs = _continuation_needs(item)
+        risks = _continuation_risk_text(item)
+        rows.append(
+            "<tr>"
+            f"<td><strong>{escape(str(item.get('symbol', '')))}｜{escape(str(item.get('name', '')))}</strong><br><span class=\"muted\">{escape(str(item.get('sector', '')))}</span></td>"
+            f"{_change_cell(item.get('change_pct'))}"
+            f"<td data-sort-value=\"{_sort_value(item.get('turnover'))}\">{_money(float(item.get('turnover') or 0)) if item.get('turnover') is not None else '-'}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('volume_ratio'))}\">{_fmt(item.get('volume_ratio'))}x</td>"
+            f"<td>{_yes_no(bool(item.get('above_vwap')))}<br><span class=\"muted\">{_fmt(item.get('vwap'))}</span></td>"
+            f"<td>{_yes_no(bool(item.get('break_prev_high')))}</td>"
+            f"<td>{_yes_no(bool(item.get('break_5d_high')))}</td>"
+            f"<td data-sort-value=\"{_sort_value(item.get('risk_score'))}\">{_fmt(item.get('risk_score'))}</td>"
+            f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
+            f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
+            f"<td class=\"notes\">{escape(setup)}</td>"
+            f"<td class=\"notes\">{escape(needs)}</td>"
+            f"<td class=\"notes\">{escape(risks)}</td>"
+            "</tr>"
+        )
+    return (
+        metrics
+        + "<table class=\"sortable\"><thead><tr>"
+        "<th data-sort=\"text\">股票</th><th data-sort=\"number\">今日漲幅</th><th data-sort=\"number\">成交金額</th>"
+        "<th data-sort=\"number\">量比</th><th data-sort=\"text\">站上 VWAP</th><th data-sort=\"text\">突破昨高</th>"
+        "<th data-sort=\"text\">突破5日高</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">AI 評級</th>"
+        "<th data-sort=\"text\">entry_status</th><th>續強理由</th><th>明天開盤確認</th><th>追蹤風險</th>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table>"
+    )
+
+
+def _tomorrow_continuation_items(items: List[dict], limit: int = 30) -> List[dict]:
+    ranked_items = [
+        item
+        for item in items
+        if not item.get("data_error")
+    ]
+    ranked_items.sort(key=lambda item: -(float(item.get("turnover") or 0)))
+    turnover_rank = {id(item): index + 1 for index, item in enumerate(ranked_items)}
+    eligible = [
+        item
+        for item in ranked_items
+        if _is_tomorrow_continuation_candidate(item, turnover_rank.get(id(item), 9999))
+    ]
+    eligible.sort(key=lambda item: _tomorrow_continuation_sort_key(item, turnover_rank.get(id(item), 9999)))
+    return eligible[:limit]
+
+
+def _is_tomorrow_continuation_candidate(item: dict, turnover_rank: int) -> bool:
+    change_pct = float(item.get("change_pct") or 0)
+    volume_ratio = float(item.get("volume_ratio") or 0)
+    risk_score = float(item.get("risk_score") or 0)
+    turnover = float(item.get("turnover") or 0)
+    if change_pct < 3:
+        return False
+    if volume_ratio < 0.7:
+        return False
+    if risk_score > 65:
+        return False
+    if not _is_high_turnover_rank(item, turnover_rank=turnover_rank):
+        return False
+    if not _continuation_structure_ok(item):
+        return False
+    if _has_obvious_upper_shadow_risk(item):
+        return False
+    return turnover >= 500_000_000 or turnover_rank <= 80
+
+
+def _is_high_turnover_rank(item: dict, turnover_rank: Optional[int] = None) -> bool:
+    turnover = float(item.get("turnover") or 0)
+    rank = turnover_rank if turnover_rank is not None else int(item.get("turnover_rank") or 9999)
+    return rank <= 80 or turnover >= 1_000_000_000
+
+
+def _continuation_structure_ok(item: dict) -> bool:
+    if bool(item.get("above_vwap")):
+        return True
+    if bool(item.get("close_near_high")) or bool(item.get("near_day_high")):
+        return True
+    if bool(item.get("break_prev_high")) or bool(item.get("break_5d_high")):
+        return True
+    latest = item.get("latest_price")
+    vwap = item.get("vwap")
+    try:
+        return float(latest) >= float(vwap) * 0.995
+    except (TypeError, ValueError):
+        return False
+
+
+def _has_obvious_upper_shadow_risk(item: dict) -> bool:
+    reason_text = "；".join(
+        str(item.get(key, ""))
+        for key in ("not_selected_reason", "risk_reason", "risk_reasons", "confidence_summary", "trade_bias_reason")
+    )
+    risk_score = float(item.get("risk_score") or 0)
+    volume_ratio = float(item.get("volume_ratio") or 0)
+    if "長上影" in reason_text or "上影線" in reason_text or "爆量不漲" in reason_text:
+        return True
+    return volume_ratio >= 2.5 and risk_score >= 55
+
+
+def _tomorrow_continuation_sort_key(item: dict, turnover_rank: int) -> tuple:
+    return (
+        turnover_rank,
+        -(float(item.get("change_pct") or 0)),
+        -(float(item.get("volume_ratio") or 0)),
+        float(item.get("risk_score") or 0),
+        str(item.get("symbol", "")),
+    )
+
+
+def _continuation_setup_text(item: dict) -> str:
+    reasons = []
+    change_pct = float(item.get("change_pct") or 0)
+    volume_ratio = float(item.get("volume_ratio") or 0)
+    turnover = float(item.get("turnover") or 0)
+    if change_pct >= 3:
+        reasons.append(f"今日漲幅 {change_pct:.2f}%")
+    if turnover >= 1_000_000_000:
+        reasons.append(f"成交金額 {_money(turnover)}")
+    if volume_ratio >= 0.7:
+        reasons.append(f"量比 {volume_ratio:.2f}x")
+    if bool(item.get("above_vwap")):
+        reasons.append("站上 VWAP")
+    elif _continuation_structure_ok(item):
+        reasons.append("接近 VWAP / 高檔結構")
+    if bool(item.get("break_prev_high")):
+        reasons.append("突破昨高")
+    if bool(item.get("break_5d_high")):
+        reasons.append("突破 5 日高")
+    return "；".join(reasons) or "今日動能轉強，列入明日觀察。"
+
+
+def _continuation_needs(item: dict) -> str:
+    needs = []
+    if not bool(item.get("above_vwap")):
+        needs.append("開盤後站回 VWAP")
+    if float(item.get("volume_ratio") or 0) < 1.0:
+        needs.append("量比放大到 1.0x 附近")
+    if not (bool(item.get("break_prev_high")) or bool(item.get("break_5d_high"))):
+        needs.append("突破昨高 / 5 日高或開盤區間高點")
+    needs.append("停損距離可控")
+    return "；".join(needs)
+
+
+def _continuation_risk_text(item: dict) -> str:
+    risks = []
+    risk_score = float(item.get("risk_score") or 0)
+    if risk_score >= 55:
+        risks.append(f"風險分數 {risk_score:.0f}，不宜追高")
+    if float(item.get("volume_ratio") or 0) < 1.0:
+        risks.append("量比尚未完全確認")
+    entry_status = str(item.get("entry_status", ""))
+    if entry_status in {"wait_vwap", "wait_volume", "wait_breakout", "wait_pullback"}:
+        risks.append(_entry_status_label(entry_status))
+    return "；".join(risks) or "目前未見明顯追價風險，仍需明天盤中確認。"
 
 
 def _tomorrow_pool_items(items: List[dict], limit: int = 50) -> List[dict]:
