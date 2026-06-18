@@ -70,7 +70,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     if item.symbol in quote_intraday_errors:
         warnings["intraday_1m"] = quote_intraday_errors[item.symbol]
     if realtime_quote.status == "failed":
-        warnings["realtime_quote"] = realtime_quote.error
+        warnings["realtime_quote"] = "TWSE MIS 暫時沒有可用成交價，已改用 Yahoo Finance 1 分 K。"
     return {
         "ok": not bool(errors) and model is not None,
         "message": "掃描完成" if model is not None else "資料不足，尚無法進入評分模型",

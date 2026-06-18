@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from typing import Dict, Iterable, List, Optional
+from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.data import Bar
@@ -212,7 +214,7 @@ def _base_item(symbol: WatchSymbol, bars: List[Bar], intraday_bars: List[Bar]) -
     last = bars[-1]
     previous = bars[-2]
     latest_price = intraday_bars[-1].close if intraday_bars else last.close
-    latest_at = (intraday_bars[-1].timestamp if intraday_bars else last.timestamp).isoformat(timespec="seconds")
+    latest_at = _taipei_time(intraday_bars[-1].timestamp if intraday_bars else last.timestamp)
     intraday_volume = sum(bar.volume for bar in intraday_bars) if intraday_bars else last.volume
     avg_volume = average_volume(bars, 20)
     volume_ratio = intraday_volume / avg_volume if avg_volume else 0.0
@@ -422,3 +424,11 @@ def _vwap(bars: List[Bar]) -> Optional[float]:
     if total_volume <= 0:
         return None
     return sum(((bar.high + bar.low + bar.close) / 3) * bar.volume for bar in bars) / total_volume
+
+
+def _taipei_time(value: datetime) -> str:
+    if value.tzinfo is not None:
+        return value.astimezone(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds")
+    if value.hour < 8:
+        value = value.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Taipei"))
+    return value.isoformat(timespec="seconds")

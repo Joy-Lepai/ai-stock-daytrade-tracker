@@ -7,6 +7,7 @@ from stock_daytrade_system.data import Bar
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.tw_momentum_scanner import (
+    _taipei_time,
     build_momentum_universe,
     momentum_seed_symbols,
     normalize_tw_symbol,
@@ -49,6 +50,10 @@ class TWMomentumScannerTests(unittest.TestCase):
     def test_normalizes_manual_symbol_and_alias(self):
         self.assertEqual(normalize_tw_symbol("6770"), "6770.TW")
         self.assertEqual(normalize_tw_symbol("力積電"), "6770.TW")
+
+    def test_latest_timestamp_is_displayed_as_taipei_time(self):
+        self.assertEqual(_taipei_time(datetime(2026, 6, 18, 4, 17, 18)), "2026-06-18T12:17:18+08:00")
+        self.assertEqual(_taipei_time(datetime(2026, 6, 18, 12, 17, 18)), "2026-06-18T12:17:18")
 
     def test_momentum_universe_adds_missing_momentum_symbols(self):
         universe = build_momentum_universe([WatchSymbol("2330.TW", "台積電", "semiconductor")])
