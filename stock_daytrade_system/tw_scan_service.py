@@ -31,6 +31,9 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     symbols = [item.symbol, config.market.benchmark, config.market.taiwan_futures]
     daily_data, daily_errors = client.fetch_many_daily_with_errors(symbols, range_="6mo")
     intraday_data, intraday_errors = client.fetch_many_intraday_with_errors([item.symbol], range_="1d", interval="5m")
+    quote_intraday_data, quote_intraday_errors = client.fetch_many_intraday_with_errors(
+        [item.symbol], range_="1d", interval="1m"
+    )
     market_bias = score_market_bias(daily_data, config.market.benchmark, config.market.taiwan_futures)
     opening = analyze_opening_confirmation(
         item,
@@ -52,7 +55,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     scan_item = scan_single_symbol(
         item,
         daily_data.get(item.symbol, []),
-        intraday_data.get(item.symbol, []),
+        quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         model,
     )
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
@@ -64,6 +67,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     if item.symbol in intraday_errors:
         errors["intraday"] = intraday_errors[item.symbol]
     warnings = {}
+    if item.symbol in quote_intraday_errors:
+        warnings["intraday_1m"] = quote_intraday_errors[item.symbol]
     if realtime_quote.status == "failed":
         warnings["realtime_quote"] = realtime_quote.error
     return {
@@ -81,7 +86,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "display": display_payload,
         "errors": errors,
         "warnings": warnings,
-        "data_source": "TWSE MIS + Yahoo Finance chart endpoint",
+        "data_source": "TWSE MIS + Yahoo Finance 1m/5m chart endpoint",
         "db_path": str(default_db_path(project_root)),
     }
 

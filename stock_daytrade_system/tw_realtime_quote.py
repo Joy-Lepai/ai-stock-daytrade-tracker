@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ssl
 import time
 import urllib.parse
 import urllib.request
@@ -78,8 +79,13 @@ class TwRealtimeQuoteClient:
                 "Referer": "https://mis.twse.com.tw/stock/index.jsp",
             },
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except ssl.SSLError:
+            context = ssl._create_unverified_context()
+            with urllib.request.urlopen(request, timeout=self.timeout, context=context) as response:
+                payload = json.loads(response.read().decode("utf-8"))
         rows = payload.get("msgArray") or []
         if not rows:
             return TwRealtimeQuote(
