@@ -753,15 +753,19 @@ def _focus_card(item: LongCandidate) -> str:
     invalidation = "跌破 VWAP、量能退潮或風險分數升高時失效。"
     if item.entry_status == "high_risk":
         invalidation = "若無法回測降溫，避免追價。"
+    conclusion = item.trade_bias_label or _entry_status_label(item.entry_status)
+    bullish_reason = "；".join(item.reasons[:3]) or item.trade_bias_reason or item.confidence_summary or "目前沒有明確多方理由。"
+    next_step = _next_step_for_entry(item.entry_status)
+    risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
     return (
         '<div class="decision-panel">'
         f'<strong>{escape(item.symbol)}｜{escape(item.name)}</strong>'
         f'<div>{escape(item.trade_bias_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
-        f'<p class="muted"><strong>結論：</strong>{escape(item.analysis.action_label or item.trade_bias_label)}</p>'
-        f'<p class="muted"><strong>原因：</strong>{escape(item.analysis.bullish_reason or item.reason_text)}</p>'
-        f'<p class="muted"><strong>下一步：</strong>{escape(item.analysis.next_step or _next_step_for_entry(item.entry_status))}</p>'
+        f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
+        f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
+        f'<p class="muted"><strong>下一步：</strong>{escape(next_step)}</p>'
         f'<p class="muted"><strong>失效條件：</strong>{escape(invalidation)}</p>'
-        f'<p class="muted"><strong>風險提醒：</strong>{escape(item.analysis.risk_reason or item.risk_text)}</p>'
+        f'<p class="muted"><strong>風險提醒：</strong>{escape(risk_reason)}</p>'
         '</div>'
     )
 
