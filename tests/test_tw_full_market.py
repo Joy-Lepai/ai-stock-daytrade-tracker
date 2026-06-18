@@ -1,6 +1,6 @@
 import unittest
 
-from stock_daytrade_system.tw_full_market import _parse_twse_rows, _select_candidates
+from stock_daytrade_system.tw_full_market import _parse_tpex_rows, _parse_twse_rows, _select_candidates
 
 
 class TWFullMarketTests(unittest.TestCase):
@@ -90,6 +90,45 @@ class TWFullMarketTests(unittest.TestCase):
 
         self.assertIn("6770.TW", {item.symbol for item in selected})
         self.assertTrue(selected[0].source_reasons)
+
+    def test_tpex_parser_reads_official_openapi_fields(self):
+        rows = [
+            {
+                "Date": "1150618",
+                "SecuritiesCompanyCode": "8936",
+                "CompanyName": "國統",
+                "Close": "58.10",
+                "Change": "+3.00",
+                "Open": "55.30",
+                "High": "58.80",
+                "Low": "55.20",
+                "TradingShares": "8888183",
+                "TransactionAmount": "509950416",
+            },
+            {
+                "Date": "1150618",
+                "SecuritiesCompanyCode": "00679B",
+                "CompanyName": "元大美債20年",
+                "Close": "27.04",
+                "Change": "+0.23",
+                "Open": "26.95",
+                "High": "27.04",
+                "Low": "26.93",
+                "TradingShares": "41151682",
+                "TransactionAmount": "1110348899",
+            },
+        ]
+
+        parsed = _parse_tpex_rows(rows)
+        by_code = {item.code: item for item in parsed}
+
+        self.assertEqual(by_code["8936"].symbol, "8936.TWO")
+        self.assertEqual(by_code["8936"].market, "TPEX")
+        self.assertEqual(by_code["8936"].volume, 8888183)
+        self.assertEqual(by_code["8936"].turnover, 509950416)
+        self.assertEqual(by_code["8936"].close, 58.1)
+        self.assertAlmostEqual(by_code["8936"].change_pct or 0, 5.44, places=2)
+        self.assertEqual(by_code["00679B"].exclude_reason, "not_common_stock")
 
 
 if __name__ == "__main__":

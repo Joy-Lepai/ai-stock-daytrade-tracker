@@ -156,21 +156,31 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
         "tpex_ok": False,
         "twse_error": "",
         "tpex_error": "",
+        "twse_used_cache": False,
+        "tpex_used_cache": False,
+        "twse_rows": 0,
+        "tpex_rows": 0,
+        "tpex_endpoint": "",
         "used_cache": False,
         "retry_count": 0,
     }
     quotes: list[FullMarketQuote] = []
     try:
         payload = _fetch_json(TWSE_STOCK_DAY_ALL_URL, retries=2, status=status)
-        quotes.extend(_parse_twse_rows(payload))
+        parsed = _parse_twse_rows(payload)
+        quotes.extend(parsed)
         status["twse_ok"] = True
+        status["twse_rows"] = len(parsed)
         _write_cache(cache_dir / "twse_stock_day_all.json", payload)
     except Exception as exc:
         status["twse_error"] = str(exc)
         cached = _read_cache(cache_dir / "twse_stock_day_all.json")
         if cached is not None:
             status["used_cache"] = True
-            quotes.extend(_parse_twse_rows(cached))
+            status["twse_used_cache"] = True
+            parsed = _parse_twse_rows(cached)
+            status["twse_rows"] = len(parsed)
+            quotes.extend(parsed)
     tpex_error = ""
     for url in TPEX_DAILY_URLS:
         try:
@@ -179,6 +189,8 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
             if parsed:
                 quotes.extend(parsed)
                 status["tpex_ok"] = True
+                status["tpex_rows"] = len(parsed)
+                status["tpex_endpoint"] = url
                 _write_cache(cache_dir / "tpex_daily_quotes.json", payload)
                 break
         except Exception as exc:
@@ -188,7 +200,10 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
         cached = _read_cache(cache_dir / "tpex_daily_quotes.json")
         if cached is not None:
             status["used_cache"] = True
-            quotes.extend(_parse_tpex_rows(cached))
+            status["tpex_used_cache"] = True
+            parsed = _parse_tpex_rows(cached)
+            status["tpex_rows"] = len(parsed)
+            quotes.extend(parsed)
     return quotes, status
 
 
@@ -259,12 +274,12 @@ def _parse_tpex_rows(rows: Iterable[dict]) -> list[FullMarketQuote]:
             market="TPEX",
             source="TPEX OpenAPI",
             trade_date=str(_first(row, "Date", "資料日期", "date") or ""),
-            volume=_num(_first(row, "TradeVolume", "成交股數", "成交量")),
-            turnover=_num(_first(row, "TradeValue", "成交金額")),
-            open_price=_num(_first(row, "OpeningPrice", "開盤")),
-            high=_num(_first(row, "HighestPrice", "最高")),
-            low=_num(_first(row, "LowestPrice", "最低")),
-            close=_num(_first(row, "ClosingPrice", "收盤")),
+            volume=_num(_first(row, "TradingShares", "TradeVolume", "成交股數", "成交量")),
+            turnover=_num(_first(row, "TransactionAmount", "TradeValue", "成交金額")),
+            open_price=_num(_first(row, "Open", "OpeningPrice", "開盤")),
+            high=_num(_first(row, "High", "HighestPrice", "最高")),
+            low=_num(_first(row, "Low", "LowestPrice", "最低")),
+            close=_num(_first(row, "Close", "ClosingPrice", "收盤")),
             change=_num(_first(row, "Change", "漲跌")),
         )
         if quote:

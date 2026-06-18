@@ -1245,18 +1245,33 @@ def _full_market_scan_panel(summary: Optional[LongModelSummary]) -> str:
     source = scan.get("source_status") or {}
     by_status = scan.get("by_status") or {}
     out_symbols = scan.get("out_of_pool_symbols") or []
-    source_text = []
-    source_text.append("TWSE 成功" if source.get("twse_ok") else f"TWSE 失敗：{source.get('twse_error', '-')}")
-    source_text.append("TPEX 成功" if source.get("tpex_ok") else f"TPEX 失敗：{source.get('tpex_error', '-')}")
-    if source.get("used_cache"):
-        source_text.append("已使用上一筆有效快取")
-    source_text.append(f"retry 次數：{int(source.get('retry_count', 0))}")
+    twse_count = int(data.get("twse_count", 0) or 0)
+    tpex_count = int(data.get("tpex_count", 0) or 0)
+    twse_text = f"TWSE 上市掃描：{'成功' if source.get('twse_ok') else '失敗'}，普通股池 {twse_count} 檔"
+    if not source.get("twse_ok") and source.get("twse_used_cache"):
+        twse_text = f"TWSE 上市掃描：抓取失敗，使用 cache，普通股池 {twse_count} 檔"
+    if source.get("tpex_ok"):
+        tpex_text = f"TPEX 上櫃掃描：成功，普通股池 {tpex_count} 檔"
+    elif source.get("tpex_used_cache"):
+        tpex_text = f"TPEX 上櫃掃描：抓取失敗，使用 cache，普通股池 {tpex_count} 檔"
+    else:
+        tpex_text = f"TPEX 上櫃掃描：尚未納入或抓取失敗，普通股池 {tpex_count} 檔"
+    scope_text = "上市 + 上櫃" if tpex_count > 0 else "上市，不含上櫃"
+    scope_warning = (
+        "部分上櫃強勢股仍可能漏抓。"
+        if tpex_count <= 0
+        else ("上櫃資料使用 cache，可能延遲。" if source.get("tpex_used_cache") and not source.get("tpex_ok") else "")
+    )
+    retry_text = f"retry 次數：{int(source.get('retry_count', 0))}"
     out_text = "、".join(str(item) for item in out_symbols[:12]) if out_symbols else "目前沒有 watchlist 外新候選，或資料尚未成功。"
     return (
         '<section class="data-status">'
         '<strong>全市場掃描先找異動股，再送入既有 A / B+ / B 模型；不會直接放寬推薦標準。</strong>'
+        f'<p class="muted">{escape(twse_text)}<br>{escape(tpex_text)}<br>目前掃描範圍：{escape(scope_text)}{("；" + escape(scope_warning)) if scope_warning else ""}<br>{escape(retry_text)}</p>'
         '<div class="summary">'
         f'{_metric("完整普通股池", int(data.get("pool_symbols", 0)))}'
+        f'{_metric("TWSE 上市池", twse_count)}'
+        f'{_metric("TPEX 上櫃池", tpex_count)}'
         f'{_metric("今日異動候選池", int(data.get("candidate_symbols", 0)))}'
         f'{_metric("排除 ETF", int(data.get("excluded_etf", 0)))}'
         f'{_metric("排除權證", int(data.get("excluded_warrant", 0)))}'
@@ -1270,7 +1285,6 @@ def _full_market_scan_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("avoid", int(by_status.get("avoid", 0)))}'
         f'{_metric("data_missing", int(by_status.get("data_missing", 0)))}'
         '</div>'
-        f'<p class="muted">資料源狀態：{escape("；".join(source_text))}</p>'
         f'<p class="muted">watchlist 外新候選：{escape(out_text)}</p>'
         '</section>'
     )

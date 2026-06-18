@@ -198,7 +198,7 @@ def _missed_stock_analysis(scan_items: list[dict], candidates: list[LongCandidat
     missed_rate = (len(missed_rows) / len(strong_rows) * 100) if strong_rows else 0.0
     return {
         "definition": "漲幅 > 3% 且量比 >= 0.8，或漲幅 > 5%，但未列入 A / B+ / B，視為本掃描池內漏抓。",
-        "scanner_limitation": "目前不是全市場掃描；股票池外個股仍需手動輸入或擴充 TWSE/TPEX 全市場資料源。",
+        "scanner_limitation": "目前漏抓率以已成功取得的 TWSE/TPEX 掃描範圍計算；若 TPEX 抓取失敗或使用快取，上櫃強勢股仍可能漏抓。",
         "total_scanned": len(scan_items),
         "strong_move_count": len(strong_rows),
         "entered_ai_count": sum(1 for row in rows if row["entered_ai_candidates"]),

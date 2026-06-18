@@ -479,10 +479,23 @@ def run_tracker(
         data_status.append(f"CMoney 法人買超排行擷取成功 {len(cmoney_rankings)} 筆；僅作現有 MVP 輔助排序。")
     full_source = full_market_result.source_status
     if full_market_result.summary.get("source_ok"):
-        cache_text = "，使用上一筆有效快取" if full_source.get("used_cache") else ""
+        if full_source.get("twse_ok"):
+            twse_scope = f"TWSE 上市掃描：成功，普通股池 {full_market_result.summary.get('twse_count', 0)} 檔"
+        elif full_source.get("twse_used_cache"):
+            twse_scope = f"TWSE 上市掃描：抓取失敗，使用 cache，普通股池 {full_market_result.summary.get('twse_count', 0)} 檔"
+        else:
+            twse_scope = f"TWSE 上市掃描：失敗，普通股池 {full_market_result.summary.get('twse_count', 0)} 檔"
+        tpex_count = int(full_market_result.summary.get("tpex_count", 0) or 0)
+        if full_source.get("tpex_ok"):
+            tpex_scope = f"TPEX 上櫃掃描：成功，普通股池 {tpex_count} 檔"
+        elif full_source.get("tpex_used_cache"):
+            tpex_scope = f"TPEX 上櫃掃描：抓取失敗，使用 cache，普通股池 {tpex_count} 檔"
+        else:
+            tpex_scope = f"TPEX 上櫃掃描：尚未納入或抓取失敗，普通股池 {tpex_count} 檔"
+        scope_text = "上市 + 上櫃" if tpex_count > 0 else "上市，不含上櫃"
         data_status.append(
-            f"台股全市場官方掃描成功；普通股池 {full_market_result.summary.get('pool_symbols', 0)} 檔、"
-            f"今日異動候選 {full_market_result.summary.get('candidate_symbols', 0)} 檔{cache_text}。"
+            f"{twse_scope}；{tpex_scope}；目前掃描範圍：{scope_text}；"
+            f"今日異動候選 {full_market_result.summary.get('candidate_symbols', 0)} 檔。"
         )
     else:
         data_status.append("台股全市場官方掃描失敗；目前僅使用 watchlist、內建異動股與手動清單。")

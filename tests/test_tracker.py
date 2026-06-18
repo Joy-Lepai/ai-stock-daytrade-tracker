@@ -477,6 +477,8 @@ class TrackerStatusTests(unittest.TestCase):
                 "full_market_scan": {
                     "summary": {
                         "pool_symbols": 1000,
+                        "twse_count": 714,
+                        "tpex_count": 0,
                         "candidate_symbols": 120,
                         "excluded_etf": 80,
                         "excluded_warrant": 10,
@@ -487,6 +489,8 @@ class TrackerStatusTests(unittest.TestCase):
                         "twse_ok": True,
                         "tpex_ok": False,
                         "tpex_error": "DNS failed",
+                        "twse_used_cache": False,
+                        "tpex_used_cache": False,
                         "used_cache": False,
                         "retry_count": 1,
                     },
@@ -503,7 +507,7 @@ class TrackerStatusTests(unittest.TestCase):
                 },
                 "missed_stock_analysis": {
                     "definition": "漲幅 > 3% 且量比 >= 0.8",
-                    "scanner_limitation": "目前不是全市場掃描",
+                    "scanner_limitation": "目前漏抓率以已成功取得的 TWSE/TPEX 掃描範圍計算；若 TPEX 抓取失敗或使用快取，上櫃強勢股仍可能漏抓。",
                     "total_scanned": 1,
                     "strong_move_count": 1,
                     "entered_ai_count": 0,
@@ -559,11 +563,15 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("今日推薦檢查表", html)
         self.assertIn("資料健康度", html)
         self.assertIn("台股全市場異動掃描池", html)
+        self.assertIn("TWSE 上市掃描：成功，普通股池 714 檔", html)
+        self.assertIn("TPEX 上櫃掃描：尚未納入或抓取失敗，普通股池 0 檔", html)
+        self.assertIn("目前掃描範圍：上市，不含上櫃", html)
+        self.assertIn("部分上櫃強勢股仍可能漏抓", html)
         self.assertIn("漏抓股票診斷", html)
         self.assertIn("模型條件診斷", html)
         self.assertIn("out_of_pool 新找到", html)
         self.assertIn("risk_high", html)
-        self.assertIn("目前不是全市場掃描", html)
+        self.assertIn("TPEX 抓取失敗或使用快取", html)
         self.assertIn("系統版本 / Debug", html)
         self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
         self.assertIn("session_policy_v1_time_gated_entry_2026-06-18", html)
