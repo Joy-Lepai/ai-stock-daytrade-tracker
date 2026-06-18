@@ -53,6 +53,11 @@ SYMBOL_ALIASES = {
     "康霈": "6919.TW",
     "康霈生技": "6919.TW",
     "華東": "8110.TW",
+    "台積電": "2330.TW",
+    "台塑": "1301.TW",
+    "華邦電": "2344.TW",
+    "景碩": "3189.TW",
+    "兆豐金": "2886.TW",
 }
 
 
@@ -143,9 +148,13 @@ def normalize_tw_symbol(value: str) -> str:
 
 def watch_symbol_for(value: str, known_symbols: Iterable[WatchSymbol] = ()) -> WatchSymbol:
     symbol = normalize_tw_symbol(value)
-    known = {item.symbol: item for item in [*MOMENTUM_SEED_SYMBOLS, *list(known_symbols)]}
+    known_items = [*MOMENTUM_SEED_SYMBOLS, *list(known_symbols)]
+    known = {item.symbol: item for item in known_items}
     if symbol in known:
         return known[symbol]
+    name_match = next((item for item in known_items if item.name == (value or "").strip()), None)
+    if name_match:
+        return name_match
     return WatchSymbol(symbol, symbol.removesuffix(".TW").removesuffix(".TWO"), "manual_scan")
 
 

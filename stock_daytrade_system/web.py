@@ -848,7 +848,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>個股當沖建議</title>
+  <title>個股當沖作戰卡</title>
   <style>{base_css()}{tw_advisor_css()}</style>
 </head>
 <body>
@@ -866,20 +866,28 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
   <main class="advisor-page">
     <section class="advisor-hero">
       <div>
-        <h1>個股當沖建議</h1>
-        <p class="muted">輸入台股代號，系統會即時整理 VWAP、量比、突破、風險與當下狀態：買多、賣空或觀察。</p>
+        <h1>個股當沖作戰卡</h1>
+        <p class="muted">輸入股票代號後，系統會檢查這檔股票目前是否符合當沖追蹤條件，包括 VWAP、量比、突破、追價風險、資料可信度與歷史驗證。本系統不是報明牌，而是協助判斷目前應該可執行、觀察、等待、避開或資料不足，並保留買多、賣空、觀察的當下偏向。</p>
+        <div class="advisor-examples" aria-label="範例股票">
+          <button type="button" data-symbol="2330">台積電</button>
+          <button type="button" data-symbol="1301">台塑</button>
+          <button type="button" data-symbol="2344">華邦電</button>
+          <button type="button" data-symbol="3189">景碩</button>
+          <button type="button" data-symbol="2886">兆豐金</button>
+        </div>
       </div>
       <form id="tw-advisor-form" class="advisor-form">
         <label>
-          股票代號
-          <input id="tw-advisor-symbol" autocomplete="off" placeholder="例如 6770 或 6770.TW" value="6770.TW">
+          股票代號或名稱
+          <input id="tw-advisor-symbol" autocomplete="off" placeholder="例如 1301、1301.TW、6603.TWO、台塑" value="">
         </label>
         <button type="submit">取得建議</button>
       </form>
     </section>
-    <section id="tw-advisor-status" class="notice">準備查詢。</section>
+    <section id="tw-advisor-status" class="notice">準備查詢。可輸入 1301、1301.TW、6603.TWO，或已知股票名稱。</section>
     <section id="tw-advisor-result" class="advisor-result empty">
-      請輸入股票代號。
+      <strong>請輸入股票代號或點選範例。</strong><br>
+      查詢後會顯示結論卡、資料可信度、關鍵指標、理由、下一步條件、歷史驗證、來源排名與開發者資訊。
     </section>
     <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
   </main>
@@ -1411,6 +1419,59 @@ def tw_advisor_script() -> str:
         const n = Number(value);
         return Number.isFinite(n) ? n.toFixed(2) : "-";
       };
+      const compactMoney = (value) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return "-";
+        if (Math.abs(n) >= 100000000) return `${(n / 100000000).toFixed(2)} 億`;
+        if (Math.abs(n) >= 10000) return `${Math.round(n / 10000)} 萬`;
+        return Math.round(n).toLocaleString();
+      };
+      const statusZh = (entry) => ({
+        executable: "可執行",
+        practice_long: "可執行",
+        wait_volume: "等待量能",
+        wait_vwap: "等待 VWAP",
+        wait_breakout: "等待突破",
+        wait_pullback: "等待拉回",
+        high_risk: "避開",
+        avoid: "避開",
+        data_missing: "資料不足",
+      }[entry] || entry || "-");
+      const conclusionClass = (state) => state === "可執行" ? "conclusion-ok" : state === "資料不足" ? "conclusion-missing" : state === "避開" ? "conclusion-risk" : "conclusion-watch";
+      const advisorLink = (symbol) => `/tw/advisor?symbol=${encodeURIComponent(symbol || "")}`;
+      const renderReasonCodes = (codes) => {
+        const rows = Array.isArray(codes) && codes.length ? codes : ["no_reason_code"];
+        return `<div class="reason-code-list">${rows.map((code) => `<code>${escapeHtml(code)}</code>`).join("")}</div>`;
+      };
+      const renderHistory = (history) => {
+        const windows = history?.windows || {};
+        const rows = ["20", "40", "60"].map((key) => {
+          const item = windows[key] || {};
+          const value = (v, suffix = "") => v === null || v === undefined ? "樣本不足" : `${number(v)}${suffix}`;
+          return `<tr>
+            <td>近 ${key} 日</td>
+            <td>${item.sample_size || 0}</td>
+            <td>${item.grade_a_count || 0}</td>
+            <td>${value(item.grade_a_win_rate, "%")}</td>
+            <td>${item.grade_b_plus_count || 0}</td>
+            <td>${item.grade_b_plus_triggered_count || 0}</td>
+            <td>${value(item.grade_b_plus_triggered_win_rate, "%")}</td>
+            <td>${value(item.high_risk_continue_up_rate, "%")}</td>
+            <td>${value(item.avoid_big_up_rate, "%")}</td>
+            <td>${value(item.avg_max_gain_pct, "%")}</td>
+            <td>${value(item.avg_max_drawdown_pct, "%")}</td>
+            <td>${value(item.take_profit_rate, "%")}</td>
+            <td>${value(item.stop_loss_rate, "%")}</td>
+          </tr>`;
+        }).join("");
+        return `
+          <p class="${history?.is_statistically_meaningful ? "muted" : "warn-inline"}">${escapeHtml(history?.message || "這檔歷史樣本不足，不建議依個股勝率判斷。")}</p>
+          <div class="table-wrap advisor-history-table"><table>
+            <thead><tr><th>期間</th><th>樣本</th><th>A次數</th><th>A後勝率</th><th>B+次數</th><th>B+觸發</th><th>B+觸發後勝率</th><th>high_risk續漲</th><th>avoid後大漲</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停利率</th><th>停損率</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table></div>
+        `;
+      };
       const renderIntradayChart = (chart) => {
         const bars = Array.isArray(chart?.bars) ? chart.bars : [];
         if (bars.length < 2) return `<div class="advisor-chart-empty">目前缺少足夠分時資料，暫時無法繪圖。</div>`;
@@ -1492,6 +1553,11 @@ def tw_advisor_script() -> str:
         const scan = payload.scan || {};
         const display = payload.display || {};
         const dataHealth = payload.data_health || {};
+        const safety = payload.safety || {};
+        const keyMetrics = payload.key_metrics || {};
+        const reasonGroups = payload.reason_groups || {};
+        const history = payload.historical_validation || {};
+        const sourceRanking = payload.source_ranking || {};
         const analysis = payload.advisor_analysis || {};
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -1512,46 +1578,84 @@ def tw_advisor_script() -> str:
         ].filter(Boolean).join("｜");
         const analysisLabel = analysis.action_label || decisionLabel(candidate);
         const plan = analysis.action_plan || {};
-        const conclusion = dataHealth.advice && dataHealth.status !== "正常" ? dataHealth.advice : (analysis.action_label || decisionLabel(candidate));
-        const longReasons = candidate.reasons || scan.source_reasons || [];
-        const riskReasons = candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"];
+        const effectiveEntry = safety.effective_entry_status || candidate.entry_status || scan.entry_status || "data_missing";
+        const effectiveGrade = safety.effective_grade || candidate.grade || scan.ai_grade || "data_missing";
+        const conclusionState = safety.conclusion_state || statusZh(effectiveEntry);
+        const conclusion = conclusionState === "資料不足"
+          ? "資料不足，不能產生有效當沖建議。"
+          : `目前為 ${effectiveGrade} 級${conclusionState}，${analysis.next_step || statusText || "請等待條件確認。"}`
+        const longReasons = reasonGroups.long_reasons || candidate.reasons || scan.source_reasons || [];
+        const riskReasons = reasonGroups.risk_reasons || candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"];
+        const notExecutableReasons = reasonGroups.not_executable_reasons || [];
         const keyLevels = Array.isArray(analysis.key_levels) ? analysis.key_levels : [];
         const chart = payload.intraday_chart || {};
+        const blockedMessages = (safety.blocked_reasons || []).map((item) => item.message);
         result.className = "advisor-result";
         result.innerHTML = `
-          <article class="advisor-card">
+          <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
             <div class="advisor-title">
               <div>
                 <h2>${escapeHtml(symbol)}｜${escapeHtml(name)}</h2>
                 <div class="muted">${escapeHtml(sector)}｜資料來源：${escapeHtml(payload.data_source || "Yahoo Finance chart endpoint")}</div>
                 <div class="muted">${escapeHtml(quoteMeta || "價格來源：Yahoo Finance chart endpoint")}</div>
               </div>
-              <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(analysisLabel)}</span>
+              <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(conclusionState)}</span>
             </div>
             <div class="advisor-decision">
               <strong>結論：${escapeHtml(conclusion)}</strong>
-              <span>${escapeHtml(analysis.action_summary || statusText)}</span>
+              <span>${escapeHtml(analysis.action_summary || statusText || dataHealth.advice || "")}</span>
+              ${renderReasonCodes(safety.reason_codes)}
             </div>
             <div class="advisor-grid">
+              ${metric("目前結論", escapeHtml(conclusionState))}
+              ${metric("分級", escapeHtml(effectiveGrade))}
+              ${metric("entry_status", escapeHtml(`${effectiveEntry}｜${statusZh(effectiveEntry)}`))}
+              ${metric("原始 entry_status", escapeHtml(safety.original_entry_status || candidate.entry_status || "-"))}
               ${metric("最新成交價", escapeHtml(number(price)))}
               ${metric("漲跌幅", pct(changePct))}
-              ${metric("模型參考價", escapeHtml(number(display.model_reference_price ?? candidate.last_price)))}
-              ${metric("AI 評級", escapeHtml(candidate.grade || scan.ai_grade || "-"))}
-              ${metric("進場狀態", escapeHtml(candidate.entry_status || scan.entry_status || "-"))}
-              ${metric("多方分數", escapeHtml(number(candidate.bullish_score ?? scan.bullish_score)))}
-              ${metric("風險分數", escapeHtml(number(candidate.risk_score ?? scan.risk_score)))}
-              ${metric("信心分數", escapeHtml(number(candidate.confidence_score ?? scan.confidence_score)))}
-              ${metric("技術結構分數", escapeHtml(number(analysis.technical_score)))}
-              ${metric("量能確認分數", escapeHtml(number(analysis.volume_score)))}
-              ${metric("追價風險分數", escapeHtml(number(analysis.chase_risk_score)))}
-              ${metric("量比", `${escapeHtml(number(scan.volume_ratio ?? candidate.volume_ratio))}x`)}
-              ${metric("VWAP", escapeHtml(number(scan.vwap ?? candidate.vwap)))}
-              ${metric("站上 VWAP", escapeHtml(yesNo(scan.above_vwap ?? candidate.above_vwap)))}
-              ${metric("突破昨高", escapeHtml(yesNo(scan.break_prev_high ?? candidate.break_prev_high)))}
-              ${metric("突破 5 日高", escapeHtml(yesNo(scan.break_5d_high ?? candidate.break_5d_high)))}
               ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}
-              ${metric("資料更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
-              ${metric("資料是否過期", escapeHtml(dataHealth.is_stale ? "是" : "否"))}
+              ${metric("可用於當沖判斷", escapeHtml(dataHealth.can_use_for_daytrade && safety.is_executable_allowed ? "是" : "否"))}
+            </div>
+          </article>
+
+          <article class="advisor-card">
+            <h3>資料可信度</h3>
+            <div class="advisor-grid">
+              ${metric("是否今天資料", escapeHtml(yesNo(dataHealth.is_today_data)))}
+              ${metric("是否盤中資料", escapeHtml(yesNo(dataHealth.is_intraday_data)))}
+              ${metric("最後更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
+              ${metric("資料年齡", dataHealth.age_minutes === null || dataHealth.age_minutes === undefined ? "-" : `${escapeHtml(number(dataHealth.age_minutes, 1))} 分鐘`)}
+              ${metric("Yahoo 日線", escapeHtml(dataHealth.yahoo_daily_success ? "成功" : "失敗"))}
+              ${metric("Yahoo 5分K", escapeHtml(dataHealth.yahoo_intraday_5m_success ? "成功" : "失敗"))}
+              ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}
+              ${metric("TWSE / TPEX", escapeHtml(dataHealth.twse_tpex_quote_success ? "成功" : "失敗"))}
+              ${metric("使用 cache", escapeHtml(yesNo(dataHealth.uses_cache)))}
+              ${metric("data_missing", escapeHtml(yesNo(dataHealth.is_data_missing)))}
+              ${metric("市場時段", escapeHtml(`${safety.market_session || "-"}｜${safety.market_status_text || "-"}`))}
+              ${metric("安全判斷", escapeHtml(dataHealth.advice || "-"))}
+            </div>
+            ${blockedMessages.length ? `<div class="warn-inline">${list(blockedMessages)}</div>` : ""}
+          </article>
+
+          <article class="advisor-card">
+            <h3>關鍵指標</h3>
+            <div class="advisor-grid">
+              ${metric("現價", escapeHtml(number(keyMetrics.current_price ?? price)))}
+              ${metric("漲跌幅", pct(keyMetrics.change_pct ?? changePct))}
+              ${metric("成交量", escapeHtml(compactMoney(keyMetrics.volume)))}
+              ${metric("成交金額", escapeHtml(compactMoney(keyMetrics.turnover)))}
+              ${metric("量比", `${escapeHtml(number(keyMetrics.volume_ratio))}x`)}
+              ${metric("VWAP", escapeHtml(number(keyMetrics.vwap)))}
+              ${metric("距離 VWAP", keyMetrics.distance_to_vwap_pct === null || keyMetrics.distance_to_vwap_pct === undefined ? "-" : `${escapeHtml(number(keyMetrics.distance_to_vwap_pct))}%`)}
+              ${metric("昨日高點", escapeHtml(number(keyMetrics.previous_high)))}
+              ${metric("突破昨日高點", escapeHtml(yesNo(keyMetrics.break_prev_high)))}
+              ${metric("盤中高點 / 觸發", escapeHtml(number(keyMetrics.intraday_high ?? candidate.trigger_price)))}
+              ${metric("接近漲停", escapeHtml(yesNo(keyMetrics.near_limit_up)))}
+              ${metric("風險分數", escapeHtml(number(keyMetrics.risk_score ?? candidate.risk_score)))}
+              ${metric("信心等級", escapeHtml(keyMetrics.confidence_level || "-"))}
+              ${metric("停損價", escapeHtml(number(keyMetrics.stop_loss)))}
+              ${metric("停利價", escapeHtml(number(keyMetrics.target_price)))}
+              ${metric("預估賺賠比", keyMetrics.risk_reward_ratio === null || keyMetrics.risk_reward_ratio === undefined ? "-" : `${escapeHtml(number(keyMetrics.risk_reward_ratio))}R`)}
             </div>
             <section class="advisor-chart">
               <div class="chart-head">
@@ -1560,30 +1664,79 @@ def tw_advisor_script() -> str:
               </div>
               ${renderIntradayChart(chart)}
             </section>
+          </article>
+
+          <article class="advisor-card">
             <div class="advisor-sections">
-              <section class="advisor-panel advisor-plan">
-                <h3>當沖作戰計畫</h3>
-                <p><strong>${escapeHtml(plan.plan_summary || "先確認觸發條件，再評估停損與停利。")}</strong></p>
-                <div class="plan-grid">
-                  ${planRow("觸發條件", plan.trigger_condition)}
-                  ${planRow("進場參考", money(plan.entry_reference))}
-                  ${planRow("停損價", money(plan.stop_loss))}
-                  ${planRow("停利價", money(plan.target_price))}
-                  ${planRow("風險報酬比", plan.risk_reward_ratio ? `${money(plan.risk_reward_ratio)}R` : "-")}
-                  ${planRow("等待條件", plan.wait_condition)}
-                  ${planRow("失效條件", plan.invalidation_condition)}
-                  ${planRow("不追價原因", plan.no_chase_reason)}
-                </div>
+              <section class="advisor-panel">
+                <h3>做多理由</h3>
+                ${list(longReasons)}
+                <p><strong>${escapeHtml(analysis.technical_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.technical_summary || "目前技術結構尚無明確結論。")}</p>
               </section>
-              <section class="advisor-panel advisor-plan">
-                <h3>白話結論</h3>
-                <div class="plan-grid">
-                  ${planRow("結論", conclusion)}
-                  ${planRow("下一步條件", plan.wait_condition || analysis.next_step || statusText)}
-                  ${planRow("失效條件", plan.invalidation_condition || "跌破 VWAP、停損價或量能明顯轉弱")}
-                  ${planRow("資料更新時間", dataHealth.quote_time || display.quote_time || "-")}
-                  ${planRow("資料可信度", dataHealth.credibility || "-")}
-                </div>
+              <section class="advisor-panel">
+                <h3>風險理由</h3>
+                ${list(riskReasons)}
+                <p><strong>${escapeHtml(analysis.chase_risk_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.risk_summary || "目前追價風險尚無明確結論。")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>目前不執行原因</h3>
+                ${list(notExecutableReasons.length ? notExecutableReasons : [analysis.next_step || statusText || "等待條件確認。"])}
+                <p><strong>${escapeHtml(analysis.volume_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.volume_summary || "目前量能尚無明確結論。")}</p>
+              </section>
+            </div>
+          </article>
+
+          <article class="advisor-card">
+            <h3>下一步條件與失效條件</h3>
+            <div class="plan-grid">
+              ${planRow("突破價重新評估", plan.trigger_condition || `突破 ${money(candidate.trigger_price || keyMetrics.intraday_high)} 後重新評估`)}
+              ${planRow("量比升級條件", "量比達 1.0x 以上；B+ 練習觀察至少需維持 0.8x 以上")}
+              ${planRow("VWAP 條件", `站回 VWAP ${money(keyMetrics.vwap)} 並維持，才重新觀察`)}
+              ${planRow("拉回觀察區", `拉回 VWAP 附近但不跌破；參考 ${money(keyMetrics.vwap)}`)}
+              ${planRow("B 變 B+", "站上 VWAP、量比達標、突破昨高或觸發價，且風險分數不升高")}
+              ${planRow("B+ 變 A", "突破確認、量能延續、風險可控且信心分數足夠")}
+              ${planRow("失效條件", plan.invalidation_condition || "跌破 VWAP、停損價、盤中支撐，或資料過期")}
+              ${planRow("停損 / 停利", `停損 ${money(keyMetrics.stop_loss)}｜停利 ${money(keyMetrics.target_price)}`)}
+              ${planRow("大盤 / 資料失效", "大盤轉弱、量能退潮、風險分數升高或資料來源失敗時，不顯示可執行")}
+            </div>
+          </article>
+
+          <article class="advisor-card">
+            <h3>這檔過去表現</h3>
+            ${renderHistory(history)}
+          </article>
+
+          <article class="advisor-card">
+            <h3>來源與全市場排名</h3>
+            <div class="advisor-grid">
+              ${metric("來源", escapeHtml(sourceRanking.source_scope || "manual_scan"))}
+              ${metric("來自 watchlist", escapeHtml(yesNo(sourceRanking.from_watchlist)))}
+              ${metric("來自 full_market", escapeHtml(yesNo(sourceRanking.from_full_market)))}
+              ${metric("out_of_pool 新找到", escapeHtml(yesNo(sourceRanking.out_of_pool)))}
+              ${metric("進入異動候選池", escapeHtml(yesNo(sourceRanking.entered_candidate_pool)))}
+              ${metric("今日異動池排名", escapeHtml(sourceRanking.today_rank || "-"))}
+              ${metric("今日 AI 分級", escapeHtml(sourceRanking.ai_grade || effectiveGrade))}
+              ${metric("reason code", escapeHtml(sourceRanking.reason_code || "-"))}
+            </div>
+            <p class="muted">${escapeHtml(sourceRanking.message || sourceRanking.not_selected_reason || "此區說明今天系統如何找到或排除此股票。")}</p>
+          </article>
+
+          <details class="advisor-card debug-card">
+            <summary>開發者資訊</summary>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>API / 資料來源</h3>
+                ${list([
+                  `generated_at: ${payload.generated_at || "-"}`,
+                  `data_source: ${payload.data_source || "-"}`,
+                  `db_path: ${payload.db_path || "-"}`,
+                  `advisor version: ${analysis.version || "-"}`,
+                  ...warnings,
+                  ...errors,
+                ])}
               </section>
               <section class="advisor-panel">
                 <h3>關鍵價位</h3>
@@ -1597,47 +1750,8 @@ def tw_advisor_script() -> str:
                   `).join("") : "<p>目前缺少關鍵價位資料。</p>"}
                 </div>
               </section>
-              <section class="advisor-panel">
-                <h3>當沖建議</h3>
-                <p><strong>${escapeHtml(analysisLabel)}</strong></p>
-                <p class="muted">${escapeHtml(analysis.next_step || statusText)}</p>
-                <p>${escapeHtml(candidate.confidence_summary || scan.confidence_summary || "")}</p>
-              </section>
-              <section class="advisor-panel">
-                <h3>技術線分析</h3>
-                <p><strong>${escapeHtml(analysis.technical_status || "-")}</strong></p>
-                <p>${escapeHtml(analysis.technical_summary || "目前技術結構尚無明確結論。")}</p>
-              </section>
-              <section class="advisor-panel">
-                <h3>量能分析</h3>
-                <p><strong>${escapeHtml(analysis.volume_status || "-")}</strong></p>
-                <p>${escapeHtml(analysis.volume_summary || "目前量能尚無明確結論。")}</p>
-              </section>
-              <section class="advisor-panel">
-                <h3>追價風險</h3>
-                <p><strong>${escapeHtml(analysis.chase_risk_status || "-")}</strong></p>
-                <p>${escapeHtml(analysis.risk_summary || "目前追價風險尚無明確結論。")}</p>
-              </section>
-              <section class="advisor-panel">
-                <h3>多方理由</h3>
-                ${list(longReasons)}
-              </section>
-              <section class="advisor-panel">
-                <h3>風險提醒</h3>
-                ${list(riskReasons)}
-              </section>
-              <section class="advisor-panel">
-                <h3>資料狀態</h3>
-                ${list(errors.length ? errors : [
-                  dataHealth.advice || payload.message || "掃描完成。",
-                  `是否今天資料：${dataHealth.is_today_data ? "是" : "否"}`,
-                  `是否盤中資料：${dataHealth.is_intraday_data ? "是" : "否"}`,
-                  `是否已過期：${dataHealth.is_stale ? "是" : "否"}`,
-                  ...warnings,
-                ])}
-              </section>
             </div>
-          </article>
+          </details>
         `;
       };
 
@@ -1652,7 +1766,8 @@ def tw_advisor_script() -> str:
             body: JSON.stringify({ symbol }),
           });
           const payload = await response.json();
-          if (!response.ok || payload.ok === false) throw new Error(payload.message || `HTTP ${response.status}`);
+          if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
+          if (!payload.symbol && payload.ok === false) throw new Error(payload.message || "查無股票資料");
           status.textContent = `完成：${payload.symbol || symbol}`;
           renderResult(payload);
         } catch (error) {
@@ -1668,10 +1783,24 @@ def tw_advisor_script() -> str:
           status.textContent = "請輸入股票代號。";
           return;
         }
+        window.history.replaceState({}, "", advisorLink(symbol));
         scan(symbol);
       });
 
-      scan(input.value.trim() || "6770.TW");
+      document.querySelectorAll("[data-symbol]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const symbol = button.getAttribute("data-symbol") || "";
+          input.value = symbol;
+          window.history.replaceState({}, "", advisorLink(symbol));
+          scan(symbol);
+        });
+      });
+
+      const initial = new URLSearchParams(window.location.search).get("symbol") || "";
+      if (initial.trim()) {
+        input.value = initial.trim();
+        scan(initial.trim());
+      }
     })();
     """
 
@@ -2056,11 +2185,19 @@ def tw_advisor_css() -> str:
     .advisor-page { padding:0 28px 32px; }
     .advisor-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:24px 0 12px; }
     .advisor-hero h1 { margin:0 0 4px; font-size:26px; }
+    .advisor-hero p { max-width:840px; }
+    .advisor-examples { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .advisor-examples button { height:32px; padding:0 10px; background:#fff; border:1px solid var(--line); color:#344054; }
     .advisor-form { display:grid; grid-template-columns:minmax(220px,320px) auto; align-items:end; gap:10px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; }
     .advisor-form label { margin:0; font-size:12px; color:#344054; }
     .advisor-form button { background:#175cd3; border-color:#175cd3; color:#fff; height:38px; }
     .advisor-result { margin-top:14px; }
-    .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+    .conclusion-card { border-width:2px; }
+    .conclusion-ok { border-color:#16a34a; background:#f0fdf4; }
+    .conclusion-watch { border-color:#bfdbfe; background:#eff6ff; }
+    .conclusion-risk { border-color:#fed7aa; background:#fff7ed; }
+    .conclusion-missing { border-color:#fecaca; background:#fef2f2; }
     .advisor-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
     .advisor-title h2 { margin:0; font-size:20px; }
     .advisor-decision { margin-top:12px; border:1px solid #bfdbfe; background:#eff6ff; border-radius:8px; padding:12px; color:#1e3a8a; }
@@ -2073,6 +2210,8 @@ def tw_advisor_css() -> str:
     .advisor-metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfe; }
     .advisor-metric span { display:block; color:var(--muted); font-size:12px; }
     .advisor-metric strong { display:block; margin-top:2px; font-size:18px; }
+    .reason-code-list { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .reason-code-list code { background:#eef2f6; border:1px solid var(--line); border-radius:6px; padding:3px 6px; color:#344054; }
     .advisor-chart { margin-top:12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; overflow:hidden; }
     .chart-head { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
     .chart-head h3 { margin:0; font-size:15px; }
@@ -2102,6 +2241,10 @@ def tw_advisor_css() -> str:
     .advisor-panel h3 { margin:0 0 8px; font-size:15px; }
     .advisor-panel ul { margin:0; padding-left:18px; }
     .advisor-panel li { margin:4px 0; }
+    .advisor-history-table { overflow:auto; }
+    .advisor-history-table table { min-width:980px; }
+    .warn-inline { margin-top:10px; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
+    .debug-card summary { cursor:pointer; font-weight:800; }
     .plan-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:8px; }
     .plan-row, .level-row { border:1px solid var(--line); border-radius:8px; background:#fff; padding:9px 10px; }
     .plan-row span, .level-row span { display:block; color:var(--muted); font-size:12px; }

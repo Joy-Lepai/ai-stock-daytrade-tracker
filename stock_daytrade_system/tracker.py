@@ -706,6 +706,10 @@ def _metric_text(label: str, value: str) -> str:
     return f'<div class="metric"><span class="muted">{escape(label)}</span><strong>{escape(value)}</strong></div>'
 
 
+def _advisor_link(symbol: str) -> str:
+    return f"/tw/advisor?symbol={escape(str(symbol or ''), quote=True)}"
+
+
 def _decision_overview(summary: Optional[LongModelSummary]) -> str:
     data = summary.decision_center if summary else {}
     diagnostics = summary.diagnostics if summary else {}
@@ -760,7 +764,7 @@ def _focus_card(item: LongCandidate) -> str:
     display_label = item.trade_bias_label or conclusion or "觀察"
     return (
         '<div class="decision-panel">'
-        f'<strong>{escape(item.symbol)}｜{escape(item.name)}</strong>'
+        f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a></strong>'
         f'<div>{escape(display_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
@@ -892,6 +896,7 @@ def _signal_card(item: dict) -> str:
     name = f"{item.get('symbol', '')}｜{item.get('name_zh', '')}"
     if item.get("name_en"):
         name += f"｜{item.get('name_en')}"
+    symbol = str(item.get("symbol") or "")
     meta = (
         f"{item.get('grade', '-')}｜{item.get('entry_status', '-')}｜{item.get('lifecycle_status', '-')}"
         f"｜Readiness {item.get('trigger_readiness', '-')}"
@@ -902,7 +907,7 @@ def _signal_card(item: dict) -> str:
     )
     return (
         "<div class=\"signal-card\">"
-        f"<div class=\"signal-title\">{escape(name)}</div>"
+        f"<div class=\"signal-title\"><a href=\"{_advisor_link(symbol)}\">{escape(name)}</a></div>"
         f"<div class=\"signal-meta\">當下狀態：{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}</div>"
         f"<div class=\"signal-meta\">{escape(meta)}</div>"
         f"<div class=\"signal-meta\">{escape(metrics)}</div>"
@@ -1528,7 +1533,7 @@ def _tracked_table(rows: List[TrackedSymbol], empty_text: str = "目前沒有追
             f'<td><span class="badge s-{escape(row.status)}">{escape(row.status)}</span></td>'
             f'<td data-sort-value="{_sort_value(row.bullish_score)}"><span class="badge b-{escape(row.bullish_label)}">{escape(row.bullish_label)}</span><br><span class="muted">{_fmt(row.bullish_score)}</span></td>'
             f"<td>{escape(row.entry_status)}</td>"
-            f"<td><strong>{escape(stock_label(row.name, row.symbol))}</strong></td>"
+            f"<td><strong><a href=\"{_advisor_link(row.symbol)}\">{escape(stock_label(row.name, row.symbol))}</a></strong></td>"
             f"<td>{escape(sector_label(row.sector))}<br><span class=\"muted\">{escape(row.sector_state)}</span></td>"
             f"{_number_cell(row.last_price)}"
             f"{_change_cell(row.day_change_pct)}"
@@ -1572,7 +1577,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
         rows.append(
             "<tr>"
             f"<td><span class=\"badge b-{escape(_grade_label(item.grade))}\">{escape(item.grade)}</span><br><span class=\"muted\">{escape(_grade_label(item.grade))}</span></td>"
-            f"<td><strong><a href=\"/symbol/{escape(item.symbol)}\">{escape(stock_label(item.name, item.symbol))}</a></strong><br><span class=\"muted\">{escape(sector_label(item.sector))}</span></td>"
+            f"<td><strong><a href=\"{_advisor_link(item.symbol)}\">{escape(stock_label(item.name, item.symbol))}</a></strong><br><span class=\"muted\">{escape(sector_label(item.sector))}</span></td>"
             f"{_number_cell(item.last_price)}"
             f"{_change_cell(item.change_pct)}"
             f"<td data-sort-value=\"{_sort_value(item.turnover)}\">{_money(item.turnover)}</td>"

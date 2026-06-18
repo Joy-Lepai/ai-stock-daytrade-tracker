@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -8,9 +9,10 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.data import YahooChartClient
-from stock_daytrade_system.db import default_db_path
+from stock_daytrade_system.db import connect, default_db_path
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
+from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
@@ -74,6 +76,19 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         analysis_payload,
     )
+    db_path = default_db_path(project_root)
+    with connect(db_path) as conn:
+        history_payload = _historical_validation_payload(conn, item.symbol)
+        source_payload = _source_ranking_payload(conn, item.symbol)
+    safety_payload = _safety_payload(
+        candidate_payload,
+        scan_item.to_dict(),
+        data_health,
+        analysis_payload,
+        captured_at,
+    )
+    key_metrics_payload = _key_metrics_payload(candidate_payload, scan_item.to_dict(), display_payload, analysis_payload)
+    reason_payload = _reason_payload(candidate_payload, scan_item.to_dict(), data_health, safety_payload)
     errors = {}
     if item.symbol in daily_errors:
         errors["daily"] = daily_errors[item.symbol]
@@ -98,12 +113,17 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "data_health": data_health,
+        "safety": safety_payload,
+        "key_metrics": key_metrics_payload,
+        "reason_groups": reason_payload,
+        "historical_validation": history_payload,
+        "source_ranking": source_payload,
         "advisor_analysis": analysis_payload,
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
         "data_source": "TWSE MIS + Yahoo Finance 1m/5m chart endpoint",
-        "db_path": str(default_db_path(project_root)),
+        "db_path": str(db_path),
     }
 
 
@@ -166,6 +186,9 @@ def _candidate_payload(candidate) -> Optional[dict]:
         "reasons": candidate.reasons,
         "risk_reasons": candidate.risk_reasons,
         "confidence_summary": candidate.confidence_summary,
+        "conflicts_count": getattr(candidate, "conflicts_count", 0),
+        "conflict_summary": getattr(candidate, "conflict_summary", ""),
+        "confidence_level_label": getattr(candidate, "confidence_level_label", candidate.confidence_level),
     }
 
 
@@ -235,8 +258,306 @@ def _data_health_payload(
         "is_today_data": is_today,
         "is_intraday_data": bool(quote_dt),
         "is_stale": stale,
+        "yahoo_daily_success": symbol not in daily_errors,
+        "yahoo_intraday_5m_success": symbol not in intraday_errors,
+        "yahoo_intraday_1m_success": symbol not in quote_intraday_errors,
+        "twse_tpex_quote_success": status != "異常",
+        "uses_cache": False,
+        "is_data_missing": has_error,
+        "can_use_for_daytrade": status == "正常",
         "advice": advice,
     }
+
+
+def _safety_payload(
+    candidate: Optional[dict],
+    scan: dict,
+    data_health: dict,
+    analysis: dict,
+    captured_at: datetime,
+) -> dict:
+    candidate = candidate or {}
+    entry_status = str(candidate.get("entry_status") or scan.get("entry_status") or "data_missing")
+    grade = str(candidate.get("grade") or scan.get("ai_grade") or "data_missing")
+    clock = taiwan_market_session(captured_at)
+    vwap = _num(scan.get("vwap"), candidate.get("vwap"))
+    volume_ratio = _num(scan.get("volume_ratio"), candidate.get("volume_ratio"))
+    stop_loss = _num(candidate.get("stop_loss"), (analysis.get("action_plan") or {}).get("stop_loss"))
+    current_price = _num(scan.get("latest_price"), candidate.get("last_price"))
+    risk_score = _num(candidate.get("risk_score"), scan.get("risk_score"), default=0.0) or 0.0
+    blocked = []
+    if not data_health.get("is_today_data"):
+        blocked.append({"code": "stale_or_not_today", "message": "資料不是今天，不能產生有效當沖建議。"})
+    if data_health.get("is_stale"):
+        blocked.append({"code": "stale_data", "message": "資料已過期，暫停顯示可執行。"})
+    if data_health.get("is_data_missing"):
+        blocked.append({"code": "data_missing", "message": "核心資料缺漏，不能判斷。"})
+    if clock.session != "regular":
+        blocked.append({"code": "market_not_regular", "message": "目前非台股盤中，不顯示盤中可執行。"})
+    if vwap is None:
+        blocked.append({"code": "missing_vwap", "message": "缺少 VWAP，不能列為可執行。"})
+    if volume_ratio is None:
+        blocked.append({"code": "missing_volume_ratio", "message": "缺少量比，不能列為可執行。"})
+    if stop_loss is None:
+        blocked.append({"code": "missing_stop_loss", "message": "缺少停損價，不能列為可執行。"})
+    if current_price and stop_loss and stop_loss < current_price:
+        stop_distance = (current_price - stop_loss) / current_price * 100
+        if stop_distance > 5:
+            blocked.append({"code": "stop_loss_too_far", "message": f"停損距離約 {stop_distance:.2f}%，風險偏高。"})
+    vwap_distance = None
+    if current_price and vwap:
+        vwap_distance = (current_price - vwap) / vwap * 100
+        if vwap_distance > 3:
+            blocked.append({"code": "too_far_from_vwap", "message": f"距離 VWAP 約 {vwap_distance:.2f}%，追價風險高。"})
+    if (_num(scan.get("change_pct"), candidate.get("change_pct"), default=0.0) or 0.0) >= 9:
+        blocked.append({"code": "near_limit_up", "message": "接近漲停或漲幅過大，追價風險高。"})
+
+    effective_entry = entry_status
+    effective_grade = grade
+    conclusion_state = _conclusion_state(grade, entry_status)
+    if blocked and entry_status in {"executable", "practice_long"}:
+        effective_entry = "high_risk" if any(item["code"] in {"too_far_from_vwap", "stop_loss_too_far", "near_limit_up"} for item in blocked) else "data_missing"
+        effective_grade = "high_risk" if effective_entry == "high_risk" else "data_missing"
+        conclusion_state = "避開" if effective_entry == "high_risk" else "資料不足"
+    elif data_health.get("is_data_missing"):
+        effective_entry = "data_missing"
+        effective_grade = "data_missing"
+        conclusion_state = "資料不足"
+
+    reason_codes = [item["code"] for item in blocked]
+    if scan.get("reason_code"):
+        reason_codes.append(str(scan.get("reason_code")))
+    if candidate.get("not_selected_reason"):
+        reason_codes.append(str(candidate.get("not_selected_reason")))
+    return {
+        "market_session": clock.session,
+        "market_status_text": clock.status_text,
+        "original_entry_status": entry_status,
+        "effective_entry_status": effective_entry,
+        "original_grade": grade,
+        "effective_grade": effective_grade,
+        "conclusion_state": conclusion_state,
+        "is_executable_allowed": effective_entry in {"executable", "practice_long"} and not blocked,
+        "blocked_reasons": blocked,
+        "reason_codes": reason_codes,
+        "vwap_distance_pct": round(vwap_distance, 2) if vwap_distance is not None else None,
+        "risk_score": round(risk_score, 2),
+    }
+
+
+def _key_metrics_payload(candidate: Optional[dict], scan: dict, display: dict, analysis: dict) -> dict:
+    candidate = candidate or {}
+    current_price = _num(display.get("current_price"), scan.get("latest_price"), candidate.get("last_price"))
+    vwap = _num(scan.get("vwap"), candidate.get("vwap"))
+    stop_loss = _num(candidate.get("stop_loss"), (analysis.get("action_plan") or {}).get("stop_loss"))
+    target_price = _num(candidate.get("target_price"), (analysis.get("action_plan") or {}).get("target_price"))
+    risk_reward = None
+    if current_price and stop_loss and target_price and current_price > stop_loss:
+        risk_reward = (target_price - current_price) / (current_price - stop_loss)
+    vwap_distance = (current_price - vwap) / vwap * 100 if current_price and vwap else None
+    return {
+        "current_price": current_price,
+        "change_pct": _num(display.get("change_pct"), scan.get("change_pct"), candidate.get("change_pct")),
+        "volume": _num(scan.get("volume")),
+        "turnover": _num(scan.get("turnover")),
+        "volume_ratio": _num(scan.get("volume_ratio"), candidate.get("volume_ratio")),
+        "vwap": vwap,
+        "distance_to_vwap_pct": round(vwap_distance, 2) if vwap_distance is not None else None,
+        "previous_high": _num(candidate.get("previous_high")),
+        "break_prev_high": bool(scan.get("break_prev_high") or candidate.get("break_prev_high")),
+        "intraday_high": _num((analysis.get("action_plan") or {}).get("trigger_price"), candidate.get("opening_range_high")),
+        "near_limit_up": (_num(display.get("change_pct"), scan.get("change_pct"), candidate.get("change_pct"), default=0.0) or 0.0) >= 9,
+        "risk_score": _num(candidate.get("risk_score"), scan.get("risk_score")),
+        "confidence_level": candidate.get("confidence_level_label") or candidate.get("confidence_level") or scan.get("confidence_level"),
+        "stop_loss": stop_loss,
+        "target_price": target_price,
+        "risk_reward_ratio": round(risk_reward, 2) if risk_reward is not None else None,
+    }
+
+
+def _reason_payload(candidate: Optional[dict], scan: dict, data_health: dict, safety: dict) -> dict:
+    candidate = candidate or {}
+    long_reasons = list(candidate.get("reasons") or scan.get("source_reasons") or [])
+    if scan.get("turnover") and scan.get("turnover") >= 100_000_000:
+        long_reasons.append("成交金額足夠")
+    risk_reasons = list(candidate.get("risk_reasons") or scan.get("risk_reasons") or [])
+    risk_reasons.extend(item["message"] for item in safety.get("blocked_reasons", []))
+    waiting = []
+    entry = safety.get("effective_entry_status") or candidate.get("entry_status") or scan.get("entry_status")
+    if entry == "wait_volume":
+        waiting.append("等待量能")
+    if entry == "wait_vwap":
+        waiting.append("等待站回 VWAP")
+    if entry == "wait_breakout":
+        waiting.append("等待突破觸發價")
+    if entry == "wait_pullback":
+        waiting.append("等待拉回")
+    if entry == "high_risk":
+        waiting.append("風險分數過高或追價風險高")
+    if entry in {"avoid", "data_missing"}:
+        waiting.append("資料不足或條件不適合")
+    if not data_health.get("can_use_for_daytrade"):
+        waiting.append(data_health.get("advice") or "資料狀態不足")
+    return {
+        "long_reasons": _dedupe(long_reasons),
+        "risk_reasons": _dedupe(risk_reasons),
+        "not_executable_reasons": _dedupe(waiting),
+    }
+
+
+def _historical_validation_payload(conn: sqlite3.Connection, symbol: str) -> dict:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM tw_full_market_snapshots
+        WHERE symbol = ?
+        ORDER BY date DESC, captured_at DESC
+        """,
+        (symbol,),
+    ).fetchall()
+    latest_by_date: dict[str, sqlite3.Row] = {}
+    for row in rows:
+        latest_by_date.setdefault(row["date"], row)
+    ordered = list(latest_by_date.values())
+    windows = {str(window): _history_window(ordered[:window]) for window in (20, 40, 60)}
+    sample_size = len([row for row in ordered[:60] if row["verified_at"]])
+    return {
+        "sample_size": sample_size,
+        "min_sample_size": 20,
+        "is_statistically_meaningful": sample_size >= 20,
+        "message": "這檔歷史樣本不足，不建議依個股勝率判斷。" if sample_size < 20 else "這檔已有初步歷史樣本，可搭配整體策略成績單觀察。",
+        "windows": windows,
+    }
+
+
+def _history_window(rows: list[sqlite3.Row]) -> dict:
+    verified = [row for row in rows if row["verified_at"]]
+    a_rows = [row for row in rows if row["ai_grade"] == "A"]
+    bp_rows = [row for row in rows if row["ai_grade"] == "B+"]
+    high_risk = [row for row in verified if row["entry_status"] == "high_risk"]
+    avoid = [row for row in verified if row["entry_status"] == "avoid"]
+    return {
+        "sample_size": len(verified),
+        "grade_a_count": len(a_rows),
+        "grade_a_win_rate": _win_rate([row for row in verified if row["ai_grade"] == "A"]),
+        "grade_b_plus_count": len(bp_rows),
+        "grade_b_plus_triggered_count": 0,
+        "grade_b_plus_triggered_win_rate": None,
+        "high_risk_continue_up_rate": _rate(high_risk, lambda row: (_num(row["max_gain_after_scan"], default=0.0) or 0.0) >= 1),
+        "avoid_big_up_rate": _rate(avoid, lambda row: (_num(row["max_gain_after_scan"], default=0.0) or 0.0) >= 1),
+        "avg_max_gain_pct": _avg([row["max_gain_after_scan"] for row in verified]),
+        "avg_max_drawdown_pct": _avg([row["max_drawdown_after_scan"] for row in verified]),
+        "take_profit_rate": _rate(verified, lambda row: bool(row["hit_take_profit"])),
+        "stop_loss_rate": _rate(verified, lambda row: bool(row["hit_stop_loss"])),
+    }
+
+
+def _source_ranking_payload(conn: sqlite3.Connection, symbol: str) -> dict:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM tw_full_market_snapshots
+        WHERE symbol = ?
+        ORDER BY date DESC, captured_at DESC
+        LIMIT 1
+        """,
+        (symbol,),
+    ).fetchone()
+    if row is None:
+        return {
+            "source_scope": "manual_scan",
+            "from_watchlist": False,
+            "from_full_market": False,
+            "out_of_pool": False,
+            "entered_candidate_pool": False,
+            "today_rank": None,
+            "reason_code": "not_in_snapshot",
+            "message": "目前沒有全市場快照紀錄，這次為手動即時查詢。",
+        }
+    peers = conn.execute(
+        """
+        SELECT symbol
+        FROM tw_full_market_snapshots
+        WHERE date = ?
+          AND captured_at = ?
+          AND COALESCE(entered_candidate_pool, 0) = 1
+        ORDER BY COALESCE(turnover, 0) DESC, COALESCE(change_pct, 0) DESC
+        """,
+        (row["date"], row["captured_at"]),
+    ).fetchall()
+    rank = next((index + 1 for index, peer in enumerate(peers) if peer["symbol"] == symbol), None)
+    source_scope = row["source_scope"] or ""
+    return {
+        "source_scope": source_scope or "-",
+        "from_watchlist": source_scope == "watchlist",
+        "from_full_market": source_scope in {"full_market", "out_of_pool"},
+        "out_of_pool": source_scope == "out_of_pool",
+        "entered_candidate_pool": bool(row["entered_candidate_pool"]),
+        "entered_ai_candidates": bool(row["entered_ai_candidates"]),
+        "today_rank": rank,
+        "ai_grade": row["ai_grade"],
+        "entry_status": row["entry_status"],
+        "reason_code": row["reason_code"] or row["not_selected_reason"] or "-",
+        "not_selected_reason": row["not_selected_reason"] or "-",
+        "date": row["date"],
+        "captured_at": row["captured_at"],
+    }
+
+
+def _conclusion_state(grade: str, entry_status: str) -> str:
+    if grade == "data_missing" or entry_status == "data_missing":
+        return "資料不足"
+    if entry_status in {"executable", "practice_long"}:
+        return "可執行"
+    if grade in {"A", "B+"}:
+        return "觀察"
+    if str(entry_status).startswith("wait_") or grade == "B":
+        return "等待"
+    if entry_status in {"high_risk", "avoid"} or grade in {"C", "D"}:
+        return "避開"
+    return "觀察"
+
+
+def _dedupe(items: list) -> list[str]:
+    result = []
+    seen = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def _num(*values, default=None):
+    for value in values:
+        try:
+            if value is None or value == "":
+                continue
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return default
+
+
+def _avg(values) -> Optional[float]:
+    nums = [_num(value) for value in values]
+    nums = [value for value in nums if value is not None]
+    if not nums:
+        return None
+    return round(sum(nums) / len(nums), 2)
+
+
+def _rate(rows, predicate) -> Optional[float]:
+    rows = list(rows or [])
+    if not rows:
+        return None
+    return round(sum(1 for row in rows if predicate(row)) / len(rows) * 100, 2)
+
+
+def _win_rate(rows: list[sqlite3.Row]) -> Optional[float]:
+    return _rate(rows, lambda row: (_num(row["max_gain_after_scan"], default=0.0) or 0.0) >= 1)
 
 
 def _not_selected_reason(candidate) -> str:
