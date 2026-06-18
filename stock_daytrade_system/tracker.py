@@ -757,10 +757,11 @@ def _focus_card(item: LongCandidate) -> str:
     bullish_reason = "；".join(item.reasons[:3]) or item.trade_bias_reason or item.confidence_summary or "目前沒有明確多方理由。"
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
+    display_label = item.trade_bias_label or conclusion or "觀察"
     return (
         '<div class="decision-panel">'
         f'<strong>{escape(item.symbol)}｜{escape(item.name)}</strong>'
-        f'<div>{escape(item.trade_bias_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
+        f'<div>{escape(display_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
         f'<p class="muted"><strong>下一步：</strong>{escape(next_step)}</p>'
@@ -1900,6 +1901,19 @@ def _entry_status_label(value: str) -> str:
         "high_risk": "high_risk 風險過高",
         "avoid": "avoid 暫不追蹤",
     }.get(value, value or "-")
+
+
+def _next_step_for_entry(value: str) -> str:
+    return {
+        "executable": "可進入虛擬交易觀察，先確認 VWAP、停損與部位風險。",
+        "practice_long": "列入 B+ 練習觀察，等待觸發條件成立後再驗證。",
+        "wait_volume": "等待量比放大，短線資金確認後再評估。",
+        "wait_vwap": "等待股價站回 VWAP 並維持，不急著追價。",
+        "wait_breakout": "等待突破觸發價或開盤區間高點。",
+        "wait_pullback": "等待回測 VWAP 或關鍵價位不破。",
+        "high_risk": "避免直接追高，等待風險降溫或回測確認。",
+        "avoid": "暫不追蹤，等結構重新轉強再評估。",
+    }.get(value, "持續觀察資料更新與風險變化。")
 
 
 def _signal_type_label(value: str) -> str:

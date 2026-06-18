@@ -12,6 +12,7 @@ from stock_daytrade_system.tracker import (
     _change_number,
     _data_status_block,
     _entry_status_message,
+    _focus_card,
     _recommendation_checklist_table,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
@@ -22,6 +23,7 @@ from stock_daytrade_system.tracker import (
     render_tracker_html,
 )
 from stock_daytrade_system.scoring import MarketBias
+from stock_daytrade_system.long_model import LongCandidate
 
 
 def candidate(direction="做多觀察", shares=1000):
@@ -427,6 +429,67 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertNotIn("國巨", html)
         self.assertNotIn("台積電", html)
         self.assertNotIn("高風險", html)
+
+    def test_focus_card_tolerates_missing_trade_bias_label(self):
+        item = LongCandidate(
+            symbol="2330.TW",
+            name="台積電",
+            sector="semiconductor",
+            last_price=100,
+            change_pct=1.2,
+            volume=1_000_000,
+            turnover=100_000_000,
+            avg_volume_20=900_000,
+            daily_volume_ratio=1.1,
+            intraday_volume=500_000,
+            volume_ratio=1.2,
+            vwap=99.5,
+            above_vwap=True,
+            previous_high=99,
+            high_5d=101,
+            high_10d=102,
+            break_prev_high=True,
+            break_5d_high=False,
+            break_10d_high=False,
+            upper_shadow_pct=0.1,
+            institutional_buy_million=None,
+            margin_balance=None,
+            short_balance=None,
+            daytrade_ratio=None,
+            sector_strength=1,
+            news_topics=[],
+            market_state="偏多",
+            bullish_score=72,
+            risk_score=35,
+            grade="B+",
+            entry_status="wait_volume",
+            original_entry_status="wait_volume",
+            adjusted_entry_status="wait_volume",
+            confidence_score=65,
+            confidence_level="medium",
+            confidence_level_label="中等信心",
+            conflicts_count=0,
+            conflicts=[],
+            conflict_summary="",
+            confidence_summary="資料完整度尚可。",
+            confidence_adjustment_reason="",
+            trade_bias="watch",
+            trade_bias_label=None,
+            trade_bias_reason="",
+            trigger_price=101,
+            stop_loss=98,
+            target_price=103,
+            opening_range_high=100.5,
+            opening_range_low=98.5,
+            reasons=["站上 VWAP"],
+            risk_reasons=[],
+        )
+
+        html = _focus_card(item)
+
+        self.assertIn("2330.TW｜台積電", html)
+        self.assertIn("等待量能", html)
+        self.assertIn("站上 VWAP", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
