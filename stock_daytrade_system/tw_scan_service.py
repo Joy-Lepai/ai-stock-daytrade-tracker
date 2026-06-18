@@ -13,6 +13,7 @@ from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
     scan_single_symbol,
@@ -61,6 +62,13 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
     display_payload = _display_payload(scan_item, model, realtime_payload)
+    candidate_payload = _candidate_payload(model)
+    analysis_payload = build_tw_advisor_analysis(
+        scan=scan_item.to_dict(),
+        candidate=candidate_payload,
+        display=display_payload,
+        market_status=market_bias.direction,
+    ).to_dict()
     errors = {}
     if item.symbol in daily_errors:
         errors["daily"] = daily_errors[item.symbol]
@@ -81,9 +89,10 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "market_status": market_bias.direction,
         "market_notes": list(market_bias.notes),
         "scan": scan_item.to_dict(),
-        "candidate": _candidate_payload(model),
+        "candidate": candidate_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
+        "advisor_analysis": analysis_payload,
         "errors": errors,
         "warnings": warnings,
         "data_source": "TWSE MIS + Yahoo Finance 1m/5m chart endpoint",
@@ -128,6 +137,9 @@ def _candidate_payload(candidate) -> Optional[dict]:
         "above_vwap": candidate.above_vwap,
         "break_prev_high": candidate.break_prev_high,
         "break_5d_high": candidate.break_5d_high,
+        "opening_range_high": candidate.opening_range_high,
+        "opening_range_low": candidate.opening_range_low,
+        "upper_shadow_pct": candidate.upper_shadow_pct,
         "bullish_score": candidate.bullish_score,
         "risk_score": candidate.risk_score,
         "grade": candidate.grade,

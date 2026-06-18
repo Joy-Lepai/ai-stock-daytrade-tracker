@@ -1407,6 +1407,7 @@ def tw_advisor_script() -> str:
         const candidate = payload.candidate || {};
         const scan = payload.scan || {};
         const display = payload.display || {};
+        const analysis = payload.advisor_analysis || {};
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
         const sector = payload.sector || scan.sector || "";
@@ -1424,6 +1425,7 @@ def tw_advisor_script() -> str:
           display.price_source ? `價格來源：${display.price_source}` : "",
           display.quote_time ? `報價時間：${display.quote_time}` : "",
         ].filter(Boolean).join("｜");
+        const analysisLabel = analysis.action_label || decisionLabel(candidate);
         result.className = "advisor-result";
         result.innerHTML = `
           <article class="advisor-card">
@@ -1433,7 +1435,11 @@ def tw_advisor_script() -> str:
                 <div class="muted">${escapeHtml(sector)}｜資料來源：${escapeHtml(payload.data_source || "Yahoo Finance chart endpoint")}</div>
                 <div class="muted">${escapeHtml(quoteMeta || "價格來源：Yahoo Finance chart endpoint")}</div>
               </div>
-              <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(decisionLabel(candidate))}</span>
+              <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(analysisLabel)}</span>
+            </div>
+            <div class="advisor-decision">
+              <strong>${escapeHtml(analysisLabel)}</strong>
+              <span>${escapeHtml(analysis.action_summary || statusText)}</span>
             </div>
             <div class="advisor-grid">
               ${metric("最新成交價", escapeHtml(number(price)))}
@@ -1444,6 +1450,9 @@ def tw_advisor_script() -> str:
               ${metric("多方分數", escapeHtml(number(candidate.bullish_score ?? scan.bullish_score)))}
               ${metric("風險分數", escapeHtml(number(candidate.risk_score ?? scan.risk_score)))}
               ${metric("信心分數", escapeHtml(number(candidate.confidence_score ?? scan.confidence_score)))}
+              ${metric("技術結構分數", escapeHtml(number(analysis.technical_score)))}
+              ${metric("量能確認分數", escapeHtml(number(analysis.volume_score)))}
+              ${metric("追價風險分數", escapeHtml(number(analysis.chase_risk_score)))}
               ${metric("量比", `${escapeHtml(number(scan.volume_ratio ?? candidate.volume_ratio))}x`)}
               ${metric("VWAP", escapeHtml(number(scan.vwap ?? candidate.vwap)))}
               ${metric("站上 VWAP", escapeHtml(yesNo(scan.above_vwap ?? candidate.above_vwap)))}
@@ -1453,9 +1462,24 @@ def tw_advisor_script() -> str:
             <div class="advisor-sections">
               <section class="advisor-panel">
                 <h3>當沖建議</h3>
-                <p><strong>${escapeHtml(decisionLabel(candidate))}</strong></p>
-                <p class="muted">${escapeHtml(statusText)}</p>
+                <p><strong>${escapeHtml(analysisLabel)}</strong></p>
+                <p class="muted">${escapeHtml(analysis.next_step || statusText)}</p>
                 <p>${escapeHtml(candidate.confidence_summary || scan.confidence_summary || "")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>技術線分析</h3>
+                <p><strong>${escapeHtml(analysis.technical_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.technical_summary || "目前技術結構尚無明確結論。")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>量能分析</h3>
+                <p><strong>${escapeHtml(analysis.volume_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.volume_summary || "目前量能尚無明確結論。")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>追價風險</h3>
+                <p><strong>${escapeHtml(analysis.chase_risk_status || "-")}</strong></p>
+                <p>${escapeHtml(analysis.risk_summary || "目前追價風險尚無明確結論。")}</p>
               </section>
               <section class="advisor-panel">
                 <h3>多方理由</h3>
@@ -1896,6 +1920,8 @@ def tw_advisor_css() -> str:
     .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
     .advisor-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
     .advisor-title h2 { margin:0; font-size:20px; }
+    .advisor-decision { margin-top:12px; border:1px solid #bfdbfe; background:#eff6ff; border-radius:8px; padding:12px; color:#1e3a8a; }
+    .advisor-decision strong { display:block; font-size:18px; margin-bottom:2px; }
     .decision-badge { display:inline-flex; align-items:center; justify-content:center; min-width:72px; padding:5px 12px; border-radius:999px; font-weight:800; border:1px solid var(--line); }
     .decision-long { color:#fff; background:#067647; border-color:#067647; }
     .decision-short { color:#fff; background:#b42318; border-color:#b42318; }
