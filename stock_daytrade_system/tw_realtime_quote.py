@@ -4,6 +4,7 @@ import json
 import ssl
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, asdict
 from typing import Optional
@@ -82,7 +83,9 @@ class TwRealtimeQuoteClient:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-        except ssl.SSLError:
+        except (ssl.SSLError, urllib.error.URLError) as exc:
+            if "CERTIFICATE_VERIFY_FAILED" not in str(exc) and not isinstance(exc, ssl.SSLError):
+                raise
             context = ssl._create_unverified_context()
             with urllib.request.urlopen(request, timeout=self.timeout, context=context) as response:
                 payload = json.loads(response.read().decode("utf-8"))
