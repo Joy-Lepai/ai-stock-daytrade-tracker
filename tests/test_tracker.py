@@ -474,6 +474,33 @@ class TrackerStatusTests(unittest.TestCase):
                     "data_sources": ["Yahoo Finance chart endpoint"],
                     "uses_realtime_or_delayed": "批次 dashboard 以 Yahoo chart endpoint 為主。",
                 },
+                "full_market_scan": {
+                    "summary": {
+                        "pool_symbols": 1000,
+                        "candidate_symbols": 120,
+                        "excluded_etf": 80,
+                        "excluded_warrant": 10,
+                        "excluded_preferred": 5,
+                        "excluded_low_liquidity": 300,
+                    },
+                    "source_status": {
+                        "twse_ok": True,
+                        "tpex_ok": False,
+                        "tpex_error": "DNS failed",
+                        "used_cache": False,
+                        "retry_count": 1,
+                    },
+                    "by_status": {
+                        "a": 1,
+                        "b_plus": 2,
+                        "b": 3,
+                        "high_risk": 4,
+                        "avoid": 5,
+                        "data_missing": 6,
+                        "out_of_pool": 7,
+                    },
+                    "out_of_pool_symbols": ["6770.TW｜力積電"],
+                },
                 "missed_stock_analysis": {
                     "definition": "漲幅 > 3% 且量比 >= 0.8",
                     "scanner_limitation": "目前不是全市場掃描",
@@ -531,8 +558,10 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("今日推薦檢查表", html)
         self.assertIn("資料健康度", html)
+        self.assertIn("台股全市場異動掃描池", html)
         self.assertIn("漏抓股票診斷", html)
         self.assertIn("模型條件診斷", html)
+        self.assertIn("out_of_pool 新找到", html)
         self.assertIn("risk_high", html)
         self.assertIn("目前不是全市場掃描", html)
         self.assertIn("系統版本 / Debug", html)

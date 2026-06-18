@@ -12,7 +12,14 @@ from stock_daytrade_system.cmoney import CMoneyClient, CMoneyDataError, merge_cm
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import load_config
 from stock_daytrade_system.data import YahooChartClient
-from stock_daytrade_system.db import backtest_summary, connect, default_db_path, save_long_candidates, update_backtests
+from stock_daytrade_system.db import (
+    backtest_summary,
+    connect,
+    default_db_path,
+    save_long_candidates,
+    save_tw_full_market_snapshots,
+    update_backtests,
+)
 from stock_daytrade_system.decision_center import build_decision_center, paper_activity_stats
 from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confirmation
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
@@ -27,6 +34,7 @@ from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
 from stock_daytrade_system.taifex import TaifexClient, TaifexDataError
 from stock_daytrade_system.tracker import build_tracked_symbols, render_tracker_html
 from stock_daytrade_system.tw_diagnostics import DiagnosticInputs, build_tw_diagnostics
+from stock_daytrade_system.tw_full_market import build_tw_full_market_pool
 from stock_daytrade_system.tw_momentum_scanner import build_momentum_universe, scan_momentum_candidates
 from stock_daytrade_system.web import DEFAULT_AUTH, serve
 
@@ -238,7 +246,11 @@ def run_tracker(
     cmoney_ranking_map = rankings_by_symbol(cmoney_rankings)
     auto_universe = merge_cmoney_symbols(config.auto_universe, cmoney_rankings)
     base_watch_items = _dedupe_watch_symbols(auto_universe + config.manual_symbols)
-    all_watch_items = _dedupe_watch_symbols(build_momentum_universe(base_watch_items))
+    now = datetime.now(ZoneInfo(config.market.timezone))
+    full_market_result = build_tw_full_market_pool(PROJECT_ROOT, now=now, max_candidates=40)
+    full_market_candidate_items = full_market_result.candidate_symbols
+    momentum_universe = build_momentum_universe(base_watch_items)
+    all_watch_items = _dedupe_watch_symbols(momentum_universe + full_market_candidate_items)
     market_symbols = list(
         dict.fromkeys(
             config.market.us_market_symbols
@@ -325,7 +337,6 @@ def run_tracker(
     )
     tracked_symbols = auto_tracked + manual_tracked
 
-    now = datetime.now(ZoneInfo(config.market.timezone))
     output_path = output_dir / f"{now.strftime('%Y-%m-%d')}-tracker.html"
     warning_symbols = sorted(set(daily_errors.keys()) | set(intraday_errors.keys()))
     data_missing_count = len(warning_symbols) + len(taifex_errors) + len(cmoney_errors)
@@ -341,7 +352,15 @@ def run_tracker(
             cmoney_ranking_map,
             captured_at=now,
         )
-        momentum_scan = scan_momentum_candidates(all_watch_items, daily_data, intraday_data, long_candidates)
+        original_pool_symbols = {item.symbol for item in build_momentum_universe(base_watch_items)}
+        momentum_scan = scan_momentum_candidates(
+            all_watch_items,
+            daily_data,
+            intraday_data,
+            long_candidates,
+            original_pool_symbols=original_pool_symbols,
+        )
+        save_tw_full_market_snapshots(conn, now, momentum_scan.to_dict().get("items", []))
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
         backtest_data = backtest_summary(conn, now.date())
@@ -393,6 +412,10 @@ def run_tracker(
             "momentum_scan_total": momentum_scan.summary.total,
             "momentum_scan_success": momentum_scan.summary.data_success,
             "momentum_scan_model_scored": momentum_scan.summary.model_scored,
+            "full_market_version": full_market_result.version,
+            "full_market_pool_symbols": full_market_result.summary.get("pool_symbols", 0),
+            "full_market_candidate_symbols": full_market_result.summary.get("candidate_symbols", 0),
+            "full_market_out_of_pool": sum(1 for item in momentum_scan.items if item.source_scope == "out_of_pool"),
         }
         paper_stats = paper_activity_stats(conn, market="TW")
         clock = taiwan_market_session(now)
@@ -423,6 +446,7 @@ def run_tracker(
                 market_session=clock.session,
                 market_status=market_bias.direction,
                 momentum_scan=momentum_scan.to_dict(),
+                full_market_scan=full_market_result.to_dict(),
                 candidates=long_candidates,
             )
         )
@@ -453,6 +477,15 @@ def run_tracker(
         data_status.append("CMoney 法人買超排行擷取失敗；法人排行已排除在評分加分外。")
     else:
         data_status.append(f"CMoney 法人買超排行擷取成功 {len(cmoney_rankings)} 筆；僅作現有 MVP 輔助排序。")
+    full_source = full_market_result.source_status
+    if full_market_result.summary.get("source_ok"):
+        cache_text = "，使用上一筆有效快取" if full_source.get("used_cache") else ""
+        data_status.append(
+            f"台股全市場官方掃描成功；普通股池 {full_market_result.summary.get('pool_symbols', 0)} 檔、"
+            f"今日異動候選 {full_market_result.summary.get('candidate_symbols', 0)} 檔{cache_text}。"
+        )
+    else:
+        data_status.append("台股全市場官方掃描失敗；目前僅使用 watchlist、內建異動股與手動清單。")
     data_warnings = [
         f"{symbol} 資料擷取失敗；該資料已從相關評分欄位排除或標為缺漏。"
         for symbol in warning_symbols

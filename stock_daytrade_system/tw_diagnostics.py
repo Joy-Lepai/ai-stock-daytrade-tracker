@@ -30,6 +30,7 @@ class DiagnosticInputs:
     market_status: str
     momentum_scan: dict
     candidates: Iterable[LongCandidate]
+    full_market_scan: Optional[dict] = None
 
 
 def build_tw_diagnostics(inputs: DiagnosticInputs) -> dict:
@@ -37,9 +38,11 @@ def build_tw_diagnostics(inputs: DiagnosticInputs) -> dict:
     scan_items = list((inputs.momentum_scan or {}).get("items") or [])
     data_health = _data_health(inputs)
     missed = _missed_stock_analysis(scan_items, candidates)
+    full_market = _full_market_summary(inputs.full_market_scan or {}, scan_items)
     return {
         "version": TW_DIAGNOSTICS_VERSION,
         "data_health": data_health,
+        "full_market_scan": full_market,
         "missed_stock_analysis": missed,
         "model_conditions": model_conditions(),
         "root_cause_diagnosis": _root_cause_diagnosis(data_health, missed),
@@ -157,6 +160,29 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
     }
 
 
+def _full_market_summary(full_market_scan: dict, scan_items: list[dict]) -> dict:
+    summary = dict(full_market_scan.get("summary") or {})
+    source_status = dict(full_market_scan.get("source_status") or {})
+    out_of_pool = [item for item in scan_items if item.get("source_scope") == "out_of_pool"]
+    by_status = {
+        "a": sum(1 for item in scan_items if item.get("ai_grade") == "A"),
+        "b_plus": sum(1 for item in scan_items if item.get("ai_grade") == "B+"),
+        "b": sum(1 for item in scan_items if item.get("ai_grade") == "B"),
+        "high_risk": sum(1 for item in scan_items if item.get("entry_status") == "high_risk"),
+        "avoid": sum(1 for item in scan_items if item.get("entry_status") == "avoid"),
+        "data_missing": sum(1 for item in scan_items if item.get("data_error")),
+        "out_of_pool": len(out_of_pool),
+    }
+    return {
+        "version": full_market_scan.get("version", ""),
+        "generated_at": full_market_scan.get("generated_at", ""),
+        "summary": summary,
+        "source_status": source_status,
+        "by_status": by_status,
+        "out_of_pool_symbols": [f"{item.get('symbol')}｜{item.get('name')}" for item in out_of_pool[:20]],
+    }
+
+
 def _missed_stock_analysis(scan_items: list[dict], candidates: list[LongCandidate]) -> dict:
     candidate_map = {item.symbol: item for item in candidates}
     rows = []
@@ -216,6 +242,8 @@ def _diagnostic_row(item: dict, candidate: Optional[LongCandidate]) -> dict:
 
 
 def _reason_code(item: dict, candidate: Optional[LongCandidate], grade: str, entry_status: str, reason: str) -> str:
+    if item.get("reason_code"):
+        return str(item.get("reason_code"))
     if item.get("data_error"):
         return "data_failed"
     if grade in {"A", "B+", "B"}:

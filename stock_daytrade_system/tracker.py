@@ -536,6 +536,8 @@ def render_tracker_html(
     {_signal_center(long_summary)}
     <h2>資料健康度</h2>
     {_data_health_panel(long_summary)}
+    <h2>台股全市場異動掃描池</h2>
+    {_full_market_scan_panel(long_summary)}
     <h2>漏抓股票診斷</h2>
     {_missed_stock_diagnostic_table(long_summary)}
     <h2>模型條件診斷</h2>
@@ -849,6 +851,8 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
             f"<td class=\"notes\">{escape(str(item.get('initial_status', '-')))}<br><span class=\"muted\">{escape('；'.join(item.get('source_reasons') or []))}</span></td>"
             f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
             f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
+            f"<td>{escape(str(item.get('source_scope', 'watchlist')))}</td>"
+            f"<td>{escape(str(item.get('reason_code', '-')))}</td>"
             f"<td class=\"notes\">{escape(str(item.get('not_selected_reason') or item.get('data_error') or '-'))}</td>"
             "</tr>"
         )
@@ -858,7 +862,8 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
         "<th data-sort=\"text\">股票</th><th data-sort=\"number\">最新價</th><th data-sort=\"number\">漲跌幅</th>"
         "<th data-sort=\"number\">量比</th><th data-sort=\"number\">成交金額</th><th data-sort=\"text\">站上 VWAP</th>"
         "<th data-sort=\"text\">突破昨高</th><th data-sort=\"text\">突破5日高</th><th data-sort=\"text\">突破20日高</th>"
-        "<th data-sort=\"text\">當下狀態</th><th>初步狀態</th><th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th><th>未入選原因</th>"
+        "<th data-sort=\"text\">當下狀態</th><th>初步狀態</th><th data-sort=\"text\">AI 評級</th><th data-sort=\"text\">entry_status</th>"
+        "<th data-sort=\"text\">來源</th><th data-sort=\"text\">reason code</th><th>未入選原因</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"
@@ -1232,6 +1237,45 @@ def _data_health_panel(summary: Optional[LongModelSummary]) -> str:
     )
 
 
+def _full_market_scan_panel(summary: Optional[LongModelSummary]) -> str:
+    scan = ((summary.diagnostics or {}).get("full_market_scan") if summary else {}) or {}
+    if not scan:
+        return '<div class="notice">目前沒有全市場掃描資料。</div>'
+    data = scan.get("summary") or {}
+    source = scan.get("source_status") or {}
+    by_status = scan.get("by_status") or {}
+    out_symbols = scan.get("out_of_pool_symbols") or []
+    source_text = []
+    source_text.append("TWSE 成功" if source.get("twse_ok") else f"TWSE 失敗：{source.get('twse_error', '-')}")
+    source_text.append("TPEX 成功" if source.get("tpex_ok") else f"TPEX 失敗：{source.get('tpex_error', '-')}")
+    if source.get("used_cache"):
+        source_text.append("已使用上一筆有效快取")
+    source_text.append(f"retry 次數：{int(source.get('retry_count', 0))}")
+    out_text = "、".join(str(item) for item in out_symbols[:12]) if out_symbols else "目前沒有 watchlist 外新候選，或資料尚未成功。"
+    return (
+        '<section class="data-status">'
+        '<strong>全市場掃描先找異動股，再送入既有 A / B+ / B 模型；不會直接放寬推薦標準。</strong>'
+        '<div class="summary">'
+        f'{_metric("完整普通股池", int(data.get("pool_symbols", 0)))}'
+        f'{_metric("今日異動候選池", int(data.get("candidate_symbols", 0)))}'
+        f'{_metric("排除 ETF", int(data.get("excluded_etf", 0)))}'
+        f'{_metric("排除權證", int(data.get("excluded_warrant", 0)))}'
+        f'{_metric("排除特別股/非普通股", int(data.get("excluded_preferred", 0)))}'
+        f'{_metric("排除低流動性", int(data.get("excluded_low_liquidity", 0)))}'
+        f'{_metric("out_of_pool 新找到", int(by_status.get("out_of_pool", 0)))}'
+        f'{_metric("A", int(by_status.get("a", 0)))}'
+        f'{_metric("B+", int(by_status.get("b_plus", 0)))}'
+        f'{_metric("B", int(by_status.get("b", 0)))}'
+        f'{_metric("high_risk", int(by_status.get("high_risk", 0)))}'
+        f'{_metric("avoid", int(by_status.get("avoid", 0)))}'
+        f'{_metric("data_missing", int(by_status.get("data_missing", 0)))}'
+        '</div>'
+        f'<p class="muted">資料源狀態：{escape("；".join(source_text))}</p>'
+        f'<p class="muted">watchlist 外新候選：{escape(out_text)}</p>'
+        '</section>'
+    )
+
+
 def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
     diagnostic = ((summary.diagnostics or {}).get("missed_stock_analysis") if summary else {}) or {}
     rows = diagnostic.get("rows") or []
@@ -1259,6 +1303,7 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
             f'<td><strong>{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</strong><br><span class="muted">{escape(str(item.get("latest_at", "")))}</span></td>'
             f'{_change_cell(item.get("change_pct"))}'
             f'<td data-sort-value="{_sort_value(item.get("latest_price"))}">{_fmt(item.get("latest_price"))}</td>'
+            f'<td data-sort-value="{_sort_value(item.get("volume"))}">{_fmt_int(item.get("volume"))}</td>'
             f'<td data-sort-value="{_sort_value(item.get("volume_ratio"))}">{_fmt(item.get("volume_ratio"))}x</td>'
             f'<td data-sort-value="{_sort_value(item.get("turnover"))}">{_money(float(item.get("turnover") or 0)) if item.get("turnover") is not None else "-"}</td>'
             f'<td>{_yes_no(bool(item.get("above_vwap")))}</td>'
@@ -1275,11 +1320,11 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
         intro + metrics
         + '<div class="table-wrap"><table class="sortable"><thead><tr>'
         '<th data-sort="text">股票</th><th data-sort="number">今日漲幅</th><th data-sort="number">目前價格</th>'
-        '<th data-sort="number">量比</th><th data-sort="number">成交金額</th><th data-sort="text">站上 VWAP</th>'
+        '<th data-sort="number">成交量</th><th data-sort="number">量比</th><th data-sort="number">成交金額</th><th data-sort="text">站上 VWAP</th>'
         '<th data-sort="text">突破昨高</th><th data-sort="text">突破盤中/前高</th><th data-sort="text">進入 AI 候選</th>'
         '<th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th><th>未入選原因</th><th data-sort="text">reason code</th>'
         '</tr></thead><tbody>'
-        + ("".join(body) or '<tr><td colspan="13">目前沒有掃描列。</td></tr>')
+        + ("".join(body) or '<tr><td colspan="14">目前沒有掃描列。</td></tr>')
         + '</tbody></table></div>'
     )
 
@@ -2012,6 +2057,15 @@ def _fmt(value: Optional[float]) -> str:
     if value is None:
         return "-"
     return f"{value:.2f}"
+
+
+def _fmt_int(value) -> str:
+    try:
+        if value is None or value == "":
+            return "-"
+        return f"{float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "-"
 
 
 def _as_number(value) -> Optional[float]:

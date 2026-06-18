@@ -63,6 +63,7 @@ class MomentumScanItem:
     sector: str
     latest_price: Optional[float]
     change_pct: Optional[float]
+    volume: Optional[float]
     volume_ratio: Optional[float]
     turnover: Optional[float]
     vwap: Optional[float]
@@ -86,6 +87,8 @@ class MomentumScanItem:
     confidence_score: Optional[float] = None
     confidence_level: str = ""
     confidence_summary: str = ""
+    source_scope: str = "watchlist"
+    reason_code: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -162,19 +165,22 @@ def scan_momentum_candidates(
     daily_data: Dict[str, List[Bar]],
     intraday_data: Dict[str, List[Bar]],
     model_candidates: Iterable[object] = (),
+    original_pool_symbols: Iterable[str] = (),
 ) -> MomentumScanResult:
+    original_set = set(original_pool_symbols or [])
     base_items = [_base_item(item, daily_data.get(item.symbol, []), intraday_data.get(item.symbol, [])) for item in symbols]
     valid_items = [item for item in base_items if not item.data_error]
     selected_symbols = _selected_symbols(valid_items)
     model_map = {getattr(item, "symbol", ""): item for item in model_candidates}
     enriched: List[MomentumScanItem] = []
     for item in base_items:
+        source_scope = "watchlist" if not original_set or item.symbol in original_set else "out_of_pool"
         if item.data_error:
-            enriched.append(item)
+            enriched.append(_replace_model(_with_source_scope(item, source_scope), "-", "-", item.not_selected_reason or "資料抓取失敗"))
             continue
         selected = item.symbol in selected_symbols
         model = model_map.get(item.symbol)
-        enriched.append(_with_model_result(item, model, selected))
+        enriched.append(_with_model_result(_with_source_scope(item, source_scope), model, selected))
     enriched.sort(key=_sort_key)
     summary = _summary(enriched)
     return MomentumScanResult(items=enriched[:120], summary=summary)
@@ -198,6 +204,7 @@ def _base_item(symbol: WatchSymbol, bars: List[Bar], intraday_bars: List[Bar]) -
             sector=symbol.sector,
             latest_price=None,
             change_pct=None,
+            volume=None,
             volume_ratio=None,
             turnover=None,
             vwap=None,
@@ -232,6 +239,7 @@ def _base_item(symbol: WatchSymbol, bars: List[Bar], intraday_bars: List[Bar]) -
         sector=symbol.sector,
         latest_price=round(latest_price, 2),
         change_pct=round(change, 2),
+        volume=round(intraday_volume, 0),
         volume_ratio=round(volume_ratio, 2),
         turnover=round(turnover, 0),
         vwap=round(vwap, 2) if vwap else None,
@@ -303,6 +311,7 @@ def _replace_model(
     confidence_level: str = "",
     confidence_summary: str = "",
 ) -> MomentumScanItem:
+    reason_code = _reason_code(reason, grade, entry_status, item)
     data = item.to_dict()
     data.update(
         {
@@ -318,8 +327,15 @@ def _replace_model(
             "confidence_score": round(confidence_score, 2) if confidence_score is not None else None,
             "confidence_level": confidence_level,
             "confidence_summary": confidence_summary,
+            "reason_code": reason_code,
         }
     )
+    return MomentumScanItem(**data)
+
+
+def _with_source_scope(item: MomentumScanItem, source_scope: str) -> MomentumScanItem:
+    data = item.to_dict()
+    data["source_scope"] = source_scope
     return MomentumScanItem(**data)
 
 
@@ -352,6 +368,36 @@ def _not_selected_reason(model: object, selected: bool) -> str:
     if not selected:
         return "未達異動門檻"
     return "條件未達 A/B+/B"
+
+
+def _reason_code(reason: str, grade: str, entry_status: str, item: MomentumScanItem) -> str:
+    if item.data_error:
+        return "data_missing"
+    if item.source_scope == "out_of_pool" and grade in {"A", "B+", "B", "C", "D"}:
+        if grade in {"A", "B+", "B"}:
+            return "full_market_detected"
+        return "not_in_watchlist"
+    if grade in {"A", "B+", "B"}:
+        return "selected"
+    if entry_status == "high_risk":
+        return "high_chase_risk"
+    if "量比" in reason:
+        return "low_volume_ratio"
+    if "未站上" in reason:
+        return "below_vwap"
+    if "太遠" in reason:
+        return "too_far_from_vwap"
+    if "risk_score" in reason:
+        return "high_chase_risk"
+    if "confidence" in reason:
+        return "confidence_low"
+    if entry_status == "avoid":
+        return "avoid"
+    if "未達異動" in reason:
+        return "low_liquidity"
+    if item.break_prev_high is False:
+        return "no_breakout"
+    return "candidate_but_not_triggered"
 
 
 def _raw_reasons(

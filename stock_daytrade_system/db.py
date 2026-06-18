@@ -285,6 +285,36 @@ CREATE TABLE IF NOT EXISTS paper_equity_curve (
   unrealized_pnl REAL NOT NULL,
   drawdown REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS tw_full_market_snapshots (
+  captured_at TEXT NOT NULL,
+  date TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  name TEXT,
+  market_type TEXT,
+  source_scope TEXT,
+  price REAL,
+  change_pct REAL,
+  volume REAL,
+  turnover REAL,
+  volume_ratio REAL,
+  vwap REAL,
+  above_vwap INTEGER,
+  break_prev_high INTEGER,
+  break_5d_high INTEGER,
+  entered_candidate_pool INTEGER,
+  entered_ai_candidates INTEGER,
+  ai_grade TEXT,
+  entry_status TEXT,
+  trade_bias TEXT,
+  not_selected_reason TEXT,
+  reason_code TEXT,
+  data_status TEXT,
+  max_gain_after_scan REAL,
+  max_drawdown_after_scan REAL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (captured_at, symbol)
+);
 """
 
 
@@ -305,7 +335,55 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_signal_type_columns(conn)
     _ensure_time_bucket_columns(conn)
     _ensure_paper_trade_columns(conn)
+    _ensure_tw_full_market_snapshot_columns(conn)
     return conn
+
+
+def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetime, rows: Iterable[dict]) -> None:
+    date_text = captured_at.strftime("%Y-%m-%d")
+    captured_text = captured_at.isoformat(timespec="seconds")
+    with conn:
+        for item in rows:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tw_full_market_snapshots (
+                  captured_at, date, symbol, name, market_type, source_scope, price, change_pct,
+                  volume, turnover, volume_ratio, vwap, above_vwap, break_prev_high, break_5d_high,
+                  entered_candidate_pool, entered_ai_candidates, ai_grade, entry_status, trade_bias,
+                  not_selected_reason, reason_code, data_status, max_gain_after_scan,
+                  max_drawdown_after_scan, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    captured_text,
+                    date_text,
+                    item.get("symbol"),
+                    item.get("name"),
+                    item.get("market_type") or ("TWSE" if str(item.get("symbol", "")).endswith(".TW") else "TPEX"),
+                    item.get("source_scope"),
+                    item.get("latest_price"),
+                    item.get("change_pct"),
+                    item.get("volume"),
+                    item.get("turnover"),
+                    item.get("volume_ratio"),
+                    item.get("vwap"),
+                    int(bool(item.get("above_vwap"))),
+                    int(bool(item.get("break_prev_high"))),
+                    int(bool(item.get("break_5d_high"))),
+                    int(bool(item.get("source_reasons"))),
+                    int(str(item.get("ai_grade", "-")) in {"A", "B+", "B"}),
+                    item.get("ai_grade"),
+                    item.get("entry_status"),
+                    item.get("trade_bias"),
+                    item.get("not_selected_reason") or item.get("data_error"),
+                    item.get("reason_code"),
+                    "data_missing" if item.get("data_error") else "ok",
+                    None,
+                    None,
+                    captured_text,
+                ),
+            )
 
 
 def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candidates: Iterable[object]) -> None:
@@ -1520,6 +1598,24 @@ def _ensure_time_bucket_columns(conn: sqlite3.Connection) -> None:
             """,
             (bucket, row["market"] or "TW", row["date"], row["symbol"]),
         )
+
+
+def _ensure_tw_full_market_snapshot_columns(conn: sqlite3.Connection) -> None:
+    _add_missing_columns(
+        conn,
+        "tw_full_market_snapshots",
+        {
+            "market_type": "TEXT",
+            "source_scope": "TEXT",
+            "entered_candidate_pool": "INTEGER",
+            "entered_ai_candidates": "INTEGER",
+            "trade_bias": "TEXT",
+            "reason_code": "TEXT",
+            "data_status": "TEXT",
+            "max_gain_after_scan": "REAL",
+            "max_drawdown_after_scan": "REAL",
+        },
+    )
 
 
 def _add_missing_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:

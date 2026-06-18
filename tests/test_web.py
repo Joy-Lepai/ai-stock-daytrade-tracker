@@ -49,6 +49,7 @@ class WebTests(unittest.TestCase):
           AI 今日決策中心
           訊號中心
           資料健康度
+          台股全市場異動掃描池
           漏抓股票診斷
           模型條件診斷
           B+ 觸發條件追蹤

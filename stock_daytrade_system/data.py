@@ -28,9 +28,10 @@ class YahooChartClient:
 
     base_url = "https://query1.finance.yahoo.com/v8/finance/chart"
 
-    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2) -> None:
+    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2, retries: int = 1) -> None:
         self.timeout = timeout
         self.pause_seconds = pause_seconds
+        self.retries = retries
 
     def fetch_daily(self, symbol: str, range_: str = "6mo") -> List[Bar]:
         return self._fetch_chart(symbol, range_=range_, interval="1d", include_prepost=False)
@@ -147,13 +148,26 @@ class YahooChartClient:
         data: Dict[str, List[Bar]] = {}
         errors: Dict[str, str] = {}
         for symbol in symbols:
+            last_error: Optional[MarketDataError] = None
             try:
-                data[symbol] = self._fetch_chart(
-                    symbol,
-                    range_=range_,
-                    interval=interval,
-                    include_prepost=include_prepost,
-                )
+                for attempt in range(self.retries + 1):
+                    try:
+                        data[symbol] = self._fetch_chart(
+                            symbol,
+                            range_=range_,
+                            interval=interval,
+                            include_prepost=include_prepost,
+                        )
+                        last_error = None
+                        break
+                    except MarketDataError as exc:
+                        last_error = exc
+                        if _is_non_retryable(exc):
+                            break
+                        if attempt < self.retries:
+                            time.sleep(0.5 * (attempt + 1))
+                if last_error is not None:
+                    raise last_error
             except MarketDataError as exc:
                 data[symbol] = []
                 errors[symbol] = str(exc)
@@ -196,3 +210,8 @@ def _get(values: List[Optional[float]], index: int) -> Optional[float]:
     if index >= len(values):
         return None
     return values[index]
+
+
+def _is_non_retryable(exc: MarketDataError) -> bool:
+    text = str(exc).lower()
+    return "nodename nor servname" in text or "name or service not known" in text
