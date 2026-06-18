@@ -394,12 +394,17 @@ def _action_plan(
         wait_condition = "等待下一根 K 棒延續，或回測 VWAP 不破。"
         no_chase_reason = "目前訊號尚未達可執行標準。"
     observation_stop = _pct(entry_reference, -1.0) if chase_risk_score >= 65 else _valid_long_stop(stop_loss, entry_reference) or _pct(entry_reference, -1.0)
+    observation_target = (
+        _max_price(current_price, _pct(entry_reference, 2.0))
+        if chase_risk_score >= 65
+        else _valid_long_target(target_price, entry_reference) or _max_price(current_price, _pct(entry_reference, 2.0))
+    )
     return _plan_dict(
         action_label=action_label,
         trigger_condition="尚未達成可執行觸發條件。",
         entry_reference=entry_reference,
         stop_loss=observation_stop,
-        target_price=_valid_long_target(target_price, entry_reference) or _max_price(current_price, _pct(entry_reference, 2.0)),
+        target_price=observation_target,
         wait_condition=wait_condition,
         invalidation_condition="跌破 VWAP、風險分數續升或出現假突破，維持觀察不進場。",
         no_chase_reason=no_chase_reason,

@@ -59,6 +59,7 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
                 "confidence_score": 50,
                 "trade_bias_label": "觀察",
                 "upper_shadow_pct": 1.8,
+                "target_price": 140,
             },
             display={"current_price": 110, "change_pct": 8.5},
             market_status="偏多",
@@ -71,6 +72,7 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
         self.assertEqual(analysis.action_plan["entry_reference"], 104)
         self.assertLess(analysis.action_plan["stop_loss"], analysis.action_plan["entry_reference"])
         self.assertGreater(analysis.action_plan["target_price"], analysis.action_plan["entry_reference"])
+        self.assertLess(analysis.action_plan["target_price"], 112.5)
 
     def test_below_vwap_with_volume_can_be_short(self):
         analysis = build_tw_advisor_analysis(
