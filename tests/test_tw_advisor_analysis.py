@@ -23,6 +23,11 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
                 "trade_bias_label": "觀察",
                 "opening_range_high": 104,
                 "upper_shadow_pct": 0.4,
+                "trigger_price": 104,
+                "stop_loss": 102,
+                "target_price": 108,
+                "previous_high": 104,
+                "high_5d": 107,
             },
             display={"current_price": 105, "change_pct": 3.2},
             market_status="偏多",
@@ -33,6 +38,10 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
         self.assertGreaterEqual(analysis.volume_score, 65)
         self.assertLessEqual(analysis.chase_risk_score, 55)
         self.assertIn("可列入買多觀察", analysis.action_summary)
+        self.assertEqual(analysis.action_plan["state"], "買多")
+        self.assertEqual(analysis.action_plan["stop_loss"], 102)
+        self.assertEqual(analysis.action_plan["target_price"], 108)
+        self.assertGreaterEqual(len(analysis.key_levels), 5)
 
     def test_overextended_low_volume_stock_stays_watch(self):
         analysis = build_tw_advisor_analysis(
@@ -58,6 +67,10 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
         self.assertEqual(analysis.action_label, "觀察")
         self.assertGreaterEqual(analysis.chase_risk_score, 70)
         self.assertIn("追價風險", analysis.risk_summary)
+        self.assertIn("不適合直接追", analysis.action_plan["no_chase_reason"])
+        self.assertEqual(analysis.action_plan["entry_reference"], 104)
+        self.assertLess(analysis.action_plan["stop_loss"], analysis.action_plan["entry_reference"])
+        self.assertGreater(analysis.action_plan["target_price"], analysis.action_plan["entry_reference"])
 
     def test_below_vwap_with_volume_can_be_short(self):
         analysis = build_tw_advisor_analysis(
@@ -82,6 +95,7 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
 
         self.assertEqual(analysis.action_label, "賣空")
         self.assertIn("賣空", analysis.next_step)
+        self.assertIn("跌破", analysis.action_plan["trigger_condition"])
 
 
 if __name__ == "__main__":

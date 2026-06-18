@@ -22,6 +22,8 @@ class TwAdvisorAnalysis:
     volume_summary: str
     risk_summary: str
     next_step: str
+    action_plan: dict
+    key_levels: list[dict]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -48,6 +50,12 @@ def build_tw_advisor_analysis(
     break_5d_high = bool(scan.get("break_5d_high", candidate.get("break_5d_high", False)))
     opening_range_high = _number(candidate.get("opening_range_high"))
     opening_range_low = _number(candidate.get("opening_range_low"))
+    previous_high = _number(candidate.get("previous_high"))
+    high_5d = _number(candidate.get("high_5d"))
+    high_10d = _number(candidate.get("high_10d"))
+    trigger_price = _number(candidate.get("trigger_price"))
+    stop_loss = _number(candidate.get("stop_loss"))
+    target_price = _number(candidate.get("target_price"))
     break_orb = bool(current_price and opening_range_high and current_price >= opening_range_high)
     below_opening_low = bool(current_price and opening_range_low and current_price < opening_range_low)
     vwap_distance = _distance_pct(current_price, vwap)
@@ -88,6 +96,32 @@ def build_tw_advisor_analysis(
     risk_summary = _risk_summary(chase_risk_score, vwap_distance, change_pct, upper_shadow_pct)
     action_summary = _action_summary(action_label, technical_score, volume_score, chase_risk_score, confidence_score)
     next_step = _next_step(action_label, above_vwap, volume_ratio, break_prev_high or break_orb, chase_risk_score)
+    action_plan = _action_plan(
+        action_label=action_label,
+        current_price=current_price,
+        vwap=vwap,
+        volume_ratio=volume_ratio,
+        break_prev_high=break_prev_high,
+        break_orb=break_orb,
+        opening_range_high=opening_range_high,
+        opening_range_low=opening_range_low,
+        previous_high=previous_high,
+        trigger_price=trigger_price,
+        stop_loss=stop_loss,
+        target_price=target_price,
+        chase_risk_score=chase_risk_score,
+    )
+    key_levels = _key_levels(
+        vwap=vwap,
+        previous_high=previous_high,
+        high_5d=high_5d,
+        high_10d=high_10d,
+        opening_range_high=opening_range_high,
+        opening_range_low=opening_range_low,
+        trigger_price=trigger_price,
+        stop_loss=action_plan.get("stop_loss"),
+        target_price=action_plan.get("target_price"),
+    )
 
     return TwAdvisorAnalysis(
         version=TW_ADVISOR_ANALYSIS_VERSION,
@@ -103,6 +137,8 @@ def build_tw_advisor_analysis(
         volume_summary=volume_summary,
         risk_summary=risk_summary,
         next_step=next_step,
+        action_plan=action_plan,
+        key_levels=key_levels,
     )
 
 
@@ -299,6 +335,129 @@ def _next_step(action_label: str, above_vwap: bool, volume_ratio: float, has_bre
     return "持續觀察下一根 K 棒是否延續。"
 
 
+def _action_plan(
+    *,
+    action_label: str,
+    current_price: Optional[float],
+    vwap: Optional[float],
+    volume_ratio: float,
+    break_prev_high: bool,
+    break_orb: bool,
+    opening_range_high: Optional[float],
+    opening_range_low: Optional[float],
+    previous_high: Optional[float],
+    trigger_price: Optional[float],
+    stop_loss: Optional[float],
+    target_price: Optional[float],
+    chase_risk_score: float,
+) -> dict:
+    long_trigger = _max_price(trigger_price, previous_high, opening_range_high, current_price if break_prev_high or break_orb else None)
+    short_trigger = _min_price(opening_range_low, vwap)
+    entry_reference = current_price
+    if action_label == "買多":
+        plan_stop = stop_loss or _pct(current_price, -1.0) or _pct(vwap, -0.3)
+        plan_target = _valid_long_target(target_price, entry_reference) or _pct(current_price, 2.0)
+        return _plan_dict(
+            action_label=action_label,
+            trigger_condition=f"站穩 { _fmt(long_trigger) }，且量比維持 1.0x 以上。",
+            entry_reference=entry_reference,
+            stop_loss=plan_stop,
+            target_price=plan_target,
+            wait_condition="若拉回 VWAP 不破，可用虛擬交易練習分批觀察。",
+            invalidation_condition="跌破 VWAP 或量能快速萎縮，取消買多觀察。",
+            no_chase_reason="若距離 VWAP 超過 3% 或出現長上影，不直接追價。",
+        )
+    if action_label == "賣空":
+        plan_stop = _max_price(vwap, _pct(current_price, 1.0))
+        plan_target = _pct(current_price, -2.0)
+        return _plan_dict(
+            action_label=action_label,
+            trigger_condition=f"跌破 { _fmt(short_trigger) } 後未快速站回。",
+            entry_reference=entry_reference,
+            stop_loss=plan_stop,
+            target_price=plan_target,
+            wait_condition="等待跌破 VWAP 或開盤區間低點後，確認反彈無力。",
+            invalidation_condition="重新站回 VWAP 且量能放大，取消賣空觀察。",
+            no_chase_reason="若已急跌過深，不在低檔追空。",
+        )
+    if chase_risk_score >= 65:
+        wait_condition = f"等待拉回 VWAP {_fmt(vwap)} 附近且不跌破，或量比重新放大。"
+        no_chase_reason = "追價風險偏高，現價不適合直接追。"
+        entry_reference = vwap or current_price
+    elif volume_ratio < 1.0:
+        wait_condition = "等待量比放大到 1.0x 以上。"
+        no_chase_reason = "量能尚未確認，避免只看漲幅追價。"
+    elif not (break_prev_high or break_orb):
+        wait_condition = "等待突破昨日高點或開盤區間高點。"
+        no_chase_reason = "尚未完成突破，不急著進場。"
+    else:
+        wait_condition = "等待下一根 K 棒延續，或回測 VWAP 不破。"
+        no_chase_reason = "目前訊號尚未達可執行標準。"
+    observation_stop = _pct(entry_reference, -1.0) if chase_risk_score >= 65 else _valid_long_stop(stop_loss, entry_reference) or _pct(entry_reference, -1.0)
+    return _plan_dict(
+        action_label=action_label,
+        trigger_condition="尚未達成可執行觸發條件。",
+        entry_reference=entry_reference,
+        stop_loss=observation_stop,
+        target_price=_valid_long_target(target_price, entry_reference) or _max_price(current_price, _pct(entry_reference, 2.0)),
+        wait_condition=wait_condition,
+        invalidation_condition="跌破 VWAP、風險分數續升或出現假突破，維持觀察不進場。",
+        no_chase_reason=no_chase_reason,
+    )
+
+
+def _plan_dict(
+    *,
+    action_label: str,
+    trigger_condition: str,
+    entry_reference: Optional[float],
+    stop_loss: Optional[float],
+    target_price: Optional[float],
+    wait_condition: str,
+    invalidation_condition: str,
+    no_chase_reason: str,
+) -> dict:
+    risk_reward = _risk_reward(entry_reference, stop_loss, target_price)
+    return {
+        "state": action_label,
+        "trigger_condition": trigger_condition,
+        "entry_reference": _round(entry_reference),
+        "stop_loss": _round(stop_loss),
+        "target_price": _round(target_price),
+        "risk_reward_ratio": _round(risk_reward),
+        "wait_condition": wait_condition,
+        "invalidation_condition": invalidation_condition,
+        "no_chase_reason": no_chase_reason,
+        "plan_summary": f"狀態為「{action_label}」。先看觸發條件，再確認停損與風險報酬比。",
+    }
+
+
+def _key_levels(
+    *,
+    vwap: Optional[float],
+    previous_high: Optional[float],
+    high_5d: Optional[float],
+    high_10d: Optional[float],
+    opening_range_high: Optional[float],
+    opening_range_low: Optional[float],
+    trigger_price: Optional[float],
+    stop_loss: Optional[float],
+    target_price: Optional[float],
+) -> list[dict]:
+    rows = [
+        ("VWAP", vwap, "盤中均價線"),
+        ("昨日高點", previous_high, "突破強弱分界"),
+        ("5 日高點", high_5d, "短線壓力"),
+        ("10 日高點", high_10d, "較大壓力"),
+        ("開盤區間高點", opening_range_high, "ORB 多方觸發"),
+        ("開盤區間低點", opening_range_low, "跌破轉弱警戒"),
+        ("模型觸發價", trigger_price, "原模型參考"),
+        ("停損價", stop_loss, "風控價"),
+        ("停利價", target_price, "目標價"),
+    ]
+    return [{"label": label, "value": _round(value), "note": note} for label, value, note in rows if value is not None]
+
+
 def _score_status(score: float, *, high: float, medium: float, labels: tuple[str, str, str]) -> str:
     if score >= high:
         return labels[0]
@@ -330,6 +489,52 @@ def _distance_pct(price: Optional[float], base: Optional[float]) -> Optional[flo
     if price is None or base is None or base <= 0:
         return None
     return (price - base) / base * 100
+
+
+def _risk_reward(entry: Optional[float], stop_loss: Optional[float], target_price: Optional[float]) -> Optional[float]:
+    if entry is None or stop_loss is None or target_price is None:
+        return None
+    risk = abs(entry - stop_loss)
+    reward = abs(target_price - entry)
+    if risk <= 0:
+        return None
+    return reward / risk
+
+
+def _valid_long_stop(value: Optional[float], entry: Optional[float]) -> Optional[float]:
+    if value is None or entry is None:
+        return None
+    return value if value < entry else None
+
+
+def _valid_long_target(value: Optional[float], entry: Optional[float]) -> Optional[float]:
+    if value is None or entry is None:
+        return None
+    return value if value > entry else None
+
+
+def _pct(value: Optional[float], pct: float) -> Optional[float]:
+    if value is None:
+        return None
+    return value * (1 + pct / 100)
+
+
+def _max_price(*values: Optional[float]) -> Optional[float]:
+    rows = [value for value in values if value is not None]
+    return max(rows) if rows else None
+
+
+def _min_price(*values: Optional[float]) -> Optional[float]:
+    rows = [value for value in values if value is not None]
+    return min(rows) if rows else None
+
+
+def _round(value: Optional[float]) -> Optional[float]:
+    return round(value, 2) if value is not None else None
+
+
+def _fmt(value: Optional[float]) -> str:
+    return f"{value:.2f}" if value is not None else "關鍵價"
 
 
 def _clamp(value: float) -> float:

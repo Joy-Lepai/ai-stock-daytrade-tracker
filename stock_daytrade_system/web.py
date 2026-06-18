@@ -1397,6 +1397,11 @@ def tw_advisor_script() -> str:
         return `<ul>${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
       };
       const metric = (label, value) => `<div class="advisor-metric"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+      const planRow = (label, value) => `<div class="plan-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></div>`;
+      const money = (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toFixed(2) : "-";
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -1426,6 +1431,8 @@ def tw_advisor_script() -> str:
           display.quote_time ? `報價時間：${display.quote_time}` : "",
         ].filter(Boolean).join("｜");
         const analysisLabel = analysis.action_label || decisionLabel(candidate);
+        const plan = analysis.action_plan || {};
+        const keyLevels = Array.isArray(analysis.key_levels) ? analysis.key_levels : [];
         result.className = "advisor-result";
         result.innerHTML = `
           <article class="advisor-card">
@@ -1460,6 +1467,32 @@ def tw_advisor_script() -> str:
               ${metric("突破 5 日高", escapeHtml(yesNo(scan.break_5d_high ?? candidate.break_5d_high)))}
             </div>
             <div class="advisor-sections">
+              <section class="advisor-panel advisor-plan">
+                <h3>當沖作戰計畫</h3>
+                <p><strong>${escapeHtml(plan.plan_summary || "先確認觸發條件，再評估停損與停利。")}</strong></p>
+                <div class="plan-grid">
+                  ${planRow("觸發條件", plan.trigger_condition)}
+                  ${planRow("進場參考", money(plan.entry_reference))}
+                  ${planRow("停損價", money(plan.stop_loss))}
+                  ${planRow("停利價", money(plan.target_price))}
+                  ${planRow("風險報酬比", plan.risk_reward_ratio ? `${money(plan.risk_reward_ratio)}R` : "-")}
+                  ${planRow("等待條件", plan.wait_condition)}
+                  ${planRow("失效條件", plan.invalidation_condition)}
+                  ${planRow("不追價原因", plan.no_chase_reason)}
+                </div>
+              </section>
+              <section class="advisor-panel">
+                <h3>關鍵價位</h3>
+                <div class="level-list">
+                  ${keyLevels.length ? keyLevels.map((item) => `
+                    <div class="level-row">
+                      <span>${escapeHtml(item.label)}</span>
+                      <strong>${escapeHtml(money(item.value))}</strong>
+                      <em>${escapeHtml(item.note || "")}</em>
+                    </div>
+                  `).join("") : "<p>目前缺少關鍵價位資料。</p>"}
+                </div>
+              </section>
               <section class="advisor-panel">
                 <h3>當沖建議</h3>
                 <p><strong>${escapeHtml(analysisLabel)}</strong></p>
@@ -1932,9 +1965,16 @@ def tw_advisor_css() -> str:
     .advisor-metric strong { display:block; margin-top:2px; font-size:18px; }
     .advisor-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-top:12px; }
     .advisor-panel { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    .advisor-plan { grid-column:1 / -1; border-color:#bfdbfe; background:#f8fbff; }
     .advisor-panel h3 { margin:0 0 8px; font-size:15px; }
     .advisor-panel ul { margin:0; padding-left:18px; }
     .advisor-panel li { margin:4px 0; }
+    .plan-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:8px; }
+    .plan-row, .level-row { border:1px solid var(--line); border-radius:8px; background:#fff; padding:9px 10px; }
+    .plan-row span, .level-row span { display:block; color:var(--muted); font-size:12px; }
+    .plan-row strong, .level-row strong { display:block; margin-top:2px; font-size:15px; }
+    .level-list { display:grid; gap:8px; }
+    .level-row em { display:block; margin-top:2px; color:var(--muted); font-style:normal; font-size:12px; }
     .num-up { color:#c1121f; font-weight:700; }
     .num-down { color:#067647; font-weight:700; }
     .num-flat { color:#475467; font-weight:700; }
