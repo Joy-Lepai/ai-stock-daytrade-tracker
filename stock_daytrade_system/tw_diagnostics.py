@@ -112,13 +112,15 @@ def model_conditions() -> dict:
 
 def user_guide() -> list[str]:
     return [
-        "這個系統不是報明牌，而是整理股票是否符合當沖追蹤條件。",
-        "A 級代表量能、VWAP、突破、風險與信心都較完整，但數量本來就會少。",
-        "B+ 代表強勢觀察與虛擬交易練習，不代表正式做多建議。",
-        "B 代表等待確認，通常還缺量能、VWAP 或突破。",
-        "避開區代表追價風險高、資料不完整或條件失效。",
-        "資料過期或缺漏時，系統會暫停正常當沖建議，僅供觀察。",
-        "本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。",
+        "這不是報明牌系統，而是當沖條件檢查工具。",
+        "A 級代表量能、VWAP、突破、風險與信心都較完整，但仍不等於一定要買。",
+        "B+ 代表強勢觀察，等待觸發；可用於虛擬交易練習，不代表正式做多建議。",
+        "B 代表等待確認，通常還缺量能、VWAP 或突破條件。",
+        "high_risk 代表股票可能很強，但追價風險高，不能包裝成推薦。",
+        "avoid 代表目前條件不適合，暫不追蹤或等待結構重新轉強。",
+        "data_missing 代表資料不足，不能判斷，不應產生正常當沖建議。",
+        "資料過期時，系統僅供觀察，不產生正常可執行建議。",
+        "使用者仍需自行承擔投資風險；本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。",
     ]
 
 
@@ -154,6 +156,7 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
             "CMoney：法人排行輔助，失敗時排除",
         ],
         "latest_intraday_at": latest_at.isoformat(timespec="seconds") if latest_at else "",
+        "data_date": latest_at.date().isoformat() if latest_at else "",
         "generated_at": now.isoformat(timespec="seconds"),
         "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
         "is_today_data": bool(latest_at and latest_at.date() == now.date()),

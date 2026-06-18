@@ -536,6 +536,8 @@ class TrackerStatusTests(unittest.TestCase):
                     "failed_symbols": ["9999.TW"],
                     "data_sources": ["Yahoo Finance chart endpoint"],
                     "uses_realtime_or_delayed": "批次 dashboard 以 Yahoo chart endpoint 為主。",
+                    "data_date": "2026-01-01",
+                    "is_stale": False,
                 },
                 "full_market_scan": {
                     "summary": {
@@ -605,7 +607,11 @@ class TrackerStatusTests(unittest.TestCase):
                 },
                 "root_cause_diagnosis": ["目前 dashboard 掃描池不是全市場。"],
                 "backtest_diagnostic": {"message": "目前樣本不足時不硬算勝率。"},
-                "user_guide": ["這個系統不是報明牌。"],
+                "user_guide": [
+                    "這不是報明牌系統，而是當沖條件檢查工具。",
+                    "high_risk 代表股票可能很強，但追價風險高，不能包裝成推薦。",
+                    "data_missing 代表資料不足，不能判斷，不應產生正常當沖建議。",
+                ],
             },
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -625,6 +631,8 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("今日推薦檢查表", html)
         self.assertIn("資料健康度", html)
+        self.assertIn("資料日期", html)
+        self.assertIn("是否過期", html)
         self.assertIn("台股全市場異動掃描池", html)
         self.assertIn("TWSE 上市掃描：成功，普通股池 714 檔", html)
         self.assertIn("TPEX 上櫃掃描：尚未納入或抓取失敗，普通股池 0 檔", html)
@@ -632,6 +640,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("部分上櫃強勢股仍可能漏抓", html)
         self.assertIn("漏抓股票診斷", html)
         self.assertIn("模型條件診斷", html)
+        self.assertIn("這不是報明牌系統", html)
+        self.assertIn("high_risk 代表股票可能很強", html)
+        self.assertIn("data_missing 代表資料不足", html)
         self.assertIn("out_of_pool 新找到", html)
         self.assertIn("risk_high", html)
         self.assertIn("TPEX 抓取失敗或使用快取", html)
