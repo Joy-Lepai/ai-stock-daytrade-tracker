@@ -152,6 +152,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/paper/dashboard":
             self._send_html(render_paper_dashboard_page(show_logout=self.web_app.require_auth))
             return
+        if path in {"/tw/advisor", "/advisor"}:
+            self._send_html(render_tw_advisor_page(show_logout=self.web_app.require_auth))
+            return
         if path == "/accuracy":
             self._send_html(render_accuracy_page(show_logout=self.web_app.require_auth))
             return
@@ -662,6 +665,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
@@ -731,6 +735,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
@@ -832,6 +837,53 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
 </html>"""
 
 
+def render_tw_advisor_page(show_logout: bool = False) -> str:
+    logout_link = '<a href="/logout">登出</a>' if show_logout else ""
+    return f"""<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>個股當沖建議</title>
+  <style>{base_css()}{tw_advisor_css()}</style>
+</head>
+<body>
+  <nav class="topbar">
+    <strong>股票當沖追蹤器</strong>
+    <div class="nav-links">
+      <a href="/dashboard">台股追蹤</a>
+      <a href="/tw/advisor">個股建議</a>
+      <a href="/us/dashboard">美股追蹤</a>
+      <a href="/paper/dashboard">虛擬交易</a>
+      <a href="/accuracy">策略成績單</a>
+    </div>
+    <div class="topbar-actions">{logout_link}</div>
+  </nav>
+  <main class="advisor-page">
+    <section class="advisor-hero">
+      <div>
+        <h1>個股當沖建議</h1>
+        <p class="muted">輸入台股代號，系統會即時整理 VWAP、量比、突破、風險與當下狀態：買多、賣空或觀察。</p>
+      </div>
+      <form id="tw-advisor-form" class="advisor-form">
+        <label>
+          股票代號
+          <input id="tw-advisor-symbol" autocomplete="off" placeholder="例如 6770 或 6770.TW" value="6770.TW">
+        </label>
+        <button type="submit">取得建議</button>
+      </form>
+    </section>
+    <section id="tw-advisor-status" class="notice">準備查詢。</section>
+    <section id="tw-advisor-result" class="advisor-result empty">
+      請輸入股票代號。
+    </section>
+    <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
+  </main>
+  <script>{tw_advisor_script()}</script>
+</body>
+</html>"""
+
+
 def render_accuracy_page(show_logout: bool = False) -> str:
     logout_link = '<a href="/logout">登出</a>' if show_logout else ""
     return f"""<!doctype html>
@@ -847,6 +899,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
@@ -900,6 +953,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
@@ -1311,6 +1365,139 @@ def us_dashboard_script() -> str:
     """
 
 
+def tw_advisor_script() -> str:
+    return r"""
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const form = $("tw-advisor-form");
+      const input = $("tw-advisor-symbol");
+      const status = $("tw-advisor-status");
+      const result = $("tw-advisor-result");
+
+      const escapeHtml = (value) => String(value ?? "")
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+      const text = (value, fallback = "-") => value === null || value === undefined || value === "" ? fallback : String(value);
+      const number = (value, digits = 2) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toFixed(digits) : "-";
+      };
+      const pct = (value) => {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return "-";
+        const cls = n > 0 ? "num-up" : n < 0 ? "num-down" : "num-flat";
+        return `<span class="${cls}">${n >= 0 ? "+" : ""}${n.toFixed(2)}%</span>`;
+      };
+      const yesNo = (value) => value ? "是" : "否";
+      const decisionClass = (bias) => bias === "long" ? "decision-long" : bias === "short" ? "decision-short" : "decision-watch";
+      const decisionLabel = (candidate) => candidate?.trade_bias_label || candidate?.trade_bias || "觀察";
+      const list = (items) => {
+        const rows = Array.isArray(items) && items.length ? items : ["目前沒有明確訊息。"];
+        return `<ul>${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+      };
+      const metric = (label, value) => `<div class="advisor-metric"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+
+      const renderEmpty = (message) => {
+        result.className = "advisor-result empty";
+        result.textContent = message;
+      };
+
+      const renderResult = (payload) => {
+        const candidate = payload.candidate || {};
+        const scan = payload.scan || {};
+        const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
+        const name = candidate.name || payload.name || scan.name || "";
+        const sector = payload.sector || scan.sector || "";
+        const bias = candidate.trade_bias || scan.trade_bias || "watch";
+        const price = candidate.last_price ?? scan.last_price;
+        const statusText = candidate.trade_bias_reason || scan.trade_bias_reason || payload.message || "";
+        const errors = payload.errors && Object.keys(payload.errors).length
+          ? Object.entries(payload.errors).map(([key, value]) => `${key}: ${value}`)
+          : [];
+        result.className = "advisor-result";
+        result.innerHTML = `
+          <article class="advisor-card">
+            <div class="advisor-title">
+              <div>
+                <h2>${escapeHtml(symbol)}｜${escapeHtml(name)}</h2>
+                <div class="muted">${escapeHtml(sector)}｜資料來源：${escapeHtml(payload.data_source || "Yahoo Finance chart endpoint")}</div>
+              </div>
+              <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(decisionLabel(candidate))}</span>
+            </div>
+            <div class="advisor-grid">
+              ${metric("現價", escapeHtml(number(price)))}
+              ${metric("漲跌幅", pct(candidate.change_pct ?? scan.change_pct))}
+              ${metric("AI 評級", escapeHtml(candidate.grade || scan.ai_grade || "-"))}
+              ${metric("進場狀態", escapeHtml(candidate.entry_status || scan.entry_status || "-"))}
+              ${metric("多方分數", escapeHtml(number(candidate.bullish_score ?? scan.bullish_score)))}
+              ${metric("風險分數", escapeHtml(number(candidate.risk_score ?? scan.risk_score)))}
+              ${metric("信心分數", escapeHtml(number(candidate.confidence_score ?? scan.confidence_score)))}
+              ${metric("量比", `${escapeHtml(number(candidate.volume_ratio ?? scan.volume_ratio))}x`)}
+              ${metric("VWAP", escapeHtml(number(candidate.vwap ?? scan.vwap)))}
+              ${metric("站上 VWAP", escapeHtml(yesNo(candidate.above_vwap ?? scan.above_vwap)))}
+              ${metric("突破昨高", escapeHtml(yesNo(candidate.break_prev_high ?? scan.break_prev_high)))}
+              ${metric("突破 5 日高", escapeHtml(yesNo(candidate.break_5d_high ?? scan.break_5d_high)))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>當沖建議</h3>
+                <p><strong>${escapeHtml(decisionLabel(candidate))}</strong></p>
+                <p class="muted">${escapeHtml(statusText)}</p>
+                <p>${escapeHtml(candidate.confidence_summary || scan.confidence_summary || "")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>多方理由</h3>
+                ${list(candidate.reasons || scan.reasons)}
+              </section>
+              <section class="advisor-panel">
+                <h3>風險提醒</h3>
+                ${list(candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"])}
+              </section>
+              <section class="advisor-panel">
+                <h3>資料狀態</h3>
+                ${list(errors.length ? errors : [payload.message || "掃描完成。"])}
+              </section>
+            </div>
+          </article>
+        `;
+      };
+
+      const scan = async (symbol) => {
+        status.textContent = `正在掃描 ${symbol}...`;
+        renderEmpty("正在整理個股資料。");
+        try {
+          const response = await fetch("/api/tw/scan/symbol", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ symbol }),
+          });
+          const payload = await response.json();
+          if (!response.ok || payload.ok === false) throw new Error(payload.message || `HTTP ${response.status}`);
+          status.textContent = `完成：${payload.symbol || symbol}`;
+          renderResult(payload);
+        } catch (error) {
+          status.textContent = "掃描失敗";
+          renderEmpty(`目前無法取得個股建議：${error.message}`);
+        }
+      };
+
+      form?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const symbol = input.value.trim();
+        if (!symbol) {
+          status.textContent = "請輸入股票代號。";
+          return;
+        }
+        scan(symbol);
+      });
+
+      scan(input.value.trim() || "6770.TW");
+    })();
+    """
+
+
 def paper_dashboard_script() -> str:
     return r"""
     (() => {
@@ -1683,6 +1870,39 @@ def paper_dashboard_script() -> str:
       loadDashboard();
       window.setInterval(tick, 1000);
     })();
+    """
+
+
+def tw_advisor_css() -> str:
+    return """
+    .advisor-page { padding:0 28px 32px; }
+    .advisor-hero { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:24px 0 12px; }
+    .advisor-hero h1 { margin:0 0 4px; font-size:26px; }
+    .advisor-form { display:grid; grid-template-columns:minmax(220px,320px) auto; align-items:end; gap:10px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; }
+    .advisor-form label { margin:0; font-size:12px; color:#344054; }
+    .advisor-form button { background:#175cd3; border-color:#175cd3; color:#fff; height:38px; }
+    .advisor-result { margin-top:14px; }
+    .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .advisor-title { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .advisor-title h2 { margin:0; font-size:20px; }
+    .decision-badge { display:inline-flex; align-items:center; justify-content:center; min-width:72px; padding:5px 12px; border-radius:999px; font-weight:800; border:1px solid var(--line); }
+    .decision-long { color:#fff; background:#067647; border-color:#067647; }
+    .decision-short { color:#fff; background:#b42318; border-color:#b42318; }
+    .decision-watch { color:#344054; background:#f2f4f7; }
+    .advisor-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:12px; }
+    .advisor-metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfe; }
+    .advisor-metric span { display:block; color:var(--muted); font-size:12px; }
+    .advisor-metric strong { display:block; margin-top:2px; font-size:18px; }
+    .advisor-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-top:12px; }
+    .advisor-panel { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    .advisor-panel h3 { margin:0 0 8px; font-size:15px; }
+    .advisor-panel ul { margin:0; padding-left:18px; }
+    .advisor-panel li { margin:4px 0; }
+    .num-up { color:#c1121f; font-weight:700; }
+    .num-down { color:#067647; font-weight:700; }
+    .num-flat { color:#475467; font-weight:700; }
+    .notice { margin:12px 0; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
+    @media (max-width:760px) { .advisor-page { padding-left:14px; padding-right:14px; } .advisor-hero { flex-direction:column; align-items:stretch; } .advisor-form { grid-template-columns:1fr; } }
     """
 
 

@@ -10,6 +10,7 @@ from stock_daytrade_system.web import (
     _tracker_html_needs_refresh,
     latest_tracker_file,
     render_paper_dashboard_page,
+    render_tw_advisor_page,
 )
 
 
@@ -71,6 +72,19 @@ class WebTests(unittest.TestCase):
         self.assertIn("虛擬交易 API 暫時無法更新", html)
         self.assertNotIn("虛擬交易資料暫時無法更新", html)
         self.assertNotIn("!response.ok || payload.error", html)
+
+    def test_tw_advisor_page_has_stock_input_and_scan_api(self):
+        html = render_tw_advisor_page()
+
+        self.assertIn("個股當沖建議", html)
+        self.assertIn("6770.TW", html)
+        self.assertIn("/api/tw/scan/symbol", html)
+        self.assertIn("買多", html)
+        self.assertIn("賣空", html)
+        self.assertIn("觀察", html)
+        self.assertIn("VWAP", html)
+        self.assertIn("量比", html)
+        self.assertIn("不構成投資建議", html)
 
     def test_scheduled_tracker_interval_uses_taiwan_market_windows(self):
         tw = ZoneInfo("Asia/Taipei")
