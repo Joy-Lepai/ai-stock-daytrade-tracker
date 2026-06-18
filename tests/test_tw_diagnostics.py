@@ -70,8 +70,11 @@ class TWDiagnosticsTests(unittest.TestCase):
         )
 
         missed = payload["missed_stock_analysis"]
-        self.assertEqual(missed["missed_count"], 1)
+        self.assertEqual(missed["missed_count"], 0)
+        self.assertEqual(missed["seen_but_filtered_count"], 1)
+        self.assertEqual(missed["seen_but_filtered"]["by_status"]["wait_vwap"], 1)
         self.assertEqual(missed["rows"][0]["reason_code"], "below_vwap")
+        self.assertEqual(missed["rows"][0]["diagnostic_bucket"], "seen_but_filtered")
 
 
 if __name__ == "__main__":

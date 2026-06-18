@@ -68,7 +68,7 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(missed["missed_count"], 0)
             self.assertTrue(notes)
 
-    def test_missed_rate_counts_true_strength_not_seen_by_model(self):
+    def test_missed_rate_splits_seen_filtered_from_true_missed(self):
         with tempfile.TemporaryDirectory() as directory:
             conn = connect(default_db_path(Path(directory)))
             captured = datetime(2026, 6, 18, 13, 40)
@@ -90,15 +90,74 @@ class StrategyValidationTests(unittest.TestCase):
                         "entry_status": "wait_volume",
                         "trade_bias": "watch",
                         "reason_code": "volume_ratio_missing",
+                    },
+                    {
+                        "symbol": "6770.TW",
+                        "name": "力積電",
+                        "latest_price": 18.5,
+                        "change_pct": 4.2,
+                        "volume": 6_000_000,
+                        "turnover": 120_000_000,
+                        "volume_ratio": 1.1,
+                        "vwap": 18.2,
+                        "source_reasons": [],
+                        "ai_grade": "未入選",
+                        "entry_status": "-",
+                        "trade_bias": "watch",
+                        "reason_code": "below_candidate_threshold",
                     }
                 ],
             )
 
             missed = build_missed_rate_report(conn)
 
-            self.assertEqual(missed["strong_stock_count"], 1)
+            self.assertEqual(missed["strong_stock_count"], 2)
             self.assertEqual(missed["missed_count"], 1)
-            self.assertEqual(missed["missed_examples"][0]["reason_code"], "volume_ratio_missing")
+            self.assertEqual(missed["missed_by_pool_count"], 1)
+            self.assertEqual(missed["missed_examples"][0]["reason_code"], "below_candidate_threshold")
+            self.assertEqual(missed["seen_but_filtered_count"], 1)
+            self.assertEqual(missed["seen_but_filtered"]["by_status"]["wait_volume"], 1)
+
+    def test_regret_after_close_counts_seen_filtered_that_later_rallies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            captured = datetime(2026, 6, 18, 9, 30)
+            save_tw_full_market_snapshots(
+                conn,
+                captured,
+                [
+                    {
+                        "symbol": "2323.TW",
+                        "name": "中環",
+                        "latest_price": 12.0,
+                        "change_pct": 5.2,
+                        "volume": 10_000_000,
+                        "turnover": 120_000_000,
+                        "volume_ratio": 3.0,
+                        "vwap": 11.7,
+                        "source_reasons": ["今日漲幅大於3%"],
+                        "ai_grade": "C",
+                        "entry_status": "high_risk",
+                        "trade_bias": "watch",
+                        "reason_code": "high_chase_risk",
+                    }
+                ],
+            )
+            conn.execute(
+                """
+                UPDATE tw_full_market_snapshots
+                SET max_gain_after_scan = 2.4,
+                    max_drawdown_after_scan = -0.6,
+                    verification_outcome = '後續續漲'
+                WHERE symbol = '2323.TW'
+                """
+            )
+
+            missed = build_missed_rate_report(conn)
+
+            self.assertEqual(missed["missed_by_pool_count"], 0)
+            self.assertEqual(missed["seen_but_filtered_count"], 1)
+            self.assertEqual(missed["regret_after_close"]["count"], 1)
 
 
 if __name__ == "__main__":

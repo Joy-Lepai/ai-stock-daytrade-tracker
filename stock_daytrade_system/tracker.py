@@ -776,7 +776,10 @@ def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
     a_win = float((groups.get("A") or {}).get("win_rate", 0) or 0)
     b_plus_win = float((groups.get("B+") or {}).get("win_rate", 0) or 0)
     high_risk_up = float((groups.get("high_risk") or {}).get("continue_up_rate", 0) or 0)
-    missed_rate = float(missed.get("missed_rate", 0) or 0)
+    true_missed_rate = float(missed.get("missed_by_pool_rate", missed.get("missed_rate", 0)) or 0)
+    seen_filtered_rate = float(missed.get("seen_but_filtered_rate", 0) or 0)
+    regret = missed.get("regret_after_close") or {}
+    regret_rate = float(regret.get("rate", 0) or 0)
     return (
         '<section class="decision-center">'
         '<div class="summary">'
@@ -784,7 +787,9 @@ def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric_text("A勝率", f"{a_win:.2f}%")}'
         f'{_metric_text("B+勝率", f"{b_plus_win:.2f}%")}'
         f'{_metric_text("high_risk續漲", f"{high_risk_up:.2f}%")}'
-        f'{_metric_text("漏抓率", f"{missed_rate:.2f}%")}'
+        f'{_metric_text("真漏抓率", f"{true_missed_rate:.2f}%")}'
+        f'{_metric_text("已看到未推薦", f"{seen_filtered_rate:.2f}%")}'
+        f'{_metric_text("盤後可惜漏掉", f"{regret_rate:.2f}%")}'
         '</div>'
         f'<ul class="decision-list">{note_html}</ul>'
         '</section>'
@@ -1390,20 +1395,43 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
         f'{escape(str(diagnostic.get("scanner_limitation", "")))}'
         '</section>'
     )
+    not_in_ab_rate = float(diagnostic.get("not_in_ab_rate", 0) or 0)
+    seen_rate = float(diagnostic.get("seen_but_filtered_rate", 0) or 0)
+    true_missed_count = int(diagnostic.get("missed_by_pool_count", diagnostic.get("missed_count", 0)) or 0)
+    true_missed_rate = float(diagnostic.get("missed_by_pool_rate", diagnostic.get("missed_rate", 0)) or 0)
+    regret_rate = float((diagnostic.get("regret_after_close") or {}).get("rate", 0) or 0)
     metrics = (
         '<div class="summary">'
         f'{_metric("掃描池股票", int(diagnostic.get("total_scanned", 0)))}'
         f'{_metric("強勢異動數", int(diagnostic.get("strong_move_count", 0)))}'
         f'{_metric("進入 A/B+/B", int(diagnostic.get("entered_ai_count", 0)))}'
-        f'{_metric("掃描池內漏抓", int(diagnostic.get("missed_count", 0)))}'
-        f'{_metric_text("漏抓率", "{:.2f}%".format(float(diagnostic.get("missed_rate", 0))))}'
+        f'{_metric_text("強勢股未進 A/B+/B", f"{not_in_ab_rate:.2f}%")}'
+        f'{_metric("已看到但未推薦", int(diagnostic.get("seen_but_filtered_count", 0)))}'
+        f'{_metric_text("已看到未推薦比例", f"{seen_rate:.2f}%")}'
+        f'{_metric("真漏抓", true_missed_count)}'
+        f'{_metric_text("真漏抓率", f"{true_missed_rate:.2f}%")}'
+        f'{_metric_text("盤後可惜漏掉率", f"{regret_rate:.2f}%")}'
         '</div>'
+    )
+    seen = diagnostic.get("seen_but_filtered") or {}
+    by_status = seen.get("by_status") or {}
+    status_text = "、".join(f"{_entry_status_label(str(key))} {value} 檔" for key, value in sorted(by_status.items())) or "目前沒有已看到但未推薦的強勢股。"
+    missed_reasons = ((diagnostic.get("missed_by_pool") or {}).get("reason_counts") or {})
+    missed_text = "、".join(f"{key} {value} 檔" for key, value in sorted(missed_reasons.items())) or "目前沒有真漏抓原因統計。"
+    regret_message = str((diagnostic.get("regret_after_close") or {}).get("message") or "盤後可惜漏掉率需累積盤後資料。")
+    explanation = (
+        '<section class="data-status">'
+        f'<strong>已看到但未推薦分類：</strong>{escape(status_text)}<br>'
+        f'<strong>真漏抓原因：</strong>{escape(missed_text)}<br>'
+        f'<span class="muted">{escape(regret_message)}</span>'
+        '</section>'
     )
     body = []
     for item in rows[:40]:
         body.append(
             '<tr>'
             f'<td><strong>{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</strong><br><span class="muted">{escape(str(item.get("latest_at", "")))}</span></td>'
+            f'<td>{escape(_diagnostic_bucket_label(str(item.get("diagnostic_bucket", "-"))))}</td>'
             f'{_change_cell(item.get("change_pct"))}'
             f'<td data-sort-value="{_sort_value(item.get("latest_price"))}">{_fmt(item.get("latest_price"))}</td>'
             f'<td data-sort-value="{_sort_value(item.get("volume"))}">{_fmt_int(item.get("volume"))}</td>'
@@ -1420,16 +1448,25 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
             '</tr>'
         )
     return (
-        intro + metrics
+        intro + metrics + explanation
         + '<div class="table-wrap"><table class="sortable"><thead><tr>'
-        '<th data-sort="text">股票</th><th data-sort="number">今日漲幅</th><th data-sort="number">目前價格</th>'
+        '<th data-sort="text">股票</th><th data-sort="text">診斷分類</th><th data-sort="number">今日漲幅</th><th data-sort="number">目前價格</th>'
         '<th data-sort="number">成交量</th><th data-sort="number">量比</th><th data-sort="number">成交金額</th><th data-sort="text">站上 VWAP</th>'
         '<th data-sort="text">突破昨高</th><th data-sort="text">突破盤中/前高</th><th data-sort="text">進入 AI 候選</th>'
         '<th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th><th>未入選原因</th><th data-sort="text">reason code</th>'
         '</tr></thead><tbody>'
-        + ("".join(body) or '<tr><td colspan="14">目前沒有掃描列。</td></tr>')
+        + ("".join(body) or '<tr><td colspan="15">目前沒有掃描列。</td></tr>')
         + '</tbody></table></div>'
     )
+
+
+def _diagnostic_bucket_label(bucket: str) -> str:
+    return {
+        "selected": "進入 A/B+/B",
+        "seen_but_filtered": "已看到但未推薦",
+        "missed_by_pool": "真漏抓",
+        "not_strong": "非強勢異動",
+    }.get(bucket, bucket or "-")
 
 
 def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:

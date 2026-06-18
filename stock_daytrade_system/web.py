@@ -2210,15 +2210,22 @@ def accuracy_dashboard_script() -> str:
       }
 
       function renderMissed(report) {
+        const seen = report.seen_but_filtered || {};
+        const missedByPool = report.missed_by_pool || {};
+        const regret = report.regret_after_close || {};
         $("accuracy-missed").innerHTML = [
           metric("強勢股總數", report.strong_stock_count || 0),
-          metric("系統有看到", report.system_seen_count || 0),
-          metric("系統沒看到", report.missed_count || 0),
-          metric("漏抓率", `${number(report.missed_rate)}%`),
+          metric("進入 A/B+/B", report.selected_count || 0),
+          metric("強勢股未進 A/B+/B", `${number(report.not_in_ab_rate)}%`),
+          metric("已看到但未推薦", seen.count || report.seen_but_filtered_count || 0),
+          metric("已看到未推薦比例", `${number(report.seen_but_filtered_rate)}%`),
+          metric("真漏抓", missedByPool.count || report.missed_by_pool_count || report.missed_count || 0),
+          metric("真漏抓率", `${number(missedByPool.rate ?? report.missed_by_pool_rate ?? report.missed_rate)}%`),
+          metric("盤後可惜漏掉率", `${number(regret.rate)}%`),
           metric("樣本提示", escapeHtml(report.message || "")),
         ].join("");
-        const examples = report.missed_examples || [];
-        const body = examples.length ? examples.map((item) => `<tr>
+        const trueMissed = missedByPool.examples || report.missed_examples || [];
+        const missedBody = trueMissed.length ? trueMissed.map((item) => `<tr>
           <td>${escapeHtml(item.date)}</td>
           <td>${escapeHtml(item.symbol)}｜${escapeHtml(item.name)}</td>
           <td>${number(item.change_pct)}%</td>
@@ -2226,7 +2233,33 @@ def accuracy_dashboard_script() -> str:
           <td>${number(item.volume, 0)}</td>
           <td>${escapeHtml(item.reason_code)}</td>
         </tr>`).join("") : '<tr><td colspan="6">目前沒有漏抓案例，或樣本不足。</td></tr>';
-        $("accuracy-missed-examples").innerHTML = `<table><thead><tr><th>日期</th><th>股票</th><th>漲幅</th><th>成交金額</th><th>成交量</th><th>漏抓原因</th></tr></thead><tbody>${body}</tbody></table>`;
+        const filteredExamples = seen.examples || [];
+        const filteredBody = filteredExamples.length ? filteredExamples.map((item) => `<tr>
+          <td>${escapeHtml(item.date)}</td>
+          <td>${escapeHtml(item.symbol)}｜${escapeHtml(item.name)}</td>
+          <td>${number(item.change_pct)}%</td>
+          <td>${escapeHtml(item.ai_grade || "-")}</td>
+          <td>${escapeHtml(item.entry_status || "-")}</td>
+          <td>${escapeHtml(item.reason_code || "-")}</td>
+          <td>${number(item.max_gain_after_scan)}%</td>
+        </tr>`).join("") : '<tr><td colspan="7">目前沒有已看到但未推薦案例，或樣本不足。</td></tr>';
+        const regretBody = (regret.examples || []).length ? regret.examples.map((item) => `<tr>
+          <td>${escapeHtml(item.date)}</td>
+          <td>${escapeHtml(item.symbol)}｜${escapeHtml(item.name)}</td>
+          <td>${escapeHtml(item.entry_status || "-")}</td>
+          <td>${number(item.max_gain_after_scan)}%</td>
+          <td>${number(item.max_drawdown_after_scan)}%</td>
+          <td>${escapeHtml(item.verification_outcome || "-")}</td>
+        </tr>`).join("") : '<tr><td colspan="6">需累積盤後驗證資料後才會列出。</td></tr>';
+        $("accuracy-missed-examples").innerHTML = `
+          <h3>真漏抓 missed_by_pool</h3>
+          <table><thead><tr><th>日期</th><th>股票</th><th>漲幅</th><th>成交金額</th><th>成交量</th><th>真漏抓原因</th></tr></thead><tbody>${missedBody}</tbody></table>
+          <h3>有看到但未推薦 seen_but_filtered</h3>
+          <table><thead><tr><th>日期</th><th>股票</th><th>漲幅</th><th>分級</th><th>狀態</th><th>reason code</th><th>訊號後最大漲幅</th></tr></thead><tbody>${filteredBody}</tbody></table>
+          <h3>盤後可惜漏掉 regret_after_close</h3>
+          <p class="muted">${escapeHtml(regret.message || "需累積盤後驗證資料。")}</p>
+          <table><thead><tr><th>日期</th><th>股票</th><th>原狀態</th><th>訊號後最大漲幅</th><th>訊號後最大回撤</th><th>驗證結果</th></tr></thead><tbody>${regretBody}</tbody></table>
+        `;
       }
 
       loadAccuracy();

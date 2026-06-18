@@ -8,8 +8,9 @@ from typing import Iterable
 from stock_daytrade_system.data import Bar
 
 
-STRATEGY_VALIDATION_VERSION = "strategy_validation_v1_2026-06-18"
-GRADES = ("A", "B+", "B", "high_risk", "avoid", "data_missing")
+STRATEGY_VALIDATION_VERSION = "strategy_validation_v2_missed_seen_regret_2026-06-18"
+GRADES = ("A", "B+", "B", "high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "data_missing")
+FILTERED_STATUSES = {"high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback", "practice_long"}
 
 
 def update_tw_scan_result_verification(
@@ -103,22 +104,46 @@ def build_missed_rate_report(conn: sqlite3.Connection, window: int = 20) -> dict
     selected_dates = set(dates[:window])
     selected = [row for row in rows if row["date"] in selected_dates]
     strong = [row for row in selected if _is_true_strength(row)]
-    seen_statuses = {"A", "B+", "B", "high_risk", "avoid"}
-    missed = [
-        row for row in strong
-        if (row["ai_grade"] not in seen_statuses and row["entry_status"] not in {"high_risk", "avoid"})
-    ]
-    reason_counts = Counter(_missed_reason(row) for row in missed)
+    selected_rows = [row for row in strong if row["ai_grade"] in {"A", "B+", "B"}]
+    seen_filtered = [row for row in strong if _is_seen_but_filtered(row)]
+    missed_by_pool = [row for row in strong if _is_missed_by_pool(row)]
+    regret_rows = [row for row in seen_filtered if _is_regret_after_close(row)]
+    reason_counts = Counter(_missed_reason(row) for row in missed_by_pool)
+    filtered_counts = Counter(_filter_status(row) for row in seen_filtered)
     return {
         "version": STRATEGY_VALIDATION_VERSION,
         "window_days": window,
         "strong_stock_count": len(strong),
-        "system_seen_count": max(len(strong) - len(missed), 0),
-        "missed_count": len(missed),
-        "missed_rate": round(len(missed) / len(strong) * 100, 2) if strong else 0.0,
+        "selected_count": len(selected_rows),
+        "system_seen_count": len(selected_rows) + len(seen_filtered),
+        "not_in_ab_count": max(len(strong) - len(selected_rows), 0),
+        "not_in_ab_rate": round((len(strong) - len(selected_rows)) / len(strong) * 100, 2) if strong else 0.0,
+        "seen_but_filtered_count": len(seen_filtered),
+        "seen_but_filtered_rate": round(len(seen_filtered) / len(strong) * 100, 2) if strong else 0.0,
+        "missed_by_pool_count": len(missed_by_pool),
+        "missed_by_pool_rate": round(len(missed_by_pool) / len(strong) * 100, 2) if strong else 0.0,
+        "missed_count": len(missed_by_pool),
+        "missed_rate": round(len(missed_by_pool) / len(strong) * 100, 2) if strong else 0.0,
         "reason_counts": dict(reason_counts),
-        "missed_examples": [_missed_example(row) for row in missed[:20]],
-        "message": "目前樣本不足，漏抓率僅供觀察。" if len(strong) < 20 else "漏抓率已可作為掃描池改善參考。",
+        "seen_but_filtered": {
+            "count": len(seen_filtered),
+            "by_status": dict(filtered_counts),
+            "examples": [_filtered_example(row) for row in seen_filtered[:30]],
+        },
+        "missed_by_pool": {
+            "count": len(missed_by_pool),
+            "rate": round(len(missed_by_pool) / len(strong) * 100, 2) if strong else 0.0,
+            "examples": [_missed_example(row) for row in missed_by_pool[:20]],
+            "reason_counts": dict(reason_counts),
+        },
+        "regret_after_close": {
+            "count": len(regret_rows),
+            "rate": round(len(regret_rows) / len(seen_filtered) * 100, 2) if seen_filtered else 0.0,
+            "examples": [_regret_example(row) for row in regret_rows[:20]],
+            "message": "需累積盤後驗證資料；此數字只統計已補上訊號後高低點的樣本。",
+        },
+        "missed_examples": [_missed_example(row) for row in missed_by_pool[:20]],
+        "message": "真漏抓率只計算完全沒有被掃描池或模型看到的強勢股；已看到但被 high_risk / avoid / wait 擋下者另列。",
     }
 
 
@@ -142,8 +167,10 @@ def build_model_observations(scorecard: dict, missed_report: dict) -> list[str]:
         notes.append("avoid 可能過度保守：部分避開標的後續仍大漲，建議檢查排除條件是否太早觸發。")
     if data_missing.get("sample_size", 0) or missed_report.get("reason_counts", {}).get("data_missing", 0):
         notes.append("資料源造成無法判斷：請優先修資料缺漏，不建議用降低模型門檻解決。")
-    if missed_report.get("missed_rate", 0) >= 20 and missed_report.get("strong_stock_count", 0) >= 20:
-        notes.append("漏抓率偏高，建議先擴充掃描池與資料源穩定性，不要直接調低 A / B+ / B 條件。")
+    if missed_report.get("missed_by_pool_rate", 0) >= 20 and missed_report.get("strong_stock_count", 0) >= 20:
+        notes.append("真漏抓率偏高，建議先檢查掃描池與資料源穩定性，不要直接調低 A / B+ / B 條件。")
+    if (missed_report.get("regret_after_close") or {}).get("rate", 0) >= 30:
+        notes.append("盤後可惜漏掉率偏高，建議先觀察 high_risk / wait 類別，不要直接升級為推薦。")
     if not notes:
         notes.append("目前樣本仍需累積；建議觀察 20 日後再調整，暫不建議修改模型條件。")
     return notes
@@ -274,6 +301,8 @@ def _group_name(row: sqlite3.Row) -> str:
         return "high_risk"
     if row["entry_status"] == "avoid":
         return "avoid"
+    if row["entry_status"] in {"wait_volume", "wait_vwap", "wait_breakout"}:
+        return row["entry_status"]
     return row["ai_grade"] or row["entry_status"] or "data_missing"
 
 
@@ -290,14 +319,45 @@ def _missed_reason(row: sqlite3.Row) -> str:
     if (_float(row["turnover"]) or 0) < 10_000_000 or (_float(row["volume"]) or 0) < 100_000:
         return "liquidity_filter_removed"
     if row["volume_ratio"] is None:
-        return "volume_ratio_missing"
+        return "yahoo_intraday_failed"
     if row["vwap"] is None:
-        return "vwap_missing"
+        return "yahoo_intraday_failed"
     if not row["entered_candidate_pool"]:
         return "below_candidate_threshold"
-    if row["reason_code"]:
-        return row["reason_code"]
-    return "model_filtered_out"
+    return row["reason_code"] or "unknown"
+
+
+def _is_seen_but_filtered(row: sqlite3.Row) -> bool:
+    if row["ai_grade"] in {"A", "B+", "B"}:
+        return False
+    if row["entry_status"] in FILTERED_STATUSES:
+        return True
+    if row["entered_candidate_pool"] or row["entered_ai_candidates"]:
+        return True
+    return False
+
+
+def _is_missed_by_pool(row: sqlite3.Row) -> bool:
+    if row["ai_grade"] in {"A", "B+", "B"}:
+        return False
+    if _is_seen_but_filtered(row):
+        return False
+    return True
+
+
+def _filter_status(row: sqlite3.Row) -> str:
+    if row["data_status"] == "data_missing" or row["reason_code"] in {"data_missing", "data_failed"}:
+        return "data_missing"
+    if row["entry_status"] in {"high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback", "practice_long"}:
+        return row["entry_status"]
+    return row["reason_code"] or row["entry_status"] or "filtered"
+
+
+def _is_regret_after_close(row: sqlite3.Row) -> bool:
+    gain = _float(row["max_gain_after_scan"])
+    if gain is None:
+        return False
+    return _is_seen_but_filtered(row) and gain >= 1
 
 
 def _missed_example(row: sqlite3.Row) -> dict:
@@ -309,6 +369,27 @@ def _missed_example(row: sqlite3.Row) -> dict:
         "turnover": row["turnover"],
         "volume": row["volume"],
         "reason_code": _missed_reason(row),
+    }
+
+
+def _filtered_example(row: sqlite3.Row) -> dict:
+    return {
+        "date": row["date"],
+        "symbol": row["symbol"],
+        "name": row["name"],
+        "change_pct": row["change_pct"],
+        "entry_status": row["entry_status"],
+        "ai_grade": row["ai_grade"],
+        "reason_code": row["reason_code"],
+        "max_gain_after_scan": row["max_gain_after_scan"],
+    }
+
+
+def _regret_example(row: sqlite3.Row) -> dict:
+    return {
+        **_filtered_example(row),
+        "max_drawdown_after_scan": row["max_drawdown_after_scan"],
+        "verification_outcome": row["verification_outcome"],
     }
 
 

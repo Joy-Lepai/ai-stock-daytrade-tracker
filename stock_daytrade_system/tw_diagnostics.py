@@ -11,8 +11,18 @@ from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, LongCandidat
 from stock_daytrade_system.tw_momentum_scanner import TW_MOMENTUM_SCANNER_VERSION
 
 
-TW_DIAGNOSTICS_VERSION = "tw_diagnostics_v1_freshness_missed_2026-06-18"
+TW_DIAGNOSTICS_VERSION = "tw_diagnostics_v2_missed_seen_regret_2026-06-18"
 TAIPEI = ZoneInfo("Asia/Taipei")
+FILTERED_ENTRY_STATUSES = {"high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback"}
+TRUE_MISSED_REASONS = {
+    "below_candidate_threshold",
+    "liquidity_filter_removed",
+    "data_missing",
+    "tpex_failed",
+    "twse_failed",
+    "yahoo_intraday_failed",
+    "unknown",
+}
 
 
 @dataclass(frozen=True)
@@ -187,25 +197,66 @@ def _missed_stock_analysis(scan_items: list[dict], candidates: list[LongCandidat
     candidate_map = {item.symbol: item for item in candidates}
     rows = []
     strong_rows = []
-    missed_rows = []
+    selected_rows = []
+    seen_but_filtered = []
+    missed_by_pool = []
+    regret_rows = []
     for item in scan_items:
         row = _diagnostic_row(item, candidate_map.get(str(item.get("symbol", ""))))
+        row["diagnostic_bucket"] = _diagnostic_bucket(row)
         rows.append(row)
         if row["strong_move"]:
             strong_rows.append(row)
-            if not row["entered_ai_candidates"]:
-                missed_rows.append(row)
-    missed_rate = (len(missed_rows) / len(strong_rows) * 100) if strong_rows else 0.0
+            if row["entered_ai_candidates"]:
+                selected_rows.append(row)
+            elif row["diagnostic_bucket"] == "seen_but_filtered":
+                seen_but_filtered.append(row)
+                if _regret_ready(row):
+                    regret_rows.append(row)
+            elif row["diagnostic_bucket"] == "missed_by_pool":
+                missed_by_pool.append(row)
+    strong_count = len(strong_rows)
+    not_in_ab_count = max(strong_count - len(selected_rows), 0)
+    missed_rate = (len(missed_by_pool) / strong_count * 100) if strong_count else 0.0
+    seen_rate = (len(seen_but_filtered) / strong_count * 100) if strong_count else 0.0
+    not_in_ab_rate = (not_in_ab_count / strong_count * 100) if strong_count else 0.0
+    filtered_counts = _count_by(seen_but_filtered, "filter_status")
+    missed_reason_counts = _count_by(missed_by_pool, "reason_code")
     return {
-        "definition": "漲幅 > 3% 且量比 >= 0.8，或漲幅 > 5%，但未列入 A / B+ / B，視為本掃描池內漏抓。",
-        "scanner_limitation": "目前漏抓率以已成功取得的 TWSE/TPEX 掃描範圍計算；若 TPEX 抓取失敗或使用快取，上櫃強勢股仍可能漏抓。",
+        "definition": "漏抓診斷已拆成三類：真漏抓 missed_by_pool、有看到但未推薦 seen_but_filtered、盤後可惜漏掉 regret_after_close。",
+        "scanner_limitation": "真漏抓只計算完全沒有進入掃描池或模型評分的強勢股；已看到但因 high_risk / avoid / wait 條件未推薦者，不再算成漏抓。",
         "total_scanned": len(scan_items),
-        "strong_move_count": len(strong_rows),
-        "entered_ai_count": sum(1 for row in rows if row["entered_ai_candidates"]),
-        "missed_count": len(missed_rows),
+        "strong_move_count": strong_count,
+        "entered_ai_count": len(selected_rows),
+        "selected_count": len(selected_rows),
+        "not_in_ab_count": not_in_ab_count,
+        "not_in_ab_rate": round(not_in_ab_rate, 2),
+        "seen_but_filtered_count": len(seen_but_filtered),
+        "seen_but_filtered_rate": round(seen_rate, 2),
+        "missed_by_pool_count": len(missed_by_pool),
+        "missed_by_pool_rate": round(missed_rate, 2),
+        "missed_count": len(missed_by_pool),
         "missed_rate": round(missed_rate, 2),
+        "seen_but_filtered": {
+            "count": len(seen_but_filtered),
+            "rate": round(seen_rate, 2),
+            "by_status": filtered_counts,
+            "examples": seen_but_filtered[:30],
+        },
+        "missed_by_pool": {
+            "count": len(missed_by_pool),
+            "rate": round(missed_rate, 2),
+            "reason_counts": missed_reason_counts,
+            "examples": missed_by_pool[:20],
+        },
+        "regret_after_close": {
+            "count": len(regret_rows),
+            "rate": round((len(regret_rows) / len(seen_but_filtered) * 100), 2) if seen_but_filtered else 0.0,
+            "examples": regret_rows[:20],
+            "message": "此區需盤後補上訊號後最高、最低、最大漲幅與最大回撤後才會有完整統計。",
+        },
         "rows": rows[:80],
-        "missed_examples": missed_rows[:20],
+        "missed_examples": missed_by_pool[:20],
     }
 
 
@@ -236,6 +287,12 @@ def _diagnostic_row(item: dict, candidate: Optional[LongCandidate]) -> dict:
         "entry_status": entry_status,
         "not_selected_reason": reason or _reason_message(reason_code),
         "reason_code": reason_code,
+        "filter_status": _filter_status(grade, entry_status, reason_code),
+        "post_scan_high": _float(item.get("post_scan_high")),
+        "post_scan_low": _float(item.get("post_scan_low")),
+        "max_gain_after_scan": _float(item.get("max_gain_after_scan")),
+        "max_drawdown_after_scan": _float(item.get("max_drawdown_after_scan")),
+        "regret_after_close_ready": False,
         "latest_at": str(item.get("latest_at") or ""),
         "strong_move": strong_move,
     }
@@ -245,7 +302,7 @@ def _reason_code(item: dict, candidate: Optional[LongCandidate], grade: str, ent
     if item.get("reason_code"):
         return str(item.get("reason_code"))
     if item.get("data_error"):
-        return "data_failed"
+        return "data_missing"
     if grade in {"A", "B+", "B"}:
         return "selected"
     if "資料" in reason:
@@ -265,13 +322,66 @@ def _reason_code(item: dict, candidate: Optional[LongCandidate], grade: str, ent
     if entry_status == "avoid":
         return "avoid"
     if grade == "未入選":
-        return "not_in_candidate_grade"
+        return "below_candidate_threshold"
     return "condition_not_met"
+
+
+def _filter_status(grade: str, entry_status: str, reason_code: str) -> str:
+    if entry_status in FILTERED_ENTRY_STATUSES:
+        return entry_status
+    if reason_code in {"data_missing", "data_failed", "data_insufficient", "yahoo_intraday_failed"}:
+        return "data_missing"
+    if grade in {"C", "D", "未入選"}:
+        return "avoid" if reason_code in {"below_vwap", "avoid"} else "wait_breakout"
+    return entry_status or "-"
+
+
+def _diagnostic_bucket(row: dict) -> str:
+    if row["entered_ai_candidates"]:
+        return "selected"
+    if not row["strong_move"]:
+        return "not_strong"
+    if _is_seen_but_filtered(row):
+        return "seen_but_filtered"
+    return "missed_by_pool"
+
+
+def _is_seen_but_filtered(row: dict) -> bool:
+    if row.get("entry_status") in FILTERED_ENTRY_STATUSES:
+        return True
+    if row.get("filter_status") in FILTERED_ENTRY_STATUSES or row.get("filter_status") == "data_missing":
+        return True
+    grade = row.get("ai_grade")
+    if grade in {"C", "D"}:
+        return True
+    reason_code = row.get("reason_code")
+    return bool(reason_code and reason_code not in TRUE_MISSED_REASONS)
+
+
+def _regret_ready(row: dict) -> bool:
+    gain = _float(row.get("max_gain_after_scan"))
+    if gain is None:
+        return False
+    return gain >= 1.0
+
+
+def _count_by(rows: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(row.get(key) or "unknown")
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def _reason_message(code: str) -> str:
     return {
         "data_failed": "API 沒有抓到這檔股票或日線不足",
+        "data_missing": "資料不足",
+        "yahoo_intraday_failed": "Yahoo 盤中資料抓取失敗",
+        "twse_failed": "TWSE 上市資料抓取失敗",
+        "tpex_failed": "TPEX 上櫃資料抓取失敗",
+        "below_candidate_threshold": "低於今日異動候選池門檻",
+        "liquidity_filter_removed": "流動性不足，被候選池排除",
         "data_insufficient": "資料不足",
         "volume_low": "量比不足",
         "below_vwap": "未站上 VWAP",
@@ -296,8 +406,10 @@ def _root_cause_diagnosis(data_health: dict, missed: dict) -> list[str]:
         notes.insert(0, "盤中資料已過期，當沖建議應暫停視為正常訊號。")
     if data_health.get("daily_failed_count") or data_health.get("intraday_failed_count"):
         notes.append("部分股票資料抓取失敗，會導致 VWAP、量比或突破條件無法計算。")
-    if missed.get("missed_count"):
-        notes.append("掃描池內仍有強勢股未進入 A / B+ / B，請優先查看漏抓原因欄位。")
+    if missed.get("missed_by_pool_count"):
+        notes.append("仍有強勢股完全沒有進入掃描或模型評分，請優先查看真漏抓原因欄位。")
+    if missed.get("seen_but_filtered_count"):
+        notes.append("部分強勢股已被系統看到，但因 high_risk / avoid / wait 條件未推薦，這些不應算成真漏抓。")
     return notes
 
 
