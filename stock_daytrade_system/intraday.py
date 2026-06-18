@@ -31,7 +31,7 @@ def analyze_opening_confirmation(
     opening_bars: int = 3,
     min_volume_ratio: float = 1.2,
 ) -> Optional[OpeningSignal]:
-    if len(intraday_bars) < opening_bars + 1 or len(daily_bars) < 20:
+    if len(intraday_bars) < opening_bars or len(daily_bars) < 20:
         return None
 
     opening = intraday_bars[:opening_bars]

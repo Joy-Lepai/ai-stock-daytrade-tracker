@@ -32,6 +32,22 @@ def daily_bars():
 
 
 class IntradaySignalTests(unittest.TestCase):
+    def test_builds_opening_signal_with_three_early_bars(self):
+        signal = analyze_opening_confirmation(
+            WatchSymbol("2330.TW", "台積電"),
+            [
+                bar(0, 100, 101, 99, 100.5, 80_000),
+                bar(1, 100.5, 101.5, 100, 101, 80_000),
+                bar(2, 101, 102, 100.5, 101.8, 80_000),
+            ],
+            daily_bars(),
+            opening_bars=3,
+        )
+
+        self.assertIsNotNone(signal)
+        self.assertGreater(signal.volume_ratio, 1)
+        self.assertGreater(signal.vwap, 0)
+
     def test_confirms_long_when_price_breaks_opening_range_with_volume(self):
         signal = analyze_opening_confirmation(
             WatchSymbol("2330.TW", "台積電"),
