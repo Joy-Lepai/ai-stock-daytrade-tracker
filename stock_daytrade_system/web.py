@@ -1402,6 +1402,76 @@ def tw_advisor_script() -> str:
         const n = Number(value);
         return Number.isFinite(n) ? n.toFixed(2) : "-";
       };
+      const renderIntradayChart = (chart) => {
+        const bars = Array.isArray(chart?.bars) ? chart.bars : [];
+        if (bars.length < 2) return `<div class="advisor-chart-empty">目前缺少足夠分時資料，暫時無法繪圖。</div>`;
+        const width = 920;
+        const height = 320;
+        const pad = { left: 48, right: 92, top: 22, bottom: 34 };
+        const values = [];
+        bars.forEach((bar) => {
+          ["high", "low", "close", "vwap"].forEach((key) => {
+            const n = Number(bar[key]);
+            if (Number.isFinite(n)) values.push(n);
+          });
+        });
+        (chart.levels || []).forEach((level) => {
+          const n = Number(level.value);
+          if (Number.isFinite(n)) values.push(n);
+        });
+        const minRaw = Math.min(...values);
+        const maxRaw = Math.max(...values);
+        const span = Math.max(maxRaw - minRaw, 0.01);
+        const min = minRaw - span * 0.08;
+        const max = maxRaw + span * 0.08;
+        const x = (index) => pad.left + (index / Math.max(bars.length - 1, 1)) * (width - pad.left - pad.right);
+        const y = (value) => pad.top + ((max - value) / (max - min)) * (height - pad.top - pad.bottom);
+        const path = (key) => bars
+          .map((bar, index) => {
+            const n = Number(bar[key]);
+            if (!Number.isFinite(n)) return "";
+            return `${index === 0 ? "M" : "L"}${x(index).toFixed(1)},${y(n).toFixed(1)}`;
+          })
+          .filter(Boolean)
+          .join(" ");
+        const levelClass = (label) => label.includes("停損") ? "stop" : label.includes("停利") ? "target" : label.includes("VWAP") ? "vwap" : "level";
+        const levelRows = (chart.levels || [])
+          .filter((level) => Number.isFinite(Number(level.value)))
+          .slice(0, 10)
+          .map((level) => {
+            const yy = y(Number(level.value));
+            const cls = levelClass(level.label || "");
+            return `
+              <g class="chart-level ${cls}">
+                <line x1="${pad.left}" y1="${yy.toFixed(1)}" x2="${width - pad.right}" y2="${yy.toFixed(1)}"></line>
+                <text x="${width - pad.right + 8}" y="${(yy + 4).toFixed(1)}">${escapeHtml(level.label)} ${money(level.value)}</text>
+              </g>
+            `;
+          })
+          .join("");
+        const first = bars[0];
+        const last = bars[bars.length - 1];
+        return `
+          <svg class="advisor-chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="分時走勢圖">
+            <rect x="0" y="0" width="${width}" height="${height}" rx="8"></rect>
+            <line class="axis" x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${height - pad.bottom}"></line>
+            <line class="axis" x1="${pad.left}" y1="${height - pad.bottom}" x2="${width - pad.right}" y2="${height - pad.bottom}"></line>
+            <text class="axis-label" x="8" y="${pad.top + 4}">${money(max)}</text>
+            <text class="axis-label" x="8" y="${height - pad.bottom}">${money(min)}</text>
+            <text class="axis-label" x="${pad.left}" y="${height - 10}">${escapeHtml(first.time || "")}</text>
+            <text class="axis-label" x="${width - pad.right - 44}" y="${height - 10}">${escapeHtml(last.time || "")}</text>
+            ${levelRows}
+            <path class="vwap-line" d="${path("vwap")}"></path>
+            <path class="price-line" d="${path("close")}"></path>
+          </svg>
+          <div class="chart-legend">
+            <span><i class="legend-price"></i>價格</span>
+            <span><i class="legend-vwap"></i>VWAP</span>
+            <span><i class="legend-stop"></i>停損</span>
+            <span><i class="legend-target"></i>停利</span>
+          </div>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -1433,6 +1503,7 @@ def tw_advisor_script() -> str:
         const analysisLabel = analysis.action_label || decisionLabel(candidate);
         const plan = analysis.action_plan || {};
         const keyLevels = Array.isArray(analysis.key_levels) ? analysis.key_levels : [];
+        const chart = payload.intraday_chart || {};
         result.className = "advisor-result";
         result.innerHTML = `
           <article class="advisor-card">
@@ -1466,6 +1537,13 @@ def tw_advisor_script() -> str:
               ${metric("突破昨高", escapeHtml(yesNo(scan.break_prev_high ?? candidate.break_prev_high)))}
               ${metric("突破 5 日高", escapeHtml(yesNo(scan.break_5d_high ?? candidate.break_5d_high)))}
             </div>
+            <section class="advisor-chart">
+              <div class="chart-head">
+                <h3>分時走勢圖</h3>
+                <span>價格 / VWAP / 關鍵價位 / 停損停利</span>
+              </div>
+              ${renderIntradayChart(chart)}
+            </section>
             <div class="advisor-sections">
               <section class="advisor-panel advisor-plan">
                 <h3>當沖作戰計畫</h3>
@@ -1963,6 +2041,29 @@ def tw_advisor_css() -> str:
     .advisor-metric { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fbfcfe; }
     .advisor-metric span { display:block; color:var(--muted); font-size:12px; }
     .advisor-metric strong { display:block; margin-top:2px; font-size:18px; }
+    .advisor-chart { margin-top:12px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; overflow:hidden; }
+    .chart-head { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-bottom:8px; }
+    .chart-head h3 { margin:0; font-size:15px; }
+    .chart-head span { color:var(--muted); font-size:12px; }
+    .advisor-chart-svg { width:100%; height:auto; min-height:260px; display:block; }
+    .advisor-chart-svg rect { fill:#fbfcfe; }
+    .advisor-chart-svg .axis { stroke:#98a2b3; stroke-width:1; }
+    .advisor-chart-svg .axis-label { fill:#667085; font-size:12px; }
+    .advisor-chart-svg .price-line { fill:none; stroke:#175cd3; stroke-width:3; }
+    .advisor-chart-svg .vwap-line { fill:none; stroke:#f59e0b; stroke-width:2; stroke-dasharray:6 4; }
+    .advisor-chart-svg .chart-level line { stroke:#98a2b3; stroke-width:1; stroke-dasharray:3 4; }
+    .advisor-chart-svg .chart-level text { fill:#475467; font-size:11px; }
+    .advisor-chart-svg .chart-level.stop line, .advisor-chart-svg .chart-level.stop text { stroke:#b42318; fill:#b42318; }
+    .advisor-chart-svg .chart-level.target line, .advisor-chart-svg .chart-level.target text { stroke:#067647; fill:#067647; }
+    .advisor-chart-svg .chart-level.vwap line, .advisor-chart-svg .chart-level.vwap text { stroke:#f59e0b; fill:#b45309; }
+    .chart-legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; color:var(--muted); font-size:12px; }
+    .chart-legend span { display:inline-flex; align-items:center; gap:5px; }
+    .chart-legend i { width:16px; height:3px; display:inline-block; border-radius:99px; }
+    .legend-price { background:#175cd3; }
+    .legend-vwap { background:#f59e0b; }
+    .legend-stop { background:#b42318; }
+    .legend-target { background:#067647; }
+    .advisor-chart-empty { padding:18px; color:var(--muted); background:#fbfcfe; border:1px dashed var(--line); border-radius:8px; }
     .advisor-sections { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; margin-top:12px; }
     .advisor-panel { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
     .advisor-plan { grid-column:1 / -1; border-color:#bfdbfe; background:#f8fbff; }

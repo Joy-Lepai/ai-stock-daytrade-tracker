@@ -69,6 +69,10 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         display=display_payload,
         market_status=market_bias.direction,
     ).to_dict()
+    chart_payload = _intraday_chart_payload(
+        quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+        analysis_payload,
+    )
     errors = {}
     if item.symbol in daily_errors:
         errors["daily"] = daily_errors[item.symbol]
@@ -93,6 +97,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "advisor_analysis": analysis_payload,
+        "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
         "data_source": "TWSE MIS + Yahoo Finance 1m/5m chart endpoint",
@@ -205,3 +210,55 @@ def _not_selected_reason(candidate) -> str:
     if candidate.entry_status == "avoid":
         return "已列為 avoid"
     return "條件未達 A/B+/B"
+
+
+def _intraday_chart_payload(bars, analysis_payload: dict) -> dict:
+    recent = list(bars or [])[-120:]
+    serialized = []
+    total_volume = 0.0
+    weighted_value = 0.0
+    prices = []
+    for bar in recent:
+        typical = (bar.high + bar.low + bar.close) / 3
+        if bar.volume > 0:
+            weighted_value += typical * bar.volume
+            total_volume += bar.volume
+        vwap = weighted_value / total_volume if total_volume else None
+        row = {
+            "time": _chart_time(bar.timestamp),
+            "open": round(bar.open, 2),
+            "high": round(bar.high, 2),
+            "low": round(bar.low, 2),
+            "close": round(bar.close, 2),
+            "volume": round(bar.volume, 0),
+            "vwap": round(vwap, 2) if vwap is not None else None,
+        }
+        serialized.append(row)
+        prices.extend([bar.high, bar.low, bar.close])
+        if vwap is not None:
+            prices.append(vwap)
+    levels = list(analysis_payload.get("key_levels") or [])
+    action_plan = analysis_payload.get("action_plan") or {}
+    for label, key, note in (
+        ("進場參考", "entry_reference", "作戰計畫"),
+        ("停損價", "stop_loss", "作戰計畫"),
+        ("停利價", "target_price", "作戰計畫"),
+    ):
+        value = action_plan.get(key)
+        if value is not None:
+            levels.append({"label": label, "value": value, "note": note})
+            prices.append(float(value))
+    return {
+        "bars": serialized,
+        "levels": levels,
+        "price_min": round(min(prices), 2) if prices else None,
+        "price_max": round(max(prices), 2) if prices else None,
+    }
+
+
+def _chart_time(value: datetime) -> str:
+    if value.tzinfo is not None:
+        return value.astimezone(ZoneInfo("Asia/Taipei")).strftime("%H:%M")
+    if value.hour < 8:
+        return value.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("Asia/Taipei")).strftime("%H:%M")
+    return value.strftime("%H:%M")

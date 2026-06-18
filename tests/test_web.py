@@ -89,6 +89,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("量能確認分數", html)
         self.assertIn("追價風險分數", html)
         self.assertIn("當沖作戰計畫", html)
+        self.assertIn("分時走勢圖", html)
+        self.assertIn("價格 / VWAP / 關鍵價位 / 停損停利", html)
         self.assertIn("觸發條件", html)
         self.assertIn("停損價", html)
         self.assertIn("停利價", html)
