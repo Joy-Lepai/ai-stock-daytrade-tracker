@@ -32,6 +32,7 @@ from stock_daytrade_system.scoring import CandidateScore, score_market_bias, sco
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
 from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
 from stock_daytrade_system.strategy_validation import (
+    STRATEGY_VALIDATION_VERSION,
     build_missed_rate_report,
     build_model_observations,
     build_strategy_scorecard,
@@ -412,6 +413,7 @@ def run_tracker(
         }
         debug_info = {
             "app_version": _current_commit_hash(),
+            "app_version_source": _current_commit_info()[1],
             "scoring_model_version": SCORING_MODEL_VERSION,
             "session_policy_version": SESSION_POLICY_VERSION,
             "dashboard_generated_at": now.isoformat(timespec="seconds"),
@@ -426,6 +428,11 @@ def run_tracker(
             "full_market_pool_symbols": full_market_result.summary.get("pool_symbols", 0),
             "full_market_candidate_symbols": full_market_result.summary.get("candidate_symbols", 0),
             "full_market_out_of_pool": sum(1 for item in momentum_scan.items if item.source_scope == "out_of_pool"),
+            "strategy_validation_version": STRATEGY_VALIDATION_VERSION,
+            "post_market_verification_rows": int(post_market_verification.get("rows", 0)),
+            "post_market_verification_verified": int(post_market_verification.get("verified", 0)),
+            "post_market_verification_missing_intraday": int(post_market_verification.get("missing_intraday", 0)),
+            "post_market_verification_message": str(post_market_verification.get("message", "-")),
         }
         paper_stats = paper_activity_stats(conn, market="TW")
         clock = taiwan_market_session(now)
@@ -573,10 +580,15 @@ def _dedupe_watch_symbols(symbols):
 
 
 def _current_commit_hash() -> str:
+    value, _source = _current_commit_info()
+    return value
+
+
+def _current_commit_info() -> tuple[str, str]:
     for name in ("RENDER_GIT_COMMIT", "SOURCE_VERSION"):
         value = os.getenv(name)
         if value:
-            return value[:12]
+            return value[:12], name
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--short=12", "HEAD"],
@@ -585,9 +597,9 @@ def _current_commit_hash() -> str:
             capture_output=True,
             text=True,
         )
-        return result.stdout.strip()
+        return result.stdout.strip(), "git rev-parse HEAD"
     except (OSError, subprocess.CalledProcessError):
-        return "unknown"
+        return "unknown", "unknown"
 
 
 if __name__ == "__main__":

@@ -1969,6 +1969,7 @@ def _debug_block(summary: Optional[LongModelSummary]) -> str:
     info = summary.debug_info
     rows = [
         ("app version / commit", str(info.get("app_version", "-"))),
+        ("app version source", str(info.get("app_version_source", "-"))),
         ("scoring model version", str(info.get("scoring_model_version", "-"))),
         ("session policy version", str(info.get("session_policy_version", "-"))),
         ("dashboard generated_at", str(info.get("dashboard_generated_at", "-"))),
@@ -1979,6 +1980,15 @@ def _debug_block(summary: Optional[LongModelSummary]) -> str:
         ("momentum scan total", str(info.get("momentum_scan_total", "-"))),
         ("momentum scan success", str(info.get("momentum_scan_success", "-"))),
         ("momentum scan model scored", str(info.get("momentum_scan_model_scored", "-"))),
+        ("full market version", str(info.get("full_market_version", "-"))),
+        ("full market pool symbols", str(info.get("full_market_pool_symbols", "-"))),
+        ("full market candidate symbols", str(info.get("full_market_candidate_symbols", "-"))),
+        ("full market out_of_pool", str(info.get("full_market_out_of_pool", "-"))),
+        ("strategy validation version", str(info.get("strategy_validation_version", "-"))),
+        ("post-market verification rows", str(info.get("post_market_verification_rows", "-"))),
+        ("post-market verification verified", str(info.get("post_market_verification_verified", "-"))),
+        ("post-market verification missing intraday", str(info.get("post_market_verification_missing_intraday", "-"))),
+        ("post-market verification message", str(info.get("post_market_verification_message", "-"))),
     ]
     items = "".join(f"<li><strong>{escape(label)}:</strong> {escape(value)}</li>" for label, value in rows)
     return f'<details class="debug-block"><summary>開發者資訊（系統版本 / Debug）</summary><ul>{items}</ul></details>'

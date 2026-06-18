@@ -56,6 +56,48 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(row["hit_2_pct"], 1)
             self.assertEqual(row["verification_outcome"], "達到2%目標")
 
+    def test_after_midnight_snapshot_uses_quote_latest_at_for_verification_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            captured = datetime(2026, 6, 19, 0, 30)
+            save_tw_full_market_snapshots(
+                conn,
+                captured,
+                [
+                    {
+                        "symbol": "2344.TW",
+                        "name": "華邦電",
+                        "latest_at": "2026-06-18T13:30:00+08:00",
+                        "latest_price": 50,
+                        "change_pct": 5.5,
+                        "volume": 20_000_000,
+                        "turnover": 1_000_000_000,
+                        "volume_ratio": 1.4,
+                        "vwap": 49,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": True,
+                        "source_reasons": ["今日漲幅大於3%"],
+                        "ai_grade": "B+",
+                        "entry_status": "wait_breakout",
+                        "trade_bias": "watch",
+                        "reason_code": "full_market_detected",
+                    }
+                ],
+            )
+            bars = [
+                Bar(datetime(2026, 6, 18, 13, 30), 50, 50.5, 49.8, 50.1, 1000),
+                Bar(datetime(2026, 6, 18, 13, 35), 50.1, 51.2, 50.0, 51.0, 1000),
+            ]
+
+            result = update_tw_scan_result_verification(conn, captured, {"2344.TW": bars})
+            row = conn.execute("SELECT * FROM tw_full_market_snapshots WHERE symbol = '2344.TW'").fetchone()
+
+            self.assertEqual(row["date"], "2026-06-18")
+            self.assertEqual(row["signal_at"], "2026-06-18T13:30:00+08:00")
+            self.assertEqual(result["verified"], 1)
+            self.assertEqual(row["post_scan_high"], 51.2)
+
     def test_scorecard_and_missed_rate_are_empty_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             conn = connect(default_db_path(Path(directory)))

@@ -358,10 +358,11 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetime, rows: Iterable[dict]) -> None:
-    date_text = captured_at.strftime("%Y-%m-%d")
     captured_text = captured_at.isoformat(timespec="seconds")
     with conn:
         for item in rows:
+            signal_text = _snapshot_signal_time(item, captured_text)
+            date_text = _snapshot_date_text(signal_text, captured_at)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tw_full_market_snapshots (
@@ -398,7 +399,7 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
                     item.get("not_selected_reason") or item.get("data_error"),
                     item.get("reason_code"),
                     "data_missing" if item.get("data_error") else "ok",
-                    captured_text,
+                    signal_text,
                     item.get("latest_price"),
                     item.get("vwap"),
                     item.get("volume_ratio"),
@@ -410,6 +411,21 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
                     captured_text,
                 ),
             )
+
+
+def _snapshot_signal_time(item: dict, fallback: str) -> str:
+    value = item.get("signal_at") or item.get("latest_at") or item.get("updated_at")
+    if isinstance(value, datetime):
+        return value.isoformat(timespec="seconds")
+    if value:
+        return str(value)
+    return fallback
+
+
+def _snapshot_date_text(signal_text: str, captured_at: datetime) -> str:
+    if signal_text and len(signal_text) >= 10 and signal_text[4:5] == "-" and signal_text[7:8] == "-":
+        return signal_text[:10]
+    return captured_at.strftime("%Y-%m-%d")
 
 
 def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candidates: Iterable[object]) -> None:
