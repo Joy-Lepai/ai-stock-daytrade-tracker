@@ -71,6 +71,7 @@ class MomentumScanItem:
     initial_status: str
     source_reasons: List[str]
     data_error: str = ""
+    latest_at: str = ""
     ai_grade: str = "-"
     entry_status: str = "-"
     trade_bias: str = "watch"
@@ -205,11 +206,13 @@ def _base_item(symbol: WatchSymbol, bars: List[Bar], intraday_bars: List[Bar]) -
             initial_status="資料不足",
             source_reasons=[],
             data_error="資料抓取失敗或日線不足",
+            latest_at="",
             not_selected_reason="資料抓取失敗",
         )
     last = bars[-1]
     previous = bars[-2]
     latest_price = intraday_bars[-1].close if intraday_bars else last.close
+    latest_at = (intraday_bars[-1].timestamp if intraday_bars else last.timestamp).isoformat(timespec="seconds")
     intraday_volume = sum(bar.volume for bar in intraday_bars) if intraday_bars else last.volume
     avg_volume = average_volume(bars, 20)
     volume_ratio = intraday_volume / avg_volume if avg_volume else 0.0
@@ -236,6 +239,7 @@ def _base_item(symbol: WatchSymbol, bars: List[Bar], intraday_bars: List[Bar]) -
         break_20d_high=latest_price >= high_20d,
         initial_status="異動送評分" if reasons else "未達異動門檻",
         source_reasons=reasons,
+        latest_at=latest_at,
     )
 
 

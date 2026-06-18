@@ -13,6 +13,7 @@ from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
     scan_single_symbol,
     watch_symbol_for,
@@ -54,11 +55,17 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_data.get(item.symbol, []),
         model,
     )
+    realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
+    realtime_payload = realtime_quote.to_dict()
+    display_payload = _display_payload(scan_item, model, realtime_payload)
     errors = {}
     if item.symbol in daily_errors:
         errors["daily"] = daily_errors[item.symbol]
     if item.symbol in intraday_errors:
         errors["intraday"] = intraday_errors[item.symbol]
+    warnings = {}
+    if realtime_quote.status == "failed":
+        warnings["realtime_quote"] = realtime_quote.error
     return {
         "ok": not bool(errors) and model is not None,
         "message": "掃描完成" if model is not None else "資料不足，尚無法進入評分模型",
@@ -70,8 +77,11 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "market_notes": list(market_bias.notes),
         "scan": scan_item.to_dict(),
         "candidate": _candidate_payload(model),
+        "realtime_quote": realtime_payload,
+        "display": display_payload,
         "errors": errors,
-        "data_source": "Yahoo Finance chart endpoint",
+        "warnings": warnings,
+        "data_source": "TWSE MIS + Yahoo Finance chart endpoint",
         "db_path": str(default_db_path(project_root)),
     }
 
@@ -126,6 +136,31 @@ def _candidate_payload(candidate) -> Optional[dict]:
         "reasons": candidate.reasons,
         "risk_reasons": candidate.risk_reasons,
         "confidence_summary": candidate.confidence_summary,
+    }
+
+
+def _display_payload(scan_item, candidate, realtime_quote: dict) -> dict:
+    scan_data = scan_item.to_dict() if scan_item else {}
+    candidate_data = _candidate_payload(candidate) or {}
+    current_price = realtime_quote.get("price")
+    change_pct = realtime_quote.get("change_pct")
+    source = realtime_quote.get("source") if current_price is not None else "Yahoo Finance intraday chart"
+    quote_time = realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
+    if current_price is None:
+        current_price = scan_data.get("latest_price")
+    if current_price is None:
+        current_price = candidate_data.get("last_price")
+    if change_pct is None:
+        change_pct = scan_data.get("change_pct")
+    if change_pct is None:
+        change_pct = candidate_data.get("change_pct")
+    return {
+        "current_price": current_price,
+        "change_pct": change_pct,
+        "price_source": source,
+        "quote_time": quote_time,
+        "model_reference_price": candidate_data.get("last_price"),
+        "scanner_latest_price": scan_data.get("latest_price"),
     }
 
 

@@ -1406,15 +1406,24 @@ def tw_advisor_script() -> str:
       const renderResult = (payload) => {
         const candidate = payload.candidate || {};
         const scan = payload.scan || {};
+        const display = payload.display || {};
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
         const sector = payload.sector || scan.sector || "";
         const bias = candidate.trade_bias || scan.trade_bias || "watch";
-        const price = candidate.last_price ?? scan.last_price;
+        const price = display.current_price ?? scan.latest_price ?? candidate.last_price;
+        const changePct = display.change_pct ?? scan.change_pct ?? candidate.change_pct;
         const statusText = candidate.trade_bias_reason || scan.trade_bias_reason || payload.message || "";
         const errors = payload.errors && Object.keys(payload.errors).length
           ? Object.entries(payload.errors).map(([key, value]) => `${key}: ${value}`)
           : [];
+        const warnings = payload.warnings && Object.keys(payload.warnings).length
+          ? Object.entries(payload.warnings).map(([key, value]) => `${key}: ${value}`)
+          : [];
+        const quoteMeta = [
+          display.price_source ? `價格來源：${display.price_source}` : "",
+          display.quote_time ? `報價時間：${display.quote_time}` : "",
+        ].filter(Boolean).join("｜");
         result.className = "advisor-result";
         result.innerHTML = `
           <article class="advisor-card">
@@ -1422,22 +1431,24 @@ def tw_advisor_script() -> str:
               <div>
                 <h2>${escapeHtml(symbol)}｜${escapeHtml(name)}</h2>
                 <div class="muted">${escapeHtml(sector)}｜資料來源：${escapeHtml(payload.data_source || "Yahoo Finance chart endpoint")}</div>
+                <div class="muted">${escapeHtml(quoteMeta || "價格來源：Yahoo Finance chart endpoint")}</div>
               </div>
               <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(decisionLabel(candidate))}</span>
             </div>
             <div class="advisor-grid">
-              ${metric("現價", escapeHtml(number(price)))}
-              ${metric("漲跌幅", pct(candidate.change_pct ?? scan.change_pct))}
+              ${metric("最新成交價", escapeHtml(number(price)))}
+              ${metric("漲跌幅", pct(changePct))}
+              ${metric("模型參考價", escapeHtml(number(display.model_reference_price ?? candidate.last_price)))}
               ${metric("AI 評級", escapeHtml(candidate.grade || scan.ai_grade || "-"))}
               ${metric("進場狀態", escapeHtml(candidate.entry_status || scan.entry_status || "-"))}
               ${metric("多方分數", escapeHtml(number(candidate.bullish_score ?? scan.bullish_score)))}
               ${metric("風險分數", escapeHtml(number(candidate.risk_score ?? scan.risk_score)))}
               ${metric("信心分數", escapeHtml(number(candidate.confidence_score ?? scan.confidence_score)))}
-              ${metric("量比", `${escapeHtml(number(candidate.volume_ratio ?? scan.volume_ratio))}x`)}
-              ${metric("VWAP", escapeHtml(number(candidate.vwap ?? scan.vwap)))}
-              ${metric("站上 VWAP", escapeHtml(yesNo(candidate.above_vwap ?? scan.above_vwap)))}
-              ${metric("突破昨高", escapeHtml(yesNo(candidate.break_prev_high ?? scan.break_prev_high)))}
-              ${metric("突破 5 日高", escapeHtml(yesNo(candidate.break_5d_high ?? scan.break_5d_high)))}
+              ${metric("量比", `${escapeHtml(number(scan.volume_ratio ?? candidate.volume_ratio))}x`)}
+              ${metric("VWAP", escapeHtml(number(scan.vwap ?? candidate.vwap)))}
+              ${metric("站上 VWAP", escapeHtml(yesNo(scan.above_vwap ?? candidate.above_vwap)))}
+              ${metric("突破昨高", escapeHtml(yesNo(scan.break_prev_high ?? candidate.break_prev_high)))}
+              ${metric("突破 5 日高", escapeHtml(yesNo(scan.break_5d_high ?? candidate.break_5d_high)))}
             </div>
             <div class="advisor-sections">
               <section class="advisor-panel">
@@ -1456,7 +1467,7 @@ def tw_advisor_script() -> str:
               </section>
               <section class="advisor-panel">
                 <h3>資料狀態</h3>
-                ${list(errors.length ? errors : [payload.message || "掃描完成。"])}
+                ${list(errors.length ? errors : [payload.message || "掃描完成。", ...warnings])}
               </section>
             </div>
           </article>
