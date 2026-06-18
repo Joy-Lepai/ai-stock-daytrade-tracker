@@ -5,6 +5,11 @@ from collections import Counter, defaultdict
 from typing import Iterable
 
 from stock_daytrade_system.confidence_config import DEFAULT_CONFIDENCE_CONFIG, ConfidenceConfig
+from stock_daytrade_system.strategy_validation import (
+    build_missed_rate_report,
+    build_model_observations,
+    build_strategy_scorecard,
+)
 
 
 def build_accuracy_dashboard_payload(
@@ -13,6 +18,10 @@ def build_accuracy_dashboard_payload(
 ) -> dict:
     samples = _accuracy_samples(conn)
     summary = build_accuracy_summary(samples, config)
+    strategy_scorecard = build_strategy_scorecard(conn)
+    missed_rate_report = build_missed_rate_report(conn)
+    model_suggestions = _model_suggestions(samples, config)
+    model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
     return {
         "api_status": "ok",
         "title": "策略成績單",
@@ -22,7 +31,9 @@ def build_accuracy_dashboard_payload(
         "by_market": _group_samples(samples, "market", config),
         "by_confidence": _group_samples(samples, "confidence_level", config),
         "b_plus_lifecycle": _b_plus_lifecycle_stats(conn),
-        "model_suggestions": _model_suggestions(samples, config),
+        "strategy_scorecard": strategy_scorecard,
+        "missed_rate_report": missed_rate_report,
+        "model_suggestions": model_suggestions + [item for item in model_observations if item not in model_suggestions],
         "disclaimer": "本系統僅供資料整理、策略追蹤與回測，不構成投資建議，也不保證獲利。",
     }
 

@@ -288,7 +288,7 @@ def _reason_message(code: str) -> str:
 
 def _root_cause_diagnosis(data_health: dict, missed: dict) -> list[str]:
     notes = [
-        "目前 dashboard 掃描池不是全市場，主要由 watchlist、內建熱門異動股與手動加入清單組成；股票池外個股會漏抓。",
+        "目前 dashboard 會先依成功納入的 TWSE / TPEX 官方掃描範圍建立異動池；若任一資料源失敗或使用快取，該市場強勢股仍可能漏抓或延遲。",
         "強勢股沒有成為 A 級，不一定是錯誤；A 級會同時要求 VWAP、量比、突破、風險與信心通過。",
         "已大漲、距離 VWAP 過遠、量比爆高或長上影的股票會被歸到 high_risk / 避開區，而不是可執行。",
     ]
@@ -303,12 +303,12 @@ def _root_cause_diagnosis(data_health: dict, missed: dict) -> list[str]:
 
 def _backtest_diagnostic() -> dict:
     return {
-        "status": "sample_limited",
-        "message": "最近 20～60 交易日的全市場漏抓率需要完整歷史掃描資料；目前資料庫主要保存 recommendations / paper trades，樣本不足時不硬算勝率。",
+        "status": "collecting",
+        "message": "系統已開始保存全市場異動快照與盤後驗證欄位；20～60 交易日策略成績會隨資料累積自動更新，樣本不足時不硬算勝率。",
         "required_next_data": [
-            "每日全市場或至少成交金額前段股票快照",
-            "每日 A / B+ / B / 排除清單與 reason_code",
-            "隔日或盤中最高、最低、收盤與觸發結果",
+            "每日 TWSE / TPEX 異動快照",
+            "每日 A / B+ / B / high_risk / avoid / data_missing 與 reason_code",
+            "訊號後最高、最低、收盤與目標 / 停損觸發結果",
         ],
     }
 

@@ -931,6 +931,11 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <div class="table-wrap" id="accuracy-confidence"></div>
     <h2>依市場</h2>
     <div class="table-wrap" id="accuracy-market"></div>
+    <h2>20 / 40 / 60 日策略成績</h2>
+    <div class="table-wrap" id="accuracy-scorecard"></div>
+    <h2>漏抓率報告</h2>
+    <section class="summary" id="accuracy-missed"></section>
+    <div class="table-wrap" id="accuracy-missed-examples"></div>
     <h2>模型調整建議</h2>
     <div class="table-wrap"><table><tbody id="accuracy-suggestions"></tbody></table></div>
   </main>
@@ -2156,6 +2161,8 @@ def accuracy_dashboard_script() -> str:
         $("accuracy-grade").innerHTML = table(payload.by_grade || [], "分級");
         $("accuracy-confidence").innerHTML = table(payload.by_confidence || [], "信心等級");
         $("accuracy-market").innerHTML = table(payload.by_market || [], "市場");
+        renderScorecard(payload.strategy_scorecard || {});
+        renderMissed(payload.missed_rate_report || {});
         const suggestions = payload.model_suggestions || [];
         $("accuracy-suggestions").innerHTML = suggestions.length
           ? suggestions.map((item) => `<tr><td>${escapeHtml(item)}</td></tr>`).join("")
@@ -2175,6 +2182,51 @@ def accuracy_dashboard_script() -> str:
           <td>${number(item.target_rate)}%</td>
         </tr>`).join("") : `<tr><td colspan="9">目前沒有${label}統計資料。</td></tr>`;
         return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th></tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      function renderScorecard(scorecard) {
+        const windows = scorecard.windows || {};
+        const rows = [];
+        for (const [windowName, data] of Object.entries(windows)) {
+          const groups = data.groups || {};
+          for (const grade of ["A", "B+", "B", "high_risk", "avoid", "data_missing"]) {
+            const item = groups[grade] || {};
+            rows.push(`<tr>
+              <td>${escapeHtml(windowName)}日</td>
+              <td>${escapeHtml(grade)}</td>
+              <td>${item.sample_size || 0}</td>
+              <td>${item.verified || 0}</td>
+              <td>${number(item.trigger_rate)}%</td>
+              <td>${number(item.win_rate)}%</td>
+              <td>${number(item.avg_max_gain)}%</td>
+              <td>${number(item.avg_max_drawdown)}%</td>
+              <td>${number(item.stop_rate)}%</td>
+              <td>${number(item.target_rate)}%</td>
+              <td>${number(item.reward_risk_ratio)}</td>
+            </tr>`);
+          }
+        }
+        $("accuracy-scorecard").innerHTML = `<table><thead><tr><th>期間</th><th>類別</th><th>出現次數</th><th>已驗證</th><th>觸發率</th><th>勝率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>停利率</th><th>平均賺賠比</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="11">目前沒有策略成績資料。</td></tr>'}</tbody></table>`;
+      }
+
+      function renderMissed(report) {
+        $("accuracy-missed").innerHTML = [
+          metric("強勢股總數", report.strong_stock_count || 0),
+          metric("系統有看到", report.system_seen_count || 0),
+          metric("系統沒看到", report.missed_count || 0),
+          metric("漏抓率", `${number(report.missed_rate)}%`),
+          metric("樣本提示", escapeHtml(report.message || "")),
+        ].join("");
+        const examples = report.missed_examples || [];
+        const body = examples.length ? examples.map((item) => `<tr>
+          <td>${escapeHtml(item.date)}</td>
+          <td>${escapeHtml(item.symbol)}｜${escapeHtml(item.name)}</td>
+          <td>${number(item.change_pct)}%</td>
+          <td>${number(item.turnover, 0)}</td>
+          <td>${number(item.volume, 0)}</td>
+          <td>${escapeHtml(item.reason_code)}</td>
+        </tr>`).join("") : '<tr><td colspan="6">目前沒有漏抓案例，或樣本不足。</td></tr>';
+        $("accuracy-missed-examples").innerHTML = `<table><thead><tr><th>日期</th><th>股票</th><th>漲幅</th><th>成交金額</th><th>成交量</th><th>漏抓原因</th></tr></thead><tbody>${body}</tbody></table>`;
       }
 
       loadAccuracy();

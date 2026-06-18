@@ -529,11 +529,13 @@ def render_tracker_html(
     </div>
     {_data_status_block(statuses)}
     {_warning_block(warnings)}
-    {_debug_block(long_summary)}
   </header>
   <main>
+    {_decision_overview(long_summary)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    <h2>本週模型觀察</h2>
+    {_model_observation_panel(long_summary)}
     <h2>資料健康度</h2>
     {_data_health_panel(long_summary)}
     <h2>台股全市場異動掃描池</h2>
@@ -576,6 +578,8 @@ def render_tracker_html(
     <div class="table-wrap">{_paper_trading_table(paper_summary)}</div>
     <h2>使用者說明</h2>
     {_user_guide_panel(long_summary)}
+    <h2>開發者資訊</h2>
+    {_debug_block(long_summary)}
     <h2>市場摘要</h2>
     <div class="table-wrap">{_market_table(market_bias.notes)}</div>
     <h2>族群強弱</h2>
@@ -700,6 +704,91 @@ def _metric(label: str, value: int) -> str:
 
 def _metric_text(label: str, value: str) -> str:
     return f'<div class="metric"><span class="muted">{escape(label)}</span><strong>{escape(value)}</strong></div>'
+
+
+def _decision_overview(summary: Optional[LongModelSummary]) -> str:
+    data = summary.decision_center if summary else {}
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics.get("data_health") or {}) if diagnostics else {}
+    checklist = summary.recommendation_checklist if summary else {}
+    counts = data.get("counts", {}) if data else {}
+    tendency = data.get("operation_tendency") or "資料不足"
+    confidence = health.get("status") or "未知"
+    reminder = data.get("action_suggestion") or health.get("recommendation_state") or "目前資料不足，系統僅能提供有限判斷。"
+    focus_items = _top_focus_items(summary)
+    focus_html = "".join(_focus_card(item) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
+    return (
+        '<section class="decision-center">'
+        '<h2>今日決策摘要</h2>'
+        '<div class="summary">'
+        f'{_metric_text("今日市場狀態", str(tendency))}'
+        f'{_metric_text("今日資料可信度", str(confidence))}'
+        f'{_metric("executable", int(counts.get("executable", checklist.get("executable", 0) or 0)))}'
+        f'{_metric("A 級", int(counts.get("grade_a", checklist.get("grade_a", 0) or 0)))}'
+        f'{_metric("B+", int(counts.get("grade_b_plus", checklist.get("grade_b_plus", 0) or 0)))}'
+        f'{_metric("B", int(counts.get("grade_b", checklist.get("grade_b", 0) or 0)))}'
+        f'{_metric("high_risk", int(counts.get("high_risk", checklist.get("high_risk", 0) or 0)))}'
+        f'{_metric("avoid", int(counts.get("avoid", checklist.get("avoid", 0) or 0)))}'
+        '</div>'
+        f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
+        '<h3>今日重點觀察股</h3>'
+        f'<div class="signal-grid">{focus_html}</div>'
+        '</section>'
+    )
+
+
+def _top_focus_items(summary: Optional[LongModelSummary]) -> list[LongCandidate]:
+    if summary is None:
+        return []
+    order = {"executable": 0, "practice_long": 1, "wait_breakout": 2, "wait_vwap": 3, "wait_volume": 4, "high_risk": 5}
+    rows = [
+        item for item in summary.candidates
+        if item.grade in {"A", "B+", "B"} or item.entry_status in {"executable", "practice_long", "wait_breakout", "wait_vwap", "wait_volume", "high_risk"}
+    ]
+    rows.sort(key=lambda item: (order.get(item.entry_status, 9), item.risk_score, -item.bullish_score, item.symbol))
+    return rows[:10]
+
+
+def _focus_card(item: LongCandidate) -> str:
+    invalidation = "跌破 VWAP、量能退潮或風險分數升高時失效。"
+    if item.entry_status == "high_risk":
+        invalidation = "若無法回測降溫，避免追價。"
+    return (
+        '<div class="decision-panel">'
+        f'<strong>{escape(item.symbol)}｜{escape(item.name)}</strong>'
+        f'<div>{escape(item.trade_bias_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
+        f'<p class="muted"><strong>結論：</strong>{escape(item.analysis.action_label or item.trade_bias_label)}</p>'
+        f'<p class="muted"><strong>原因：</strong>{escape(item.analysis.bullish_reason or item.reason_text)}</p>'
+        f'<p class="muted"><strong>下一步：</strong>{escape(item.analysis.next_step or _next_step_for_entry(item.entry_status))}</p>'
+        f'<p class="muted"><strong>失效條件：</strong>{escape(invalidation)}</p>'
+        f'<p class="muted"><strong>風險提醒：</strong>{escape(item.analysis.risk_reason or item.risk_text)}</p>'
+        '</div>'
+    )
+
+
+def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    notes = list((diagnostics or {}).get("model_observations") or [])
+    scorecard = ((diagnostics or {}).get("strategy_scorecard") or {}).get("windows", {}).get("20", {})
+    missed = (diagnostics or {}).get("missed_rate_report") or {}
+    note_html = "".join(f"<li>{escape(str(item))}</li>" for item in notes) or "<li>目前樣本不足，先累積資料。</li>"
+    groups = scorecard.get("groups") or {}
+    a_win = float((groups.get("A") or {}).get("win_rate", 0) or 0)
+    b_plus_win = float((groups.get("B+") or {}).get("win_rate", 0) or 0)
+    high_risk_up = float((groups.get("high_risk") or {}).get("continue_up_rate", 0) or 0)
+    missed_rate = float(missed.get("missed_rate", 0) or 0)
+    return (
+        '<section class="decision-center">'
+        '<div class="summary">'
+        f'{_metric("20日樣本", int(scorecard.get("sample_size", 0) or 0))}'
+        f'{_metric_text("A勝率", f"{a_win:.2f}%")}'
+        f'{_metric_text("B+勝率", f"{b_plus_win:.2f}%")}'
+        f'{_metric_text("high_risk續漲", f"{high_risk_up:.2f}%")}'
+        f'{_metric_text("漏抓率", f"{missed_rate:.2f}%")}'
+        '</div>'
+        f'<ul class="decision-list">{note_html}</ul>'
+        '</section>'
+    )
 
 
 def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:

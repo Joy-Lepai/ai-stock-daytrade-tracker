@@ -31,6 +31,12 @@ from stock_daytrade_system.report import render_opening_report, render_report
 from stock_daytrade_system.scoring import CandidateScore, score_market_bias, score_symbol
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
 from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
+from stock_daytrade_system.strategy_validation import (
+    build_missed_rate_report,
+    build_model_observations,
+    build_strategy_scorecard,
+    update_tw_scan_result_verification,
+)
 from stock_daytrade_system.taifex import TaifexClient, TaifexDataError
 from stock_daytrade_system.tracker import build_tracked_symbols, render_tracker_html
 from stock_daytrade_system.tw_diagnostics import DiagnosticInputs, build_tw_diagnostics
@@ -361,9 +367,13 @@ def run_tracker(
             original_pool_symbols=original_pool_symbols,
         )
         save_tw_full_market_snapshots(conn, now, momentum_scan.to_dict().get("items", []))
+        post_market_verification = update_tw_scan_result_verification(conn, now, intraday_data)
         save_long_candidates(conn, now, long_candidates)
         update_backtests(conn, now, intraday_data)
         backtest_data = backtest_summary(conn, now.date())
+        strategy_scorecard = build_strategy_scorecard(conn)
+        missed_rate_report = build_missed_rate_report(conn)
+        model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
         b_plus_triggers = build_b_plus_trigger_tracker(conn, market="TW", date_text=now.strftime("%Y-%m-%d"))
         visible_long_candidates = [
             item for item in long_candidates
@@ -450,6 +460,10 @@ def run_tracker(
                 candidates=long_candidates,
             )
         )
+        diagnostics["post_market_verification"] = post_market_verification
+        diagnostics["strategy_scorecard"] = strategy_scorecard
+        diagnostics["missed_rate_report"] = missed_rate_report
+        diagnostics["model_observations"] = model_observations
         long_summary = build_long_model_summary(
             long_candidates,
             market_indicators,
