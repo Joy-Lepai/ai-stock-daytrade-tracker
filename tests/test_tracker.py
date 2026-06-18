@@ -457,6 +457,62 @@ class TrackerStatusTests(unittest.TestCase):
                 "candidates_count_from_current_run": 17,
                 "visible_candidates_count": 12,
             },
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "recommendation_state": "目前資料不完整，僅供觀察，不建議交易",
+                    "stock_pool_count": 30,
+                    "daily_success_count": 29,
+                    "daily_failed_count": 1,
+                    "intraday_success_count": 28,
+                    "intraday_failed_count": 2,
+                    "latest_intraday_at": "2026-01-01T09:05:00+08:00",
+                    "age_minutes": 3,
+                    "is_intraday_session": True,
+                    "is_today_data": True,
+                    "failed_symbols": ["9999.TW"],
+                    "data_sources": ["Yahoo Finance chart endpoint"],
+                    "uses_realtime_or_delayed": "批次 dashboard 以 Yahoo chart endpoint 為主。",
+                },
+                "missed_stock_analysis": {
+                    "definition": "漲幅 > 3% 且量比 >= 0.8",
+                    "scanner_limitation": "目前不是全市場掃描",
+                    "total_scanned": 1,
+                    "strong_move_count": 1,
+                    "entered_ai_count": 0,
+                    "missed_count": 1,
+                    "missed_rate": 100,
+                    "rows": [
+                        {
+                            "symbol": "6770.TW",
+                            "name": "力積電",
+                            "change_pct": 4.2,
+                            "latest_price": 18.5,
+                            "volume_ratio": 1.1,
+                            "turnover": 100000000,
+                            "above_vwap": True,
+                            "break_prev_high": True,
+                            "break_intraday_high": True,
+                            "entered_ai_candidates": False,
+                            "ai_grade": "D",
+                            "entry_status": "high_risk",
+                            "not_selected_reason": "risk_score 過高",
+                            "reason_code": "risk_high",
+                            "latest_at": "2026-01-01T09:05:00+08:00",
+                        }
+                    ],
+                },
+                "model_conditions": {
+                    "a": ["bullish_score >= 80"],
+                    "b_plus": ["bullish_score >= 70"],
+                    "b": ["bullish_score >= 65"],
+                    "c_d_exclusion": ["risk_score > 70"],
+                    "entry_status": ["executable：A 級且信心足夠"],
+                },
+                "root_cause_diagnosis": ["目前 dashboard 掃描池不是全市場。"],
+                "backtest_diagnostic": {"message": "目前樣本不足時不硬算勝率。"},
+                "user_guide": ["這個系統不是報明牌。"],
+            },
         )
         with tempfile.TemporaryDirectory() as directory:
             output_path = Path(directory) / "tracker.html"
@@ -474,6 +530,11 @@ class TrackerStatusTests(unittest.TestCase):
             html = output_path.read_text(encoding="utf-8")
 
         self.assertIn("今日推薦檢查表", html)
+        self.assertIn("資料健康度", html)
+        self.assertIn("漏抓股票診斷", html)
+        self.assertIn("模型條件診斷", html)
+        self.assertIn("risk_high", html)
+        self.assertIn("目前不是全市場掃描", html)
         self.assertIn("系統版本 / Debug", html)
         self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
         self.assertIn("session_policy_v1_time_gated_entry_2026-06-18", html)

@@ -379,6 +379,10 @@ def render_tracker_html(
       border-radius: 8px;
       color: #344054;
     }}
+    .debug-block summary {{ cursor: pointer; font-weight: 750; }}
+    .health-ok {{ color: #067647; font-weight: 750; }}
+    .health-warn {{ color: #8a5a00; font-weight: 750; }}
+    .health-bad {{ color: #b42318; font-weight: 750; }}
     table {{
       width: 100%;
       border-collapse: collapse;
@@ -530,6 +534,12 @@ def render_tracker_html(
   <main>
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    <h2>資料健康度</h2>
+    {_data_health_panel(long_summary)}
+    <h2>漏抓股票診斷</h2>
+    {_missed_stock_diagnostic_table(long_summary)}
+    <h2>模型條件診斷</h2>
+    {_model_diagnostic_panel(long_summary)}
     <h2>明日續強候選股</h2>
     <div class="table-wrap">{_tomorrow_continuation_candidates(long_summary)}</div>
     <h2>明日買多觀察池</h2>
@@ -562,6 +572,8 @@ def render_tracker_html(
     <div class="table-wrap">{_performance_table(performance_summary)}</div>
     <h2>虛擬交易</h2>
     <div class="table-wrap">{_paper_trading_table(paper_summary)}</div>
+    <h2>使用者說明</h2>
+    {_user_guide_panel(long_summary)}
     <h2>市場摘要</h2>
     <div class="table-wrap">{_market_table(market_bias.notes)}</div>
     <h2>族群強弱</h2>
@@ -1190,6 +1202,132 @@ def _data_status_block(statuses: List[str]) -> str:
     return f'<div class="data-status"><strong>資料狀態</strong><ul>{items}</ul></div>'
 
 
+def _data_health_panel(summary: Optional[LongModelSummary]) -> str:
+    health = ((summary.diagnostics or {}).get("data_health") if summary else {}) or {}
+    if not health:
+        return '<div class="notice">目前沒有資料健康度診斷。</div>'
+    status = str(health.get("status") or "未知")
+    css = "health-ok" if status == "正常" else "health-bad" if status in {"異常", "過期"} else "health-warn"
+    sources = "".join(f"<li>{escape(str(item))}</li>" for item in health.get("data_sources", [])[:5])
+    failed = health.get("failed_symbols") or []
+    failed_text = "、".join(str(item) for item in failed[:12]) if failed else "無"
+    return (
+        f'<section class="data-status"><strong>今日資料狀態：<span class="{css}">{escape(status)}</span></strong>'
+        f'<p>{escape(str(health.get("recommendation_state", "")))}</p>'
+        '<div class="summary">'
+        f'{_metric("股票池數量", int(health.get("stock_pool_count", 0)))}'
+        f'{_metric("日線成功", int(health.get("daily_success_count", 0)))}'
+        f'{_metric("日線失敗", int(health.get("daily_failed_count", 0)))}'
+        f'{_metric("盤中成功", int(health.get("intraday_success_count", 0)))}'
+        f'{_metric("盤中失敗", int(health.get("intraday_failed_count", 0)))}'
+        f'{_metric_text("最後盤中資料", str(health.get("latest_intraday_at") or "-"))}'
+        f'{_metric_text("資料年齡", _age_text(health.get("age_minutes")))}'
+        f'{_metric_text("交易時間", "是" if health.get("is_intraday_session") else "否")}'
+        f'{_metric_text("是否今天資料", "是" if health.get("is_today_data") else "否")}'
+        '</div>'
+        f'<p class="muted">失敗標的：{escape(failed_text)}</p>'
+        f'<p class="muted">{escape(str(health.get("uses_realtime_or_delayed", "")))}</p>'
+        f'<ul>{sources}</ul>'
+        '</section>'
+    )
+
+
+def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
+    diagnostic = ((summary.diagnostics or {}).get("missed_stock_analysis") if summary else {}) or {}
+    rows = diagnostic.get("rows") or []
+    if not diagnostic:
+        return '<div class="notice">目前沒有漏抓股票診斷資料。</div>'
+    intro = (
+        '<section class="notice">'
+        f'{escape(str(diagnostic.get("definition", "")))}<br>'
+        f'{escape(str(diagnostic.get("scanner_limitation", "")))}'
+        '</section>'
+    )
+    metrics = (
+        '<div class="summary">'
+        f'{_metric("掃描池股票", int(diagnostic.get("total_scanned", 0)))}'
+        f'{_metric("強勢異動數", int(diagnostic.get("strong_move_count", 0)))}'
+        f'{_metric("進入 A/B+/B", int(diagnostic.get("entered_ai_count", 0)))}'
+        f'{_metric("掃描池內漏抓", int(diagnostic.get("missed_count", 0)))}'
+        f'{_metric_text("漏抓率", "{:.2f}%".format(float(diagnostic.get("missed_rate", 0))))}'
+        '</div>'
+    )
+    body = []
+    for item in rows[:40]:
+        body.append(
+            '<tr>'
+            f'<td><strong>{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</strong><br><span class="muted">{escape(str(item.get("latest_at", "")))}</span></td>'
+            f'{_change_cell(item.get("change_pct"))}'
+            f'<td data-sort-value="{_sort_value(item.get("latest_price"))}">{_fmt(item.get("latest_price"))}</td>'
+            f'<td data-sort-value="{_sort_value(item.get("volume_ratio"))}">{_fmt(item.get("volume_ratio"))}x</td>'
+            f'<td data-sort-value="{_sort_value(item.get("turnover"))}">{_money(float(item.get("turnover") or 0)) if item.get("turnover") is not None else "-"}</td>'
+            f'<td>{_yes_no(bool(item.get("above_vwap")))}</td>'
+            f'<td>{_yes_no(bool(item.get("break_prev_high")))}</td>'
+            f'<td>{_yes_no(bool(item.get("break_intraday_high")))}</td>'
+            f'<td>{_yes_no(bool(item.get("entered_ai_candidates")))}</td>'
+            f'<td>{escape(str(item.get("ai_grade", "-")))}</td>'
+            f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
+            f'<td class="notes">{escape(str(item.get("not_selected_reason", "-")))}</td>'
+            f'<td>{escape(str(item.get("reason_code", "-")))}</td>'
+            '</tr>'
+        )
+    return (
+        intro + metrics
+        + '<div class="table-wrap"><table class="sortable"><thead><tr>'
+        '<th data-sort="text">股票</th><th data-sort="number">今日漲幅</th><th data-sort="number">目前價格</th>'
+        '<th data-sort="number">量比</th><th data-sort="number">成交金額</th><th data-sort="text">站上 VWAP</th>'
+        '<th data-sort="text">突破昨高</th><th data-sort="text">突破盤中/前高</th><th data-sort="text">進入 AI 候選</th>'
+        '<th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th><th>未入選原因</th><th data-sort="text">reason code</th>'
+        '</tr></thead><tbody>'
+        + ("".join(body) or '<tr><td colspan="13">目前沒有掃描列。</td></tr>')
+        + '</tbody></table></div>'
+    )
+
+
+def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    conditions = (diagnostics or {}).get("model_conditions") or {}
+    causes = (diagnostics or {}).get("root_cause_diagnosis") or []
+    backtest = (diagnostics or {}).get("backtest_diagnostic") or {}
+    if not conditions:
+        return '<div class="notice">目前沒有模型條件診斷。</div>'
+    def condition_list(key: str) -> str:
+        return "".join(f"<li>{escape(str(item))}</li>" for item in conditions.get(key, []))
+    cause_items = "".join(f"<li>{escape(str(item))}</li>" for item in causes)
+    required = "".join(f"<li>{escape(str(item))}</li>" for item in backtest.get("required_next_data", []))
+    return (
+        '<section class="decision-center">'
+        '<div class="decision-grid">'
+        f'<div class="decision-panel"><strong>A 級條件</strong><ul class="decision-list">{condition_list("a")}</ul></div>'
+        f'<div class="decision-panel"><strong>B+ 條件</strong><ul class="decision-list">{condition_list("b_plus")}</ul></div>'
+        f'<div class="decision-panel"><strong>B 級條件</strong><ul class="decision-list">{condition_list("b")}</ul></div>'
+        f'<div class="decision-panel"><strong>C / D 排除條件</strong><ul class="decision-list">{condition_list("c_d_exclusion")}</ul></div>'
+        f'<div class="decision-panel"><strong>entry_status 條件</strong><ul class="decision-list">{condition_list("entry_status")}</ul></div>'
+        f'<div class="decision-panel"><strong>目前主要診斷</strong><ul class="decision-list">{cause_items}</ul></div>'
+        '</div>'
+        f'<section class="notice">回測診斷：{escape(str(backtest.get("message", "目前樣本不足時不硬算勝率。")))}'
+        f'<ul>{required}</ul></section>'
+        '</section>'
+    )
+
+
+def _user_guide_panel(summary: Optional[LongModelSummary]) -> str:
+    guide = ((summary.diagnostics or {}).get("user_guide") if summary else None) or []
+    if not guide:
+        return ""
+    items = "".join(f"<li>{escape(str(item))}</li>" for item in guide)
+    return f'<section class="notice"><ul>{items}</ul></section>'
+
+
+def _age_text(value) -> str:
+    try:
+        if value is None:
+            return "-"
+        return f"{float(value):.1f} 分鐘"
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _tracked_table(rows: List[TrackedSymbol], empty_text: str = "目前沒有追蹤標的。") -> str:
     body = []
     for row in rows:
@@ -1640,7 +1778,7 @@ def _debug_block(summary: Optional[LongModelSummary]) -> str:
         ("momentum scan model scored", str(info.get("momentum_scan_model_scored", "-"))),
     ]
     items = "".join(f"<li><strong>{escape(label)}:</strong> {escape(value)}</li>" for label, value in rows)
-    return f'<div class="debug-block"><strong>系統版本 / Debug</strong><ul>{items}</ul></div>'
+    return f'<details class="debug-block"><summary>開發者資訊（系統版本 / Debug）</summary><ul>{items}</ul></details>'
 
 
 def _bullish_focus_rows(rows: List[TrackedSymbol]) -> List[TrackedSymbol]:

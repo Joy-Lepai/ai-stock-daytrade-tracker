@@ -26,6 +26,7 @@ from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sec
 from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
 from stock_daytrade_system.taifex import TaifexClient, TaifexDataError
 from stock_daytrade_system.tracker import build_tracked_symbols, render_tracker_html
+from stock_daytrade_system.tw_diagnostics import DiagnosticInputs, build_tw_diagnostics
 from stock_daytrade_system.tw_momentum_scanner import build_momentum_universe, scan_momentum_candidates
 from stock_daytrade_system.web import DEFAULT_AUTH, serve
 
@@ -408,6 +409,23 @@ def run_tracker(
             },
             paper_stats=paper_stats,
         )
+        diagnostics = build_tw_diagnostics(
+            DiagnosticInputs(
+                now=now,
+                all_symbols=all_watch_items,
+                intraday_symbols=watch_symbols,
+                daily_data=daily_data,
+                intraday_data=intraday_data,
+                daily_errors=daily_errors,
+                intraday_errors=intraday_errors,
+                taifex_errors=taifex_errors,
+                cmoney_errors=cmoney_errors,
+                market_session=clock.session,
+                market_status=market_bias.direction,
+                momentum_scan=momentum_scan.to_dict(),
+                candidates=long_candidates,
+            )
+        )
         long_summary = build_long_model_summary(
             long_candidates,
             market_indicators,
@@ -419,6 +437,7 @@ def run_tracker(
             paper_stats,
             decision_center,
             momentum_scan.to_dict(),
+            diagnostics,
         )
     performance_summary = record_signal_performance(now, tracked_symbols, intraday_data, output_dir)
     paper_summary = update_paper_trades(now, tracked_symbols, intraday_data, output_dir)

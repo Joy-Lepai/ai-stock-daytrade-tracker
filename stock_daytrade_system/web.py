@@ -536,6 +536,9 @@ def _tracker_html_needs_refresh(html: str) -> bool:
         "明日買多觀察池",
         "AI 今日決策中心",
         "訊號中心",
+        "資料健康度",
+        "漏抓股票診斷",
+        "模型條件診斷",
         "B+ 觸發條件追蹤",
         "B+可練習觀察數量",
     )
@@ -1482,6 +1485,7 @@ def tw_advisor_script() -> str:
         const candidate = payload.candidate || {};
         const scan = payload.scan || {};
         const display = payload.display || {};
+        const dataHealth = payload.data_health || {};
         const analysis = payload.advisor_analysis || {};
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -1502,6 +1506,9 @@ def tw_advisor_script() -> str:
         ].filter(Boolean).join("｜");
         const analysisLabel = analysis.action_label || decisionLabel(candidate);
         const plan = analysis.action_plan || {};
+        const conclusion = dataHealth.advice && dataHealth.status !== "正常" ? dataHealth.advice : (analysis.action_label || decisionLabel(candidate));
+        const longReasons = candidate.reasons || scan.source_reasons || [];
+        const riskReasons = candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"];
         const keyLevels = Array.isArray(analysis.key_levels) ? analysis.key_levels : [];
         const chart = payload.intraday_chart || {};
         result.className = "advisor-result";
@@ -1516,7 +1523,7 @@ def tw_advisor_script() -> str:
               <span class="decision-badge ${decisionClass(bias)}">${escapeHtml(analysisLabel)}</span>
             </div>
             <div class="advisor-decision">
-              <strong>${escapeHtml(analysisLabel)}</strong>
+              <strong>結論：${escapeHtml(conclusion)}</strong>
               <span>${escapeHtml(analysis.action_summary || statusText)}</span>
             </div>
             <div class="advisor-grid">
@@ -1536,6 +1543,9 @@ def tw_advisor_script() -> str:
               ${metric("站上 VWAP", escapeHtml(yesNo(scan.above_vwap ?? candidate.above_vwap)))}
               ${metric("突破昨高", escapeHtml(yesNo(scan.break_prev_high ?? candidate.break_prev_high)))}
               ${metric("突破 5 日高", escapeHtml(yesNo(scan.break_5d_high ?? candidate.break_5d_high)))}
+              ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}
+              ${metric("資料更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
+              ${metric("資料是否過期", escapeHtml(dataHealth.is_stale ? "是" : "否"))}
             </div>
             <section class="advisor-chart">
               <div class="chart-head">
@@ -1557,6 +1567,16 @@ def tw_advisor_script() -> str:
                   ${planRow("等待條件", plan.wait_condition)}
                   ${planRow("失效條件", plan.invalidation_condition)}
                   ${planRow("不追價原因", plan.no_chase_reason)}
+                </div>
+              </section>
+              <section class="advisor-panel advisor-plan">
+                <h3>白話結論</h3>
+                <div class="plan-grid">
+                  ${planRow("結論", conclusion)}
+                  ${planRow("下一步條件", plan.wait_condition || analysis.next_step || statusText)}
+                  ${planRow("失效條件", plan.invalidation_condition || "跌破 VWAP、停損價或量能明顯轉弱")}
+                  ${planRow("資料更新時間", dataHealth.quote_time || display.quote_time || "-")}
+                  ${planRow("資料可信度", dataHealth.credibility || "-")}
                 </div>
               </section>
               <section class="advisor-panel">
@@ -1594,15 +1614,21 @@ def tw_advisor_script() -> str:
               </section>
               <section class="advisor-panel">
                 <h3>多方理由</h3>
-                ${list(candidate.reasons || scan.reasons)}
+                ${list(longReasons)}
               </section>
               <section class="advisor-panel">
                 <h3>風險提醒</h3>
-                ${list(candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"])}
+                ${list(riskReasons)}
               </section>
               <section class="advisor-panel">
                 <h3>資料狀態</h3>
-                ${list(errors.length ? errors : [payload.message || "掃描完成。", ...warnings])}
+                ${list(errors.length ? errors : [
+                  dataHealth.advice || payload.message || "掃描完成。",
+                  `是否今天資料：${dataHealth.is_today_data ? "是" : "否"}`,
+                  `是否盤中資料：${dataHealth.is_intraday_data ? "是" : "否"}`,
+                  `是否已過期：${dataHealth.is_stale ? "是" : "否"}`,
+                  ...warnings,
+                ])}
               </section>
             </div>
           </article>

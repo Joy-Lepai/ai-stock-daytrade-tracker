@@ -48,6 +48,9 @@ class WebTests(unittest.TestCase):
           明日買多觀察池
           AI 今日決策中心
           訊號中心
+          資料健康度
+          漏抓股票診斷
+          模型條件診斷
           B+ 觸發條件追蹤
           B+可練習觀察數量
         </body></html>
@@ -88,6 +91,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("技術結構分數", html)
         self.assertIn("量能確認分數", html)
         self.assertIn("追價風險分數", html)
+        self.assertIn("白話結論", html)
+        self.assertIn("資料可信度", html)
+        self.assertIn("資料更新時間", html)
         self.assertIn("當沖作戰計畫", html)
         self.assertIn("分時走勢圖", html)
         self.assertIn("價格 / VWAP / 關鍵價位 / 停損停利", html)

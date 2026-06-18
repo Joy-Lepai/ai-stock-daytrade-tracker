@@ -62,6 +62,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
     display_payload = _display_payload(scan_item, model, realtime_payload)
+    data_health = _data_health_payload(captured_at, display_payload, daily_errors, intraday_errors, quote_intraday_errors, item.symbol)
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
         scan=scan_item.to_dict(),
@@ -96,6 +97,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "candidate": candidate_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
+        "data_health": data_health,
         "advisor_analysis": analysis_payload,
         "intraday_chart": chart_payload,
         "errors": errors,
@@ -192,6 +194,51 @@ def _display_payload(scan_item, candidate, realtime_quote: dict) -> dict:
     }
 
 
+def _data_health_payload(
+    captured_at: datetime,
+    display: dict,
+    daily_errors: dict,
+    intraday_errors: dict,
+    quote_intraday_errors: dict,
+    symbol: str,
+) -> dict:
+    quote_time = str(display.get("quote_time") or "")
+    quote_dt = _parse_quote_time(quote_time)
+    age_minutes = None
+    if quote_dt is not None:
+        age_minutes = max((captured_at.astimezone(ZoneInfo("Asia/Taipei")) - quote_dt).total_seconds() / 60, 0.0)
+    is_today = bool(quote_dt and quote_dt.date() == captured_at.astimezone(ZoneInfo("Asia/Taipei")).date())
+    stale = bool(age_minutes is not None and age_minutes > 15)
+    has_error = symbol in daily_errors or symbol in intraday_errors
+    if has_error:
+        status = "異常"
+        credibility = "資料不足 / 不可信"
+        advice = "目前資料不完整，僅供觀察，不建議交易"
+    elif stale or (quote_dt is not None and not is_today):
+        status = "過期"
+        credibility = "低"
+        advice = "資料過期，暫停產生當沖建議"
+    elif symbol in quote_intraday_errors:
+        status = "部分缺漏"
+        credibility = "中"
+        advice = "TWSE 即時價缺漏，已回退 Yahoo 分 K，僅供觀察"
+    else:
+        status = "正常"
+        credibility = "高"
+        advice = "資料狀態可供個股當沖分析"
+    return {
+        "status": status,
+        "credibility": credibility,
+        "quote_time": quote_time,
+        "generated_at": captured_at.isoformat(timespec="seconds"),
+        "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+        "is_today_data": is_today,
+        "is_intraday_data": bool(quote_dt),
+        "is_stale": stale,
+        "advice": advice,
+    }
+
+
 def _not_selected_reason(candidate) -> str:
     if candidate.grade in {"A", "B+", "B"}:
         return "已進入正式候選"
@@ -210,6 +257,19 @@ def _not_selected_reason(candidate) -> str:
     if candidate.entry_status == "avoid":
         return "已列為 avoid"
     return "條件未達 A/B+/B"
+
+
+def _parse_quote_time(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    text = value.strip()
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Taipei"))
+    return parsed.astimezone(ZoneInfo("Asia/Taipei"))
 
 
 def _intraday_chart_payload(bars, analysis_payload: dict) -> dict:
