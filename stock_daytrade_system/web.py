@@ -978,6 +978,146 @@ def notification_module_script() -> str:
     """
 
 
+def position_sizing_controls_html() -> str:
+    return """
+      <details class="position-sizing-settings">
+        <summary>部位風控</summary>
+        <div class="position-sizing-panel">
+          <label>今日最大可接受總虧損
+            <input id="position-daily-risk" type="number" min="0" step="100" inputmode="decimal" placeholder="例如 10000">
+          </label>
+          <label>單筆最大冒險金額
+            <input id="position-risk-per-trade" type="number" min="0" step="100" inputmode="decimal" placeholder="例如 2000">
+          </label>
+          <span id="position-sizing-status" class="position-sizing-status">預設單筆 2000 元</span>
+        </div>
+      </details>
+    """
+
+
+def position_sizing_calculator_script() -> str:
+    return r"""
+    (() => {
+      if (window.PositionSizingCalculator) return;
+
+      const STORAGE_DAILY = "stockPositionDailyRisk";
+      const STORAGE_TRADE = "stockPositionTradeRisk";
+      const DEFAULT_TRADE_RISK = 2000;
+      const state = {
+        dailyRisk: Number(localStorage.getItem(STORAGE_DAILY) || 0),
+        tradeRisk: Number(localStorage.getItem(STORAGE_TRADE) || DEFAULT_TRADE_RISK),
+        refreshTimer: null,
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const numeric = (value) => {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+      };
+      const formatInt = (value) => Math.max(0, Math.floor(Number(value) || 0)).toLocaleString();
+      const riskBudget = () => {
+        const trade = numeric(state.tradeRisk);
+        const daily = numeric(state.dailyRisk);
+        if (trade && trade > 0) return trade;
+        if (daily && daily > 0) return daily;
+        return DEFAULT_TRADE_RISK;
+      };
+      const setStatus = () => {
+        const node = $("position-sizing-status");
+        if (!node) return;
+        const daily = numeric(state.dailyRisk);
+        const trade = numeric(state.tradeRisk);
+        const source = trade && trade > 0 ? `單筆 ${formatInt(trade)} 元` : daily && daily > 0 ? `今日總虧損 ${formatInt(daily)} 元` : `預設單筆 ${formatInt(DEFAULT_TRADE_RISK)} 元`;
+        node.textContent = `計算基準：${source}`;
+      };
+
+      function syncInputs() {
+        const daily = $("position-daily-risk");
+        const trade = $("position-risk-per-trade");
+        if (daily) daily.value = state.dailyRisk > 0 ? String(state.dailyRisk) : "";
+        if (trade) trade.value = state.tradeRisk > 0 ? String(state.tradeRisk) : String(DEFAULT_TRADE_RISK);
+        setStatus();
+      }
+
+      function renderTag(tag) {
+        const entry = numeric(tag.dataset.positionEntry);
+        const stop = numeric(tag.dataset.positionStop);
+        const budget = riskBudget();
+        tag.classList.remove("position-size-ok", "position-size-danger", "position-size-muted");
+        if (!entry || !stop || entry <= 0 || stop <= 0) {
+          if (tag.textContent !== "部位：缺進場/停損") tag.textContent = "部位：缺進場/停損";
+          tag.title = "缺少建議進場價或停損價，無法計算部位。";
+          tag.classList.add("position-size-muted");
+          return;
+        }
+        const spread = entry - stop;
+        if (!Number.isFinite(spread) || spread <= 0) {
+          if (tag.textContent !== "部位：停損價需低於進場價") tag.textContent = "部位：停損價需低於進場價";
+          tag.title = `進場 ${entry}，停損 ${stop}，價差無法計算。`;
+          tag.classList.add("position-size-danger");
+          return;
+        }
+        const shares = Math.floor(budget / spread);
+        const lots = Math.floor(shares / 1000);
+        const oddShares = shares % 1000;
+        const riskPerLot = spread * 1000;
+        const danger = lots < 1;
+        const nextText = danger
+          ? `建議點火：${lots} 張（零股：${formatInt(shares)} 股）｜風暴比不佳，建議放棄`
+          : `建議點火：${lots} 張（零股：${formatInt(oddShares)} 股）`;
+        if (tag.textContent !== nextText) tag.textContent = nextText;
+        tag.title = `單筆風險 ${formatInt(budget)} 元；進場 ${entry.toFixed(2)}，停損 ${stop.toFixed(2)}，單張風險約 ${formatInt(riskPerLot)} 元。`;
+        tag.classList.add(danger ? "position-size-danger" : "position-size-ok");
+      }
+
+      function refresh() {
+        document.querySelectorAll(".position-size-tag[data-position-entry][data-position-stop]").forEach(renderTag);
+      }
+
+      function scheduleRefresh() {
+        window.clearTimeout(state.refreshTimer);
+        state.refreshTimer = window.setTimeout(refresh, 50);
+      }
+
+      function bindInputs() {
+        const daily = $("position-daily-risk");
+        const trade = $("position-risk-per-trade");
+        if (daily) {
+          daily.addEventListener("input", () => {
+            state.dailyRisk = Number(daily.value || 0);
+            localStorage.setItem(STORAGE_DAILY, state.dailyRisk > 0 ? String(state.dailyRisk) : "");
+            setStatus();
+            refresh();
+          });
+        }
+        if (trade) {
+          trade.addEventListener("input", () => {
+            state.tradeRisk = Number(trade.value || 0);
+            localStorage.setItem(STORAGE_TRADE, state.tradeRisk > 0 ? String(state.tradeRisk) : "");
+            setStatus();
+            refresh();
+          });
+        }
+      }
+
+      function start() {
+        syncInputs();
+        bindInputs();
+        refresh();
+        const observer = new MutationObserver(scheduleRefresh);
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+
+      window.PositionSizingCalculator = { refresh, riskBudget };
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+      } else {
+        start();
+      }
+    })();
+    """
+
+
 def render_login_page(error: str = "") -> str:
     error_html = f"<div class=\"error\">{_escape(error)}</div>" if error else ""
     return f"""<!doctype html>
@@ -1026,6 +1166,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     </div>
     <div class="topbar-actions">
       {notification_controls_html()}
+      {position_sizing_controls_html()}
       <span id="us-refresh-status" class="refresh-status">準備更新</span>
       {logout_link}
     </div>
@@ -1068,6 +1209,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="us-debug"></tbody></table></div>
   </main>
+  <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{us_dashboard_script()}</script>
 </body>
@@ -1098,6 +1240,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     </div>
     <div class="topbar-actions">
       {notification_controls_html()}
+      {position_sizing_controls_html()}
       <span id="paper-refresh-status" class="refresh-status">準備更新</span>
       {logout_link}
     </div>
@@ -1187,6 +1330,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="paper-debug"></tbody></table></div>
   </main>
+  <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{paper_dashboard_script()}</script>
 </body>
@@ -1213,7 +1357,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
     </div>
-    <div class="topbar-actions">{notification_controls_html()}{logout_link}</div>
+    <div class="topbar-actions">{notification_controls_html()}{position_sizing_controls_html()}{logout_link}</div>
   </nav>
   <main class="advisor-page">
     <section class="advisor-hero">
@@ -1243,6 +1387,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
     </section>
     <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
   </main>
+  <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{tw_advisor_script()}</script>
 </body>
@@ -1270,7 +1415,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
       <a href="/accuracy">策略成績單</a>
       <a href="/api/backtest">回測</a>
     </div>
-    <div class="topbar-actions">{notification_controls_html()}{logout_link}</div>
+    <div class="topbar-actions">{notification_controls_html()}{position_sizing_controls_html()}{logout_link}</div>
   </nav>
   <main class="paper-page">
     <header class="paper-header">
@@ -1300,6 +1445,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <h2>模型調整建議</h2>
     <div class="table-wrap"><table><tbody id="accuracy-suggestions"></tbody></table></div>
   </main>
+  <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{accuracy_dashboard_script()}</script>
 </body>
@@ -1333,6 +1479,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     </div>
     <div class="topbar-actions">
       {notification_controls_html()}
+      {position_sizing_controls_html()}
       {file_text}
       <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">準備讀取分層更新狀態</span>
       <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
@@ -1347,6 +1494,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
   </section>
   {content}
+  <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>
     (() => {{
@@ -1421,6 +1569,17 @@ def base_css() -> str:
     .notification-toggle { display:flex; align-items:center; gap:4px; margin:0; font-size:12px; font-weight:650; color:#344054; white-space:nowrap; }
     .notification-toggle input { width:auto; margin:0; accent-color:var(--accent); }
     .notification-status { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
+    .position-sizing-settings { position:relative; }
+    .position-sizing-settings summary { list-style:none; border:1px solid var(--line); background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; white-space:nowrap; }
+    .position-sizing-settings summary::-webkit-details-marker { display:none; }
+    .position-sizing-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:40; width:280px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fff; box-shadow:0 16px 36px rgba(16,24,40,.14); }
+    .position-sizing-panel label { margin:0 0 8px; font-size:12px; color:#344054; font-weight:650; }
+    .position-sizing-panel input { width:100%; margin-top:4px; padding:7px 8px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+    .position-sizing-status { display:block; color:var(--muted); font-size:12px; }
+    .position-size-tag { display:inline-flex; align-items:center; margin-left:8px; padding:2px 8px; border-radius:999px; border:1px solid var(--line); background:#f8fafc; color:#344054; font-size:12px; font-weight:750; vertical-align:middle; white-space:nowrap; }
+    .position-size-ok { border-color:#bbf7d0; background:#f0fdf4; color:#067647; }
+    .position-size-danger { border-color:#fecdd3; background:#fff1f2; color:#b42318; }
+    .position-size-muted { color:var(--muted); font-weight:650; }
     .nav-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .nav-links a { color:var(--muted); text-decoration:none; padding:5px 8px; border-radius:6px; }
     .nav-links a:hover { color:var(--accent); background:#eef4ff; }
@@ -1556,6 +1715,7 @@ def us_dashboard_script() -> str:
       const metric = (label, value) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`;
       const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
       const setStatus = (message) => { $("us-refresh-status").textContent = message; };
+      const positionSizeTag = (entry, stop) => `<span class="position-size-tag" data-position-entry="${escapeHtml(entry)}" data-position-stop="${escapeHtml(stop)}"></span>`;
 
       async function loadDashboard() {
         setStatus("更新中...");
@@ -1706,7 +1866,7 @@ def us_dashboard_script() -> str:
         const meta = `${escapeHtml(item.grade)}｜${escapeHtml(item.entry_status)}｜${escapeHtml(item.lifecycle_status)}｜Readiness ${escapeHtml(item.trigger_readiness)}`;
         const metrics = `現價 ${number(item.current_price)}｜VWAP ${number(item.vwap)}｜量比 ${number(item.volume_ratio)}x｜停損 ${number(item.stop_loss)}｜停利 ${number(item.target_price)}`;
         return `<div class="signal-card">
-          <div class="signal-title">${label}</div>
+          <div class="signal-title">${label}${positionSizeTag(item.trigger_price || item.current_price || item.latest_price, item.stop_loss)}</div>
           <div class="signal-meta">當下狀態：${escapeHtml(displayTradeBias(item))}</div>
           <div class="signal-meta">${meta}</div>
           <div class="signal-meta">${escapeHtml(metrics)}</div>
@@ -1750,7 +1910,7 @@ def us_dashboard_script() -> str:
             item.break_opening_range_high ? "破開盤區間" : "",
           ].filter(Boolean).join(" / ") || "尚未突破";
           return `<tr>
-            <td><div class="symbol-main">${escapeHtml(item.symbol)}｜${escapeHtml(item.short_name_zh)}｜${escapeHtml(item.name_en)}</div><div class="symbol-sub">${escapeHtml(item.sector_zh)}｜${escapeHtml(item.description_zh)}</div></td>
+            <td><div class="symbol-main">${escapeHtml(item.symbol)}｜${escapeHtml(item.short_name_zh)}｜${escapeHtml(item.name_en)}${positionSizeTag(item.trigger_price || item.latest_price, item.stop_loss)}</div><div class="symbol-sub">${escapeHtml(item.sector_zh)}｜${escapeHtml(item.description_zh)}</div></td>
             <td>${number(item.latest_price)}</td>
             <td>${pct(item.change_pct)}</td>
             <td>${volume(item.volume)}</td>
@@ -1820,6 +1980,7 @@ def tw_advisor_script() -> str:
       };
       const metric = (label, value) => `<div class="advisor-metric"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
       const planRow = (label, value) => `<div class="plan-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></div>`;
+      const positionSizeTag = (entry, stop) => `<span class="position-size-tag" data-position-entry="${escapeHtml(entry)}" data-position-stop="${escapeHtml(stop)}"></span>`;
       const money = (value) => {
         const n = Number(value);
         return Number.isFinite(n) ? n.toFixed(2) : "-";
@@ -2051,12 +2212,14 @@ def tw_advisor_script() -> str:
         const keyLevels = Array.isArray(analysis.key_levels) ? analysis.key_levels : [];
         const chart = payload.intraday_chart || {};
         const blockedMessages = (safety.blocked_reasons || []).map((item) => item.message);
+        const sizingEntry = candidate.trigger_price || keyMetrics.intraday_high || keyMetrics.current_price || price;
+        const sizingStop = keyMetrics.stop_loss || candidate.stop_loss;
         result.className = "advisor-result";
         result.innerHTML = `
           <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
             <div class="advisor-title">
               <div>
-                <h2>${escapeHtml(symbol)}｜${escapeHtml(name)}</h2>
+                <h2>${escapeHtml(symbol)}｜${escapeHtml(name)}${positionSizeTag(sizingEntry, sizingStop)}</h2>
                 <div class="muted">${escapeHtml(sector)}｜資料來源：${escapeHtml(payload.data_source || "Yahoo Finance chart endpoint")}</div>
                 <div class="muted">${escapeHtml(quoteMeta || "價格來源：Yahoo Finance chart endpoint")}</div>
               </div>

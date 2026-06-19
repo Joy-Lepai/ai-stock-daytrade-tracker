@@ -507,6 +507,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("2330.TW｜台積電", html)
         self.assertIn("等待量能", html)
         self.assertIn("站上 VWAP", html)
+        self.assertIn("position-size-tag", html)
+        self.assertIn('data-position-entry="101"', html)
+        self.assertIn('data-position-stop="98"', html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
