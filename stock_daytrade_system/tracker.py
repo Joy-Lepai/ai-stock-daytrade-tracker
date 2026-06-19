@@ -1623,7 +1623,7 @@ def _manual_scan_panel() -> str:
     return """
     <section class="scan-form" aria-label="手動補追蹤">
       <label>手動補追蹤 / 立即掃描
-        <input id="tw-scan-symbol" placeholder="例如 力積電、6770、3016">
+        <input id="tw-scan-symbol" data-stock-search placeholder="例如 力積電、6770、3016">
       </label>
       <button type="button" id="tw-scan-button">立即掃描</button>
       <button type="button" id="tw-add-watch-button">加入今日追蹤</button>

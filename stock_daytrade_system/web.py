@@ -978,6 +978,221 @@ def notification_module_script() -> str:
     """
 
 
+def hotkeys_script() -> str:
+    return r"""
+    (() => {
+      if (window.StockHotkeys) return;
+
+      const SEARCH_SELECTORS = [
+        "[data-stock-search]",
+        "#tw-scan-symbol",
+        "#tw-advisor-symbol",
+        "#manual-symbol",
+        "input[type='search']",
+      ];
+      const TABS = [
+        { key: "1", mode: "all", label: "全部觀察股" },
+        { key: "2", mode: "triggered", label: "已觸發 / 多頭動能股" },
+        { key: "3", mode: "wait_vwap", label: "等待站回 VWAP 股" },
+        { key: "4", mode: "high_risk", label: "高風險觀望股" },
+      ];
+      const state = { mode: "all", observerTimer: null };
+
+      const isTypingTarget = (target) => {
+        if (!target) return false;
+        const tag = String(target.tagName || "").toLowerCase();
+        return target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select";
+      };
+      const text = (value) => String(value || "");
+      const visible = (node) => Boolean(node && node.offsetParent !== null);
+
+      function searchInputs() {
+        const seen = new Set();
+        const inputs = [];
+        for (const selector of SEARCH_SELECTORS) {
+          document.querySelectorAll(selector).forEach((input) => {
+            if (!seen.has(input) && !input.disabled && !input.readOnly && visible(input)) {
+              seen.add(input);
+              inputs.push(input);
+            }
+          });
+        }
+        return inputs;
+      }
+
+      function focusSearch() {
+        const input = searchInputs()[0];
+        if (!input) return false;
+        input.focus({ preventScroll: false });
+        if (typeof input.select === "function") input.select();
+        input.scrollIntoView({ block: "center", behavior: "smooth" });
+        return true;
+      }
+
+      function clearSearchAndBlur() {
+        searchInputs().forEach((input) => {
+          if (input.value) {
+            input.value = "";
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          input.blur();
+        });
+        if (document.activeElement && typeof document.activeElement.blur === "function") {
+          document.activeElement.blur();
+        }
+      }
+
+      function columnMode(column) {
+        const content = text(column.textContent).toLowerCase();
+        if (
+          content.includes("high_risk") ||
+          content.includes("高風險") ||
+          content.includes("追價風險") ||
+          content.includes("避開")
+        ) {
+          return "high_risk";
+        }
+        if (
+          content.includes("wait_vwap") ||
+          content.includes("等待 vwap") ||
+          content.includes("等待站回 vwap") ||
+          content.includes("站回 vwap")
+        ) {
+          return "wait_vwap";
+        }
+        if (
+          content.includes("triggered") ||
+          content.includes("已觸發") ||
+          content.includes("executable") ||
+          content.includes("可執行") ||
+          content.includes("強烈做多") ||
+          content.includes("做多") ||
+          content.includes("多頭動能")
+        ) {
+          return "triggered";
+        }
+        return "all";
+      }
+
+      function applyGridMode(grid, mode) {
+        const columns = Array.from(grid.querySelectorAll(":scope > .signal-column"));
+        if (!columns.length) return;
+        let visibleCount = 0;
+        columns.forEach((column) => {
+          const shouldShow = mode === "all" || columnMode(column) === mode;
+          column.hidden = !shouldShow;
+          column.classList.toggle("hotkey-filter-hidden", !shouldShow);
+          if (shouldShow) visibleCount += 1;
+        });
+        grid.dataset.hotkeyMode = mode;
+        const empty = grid.parentElement?.querySelector(".hotkey-empty-message");
+        if (empty) empty.hidden = visibleCount > 0;
+      }
+
+      function ensureTabsForGrid(grid) {
+        if (grid.dataset.hotkeyTabsReady === "1") return;
+        grid.dataset.hotkeyTabsReady = "1";
+        const nav = document.createElement("div");
+        nav.className = "stock-hotkey-tabs";
+        nav.setAttribute("aria-label", "股票分類快捷鍵");
+        nav.innerHTML = TABS.map((tab) => `<button type="button" data-hotkey-tab="${tab.key}" data-hotkey-mode="${tab.mode}">${tab.key}｜${tab.label}</button>`).join("");
+        const empty = document.createElement("p");
+        empty.className = "hotkey-empty-message muted";
+        empty.hidden = true;
+        empty.textContent = "此分類目前沒有可顯示的股票。";
+        grid.parentNode.insertBefore(nav, grid);
+        grid.parentNode.insertBefore(empty, grid.nextSibling);
+        nav.addEventListener("click", (event) => {
+          const button = event.target.closest("[data-hotkey-mode]");
+          if (!button) return;
+          activateMode(button.dataset.hotkeyMode, { scroll: false });
+        });
+      }
+
+      function decorateSignalGrids() {
+        document.querySelectorAll(".signal-grid").forEach((grid) => {
+          ensureTabsForGrid(grid);
+          applyGridMode(grid, state.mode);
+        });
+        updateTabButtons();
+      }
+
+      function updateTabButtons() {
+        document.querySelectorAll("[data-hotkey-mode]").forEach((button) => {
+          const active = button.dataset.hotkeyMode === state.mode;
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+      }
+
+      function activateNativeTab(key) {
+        const native = Array.from(document.querySelectorAll(`[data-hotkey-tab="${key}"]`))
+          .find((node) => !node.closest(".stock-hotkey-tabs"));
+        if (native) {
+          native.click();
+          return true;
+        }
+        return false;
+      }
+
+      function activateMode(mode, options = {}) {
+        state.mode = mode || "all";
+        decorateSignalGrids();
+        updateTabButtons();
+        const firstGrid = document.querySelector(".signal-grid");
+        if (firstGrid && options.scroll !== false) {
+          firstGrid.scrollIntoView({ block: "start", behavior: "smooth" });
+        }
+      }
+
+      function handleKeydown(event) {
+        const key = event.key;
+        if (key === "Escape") {
+          clearSearchAndBlur();
+          return;
+        }
+        if (isTypingTarget(event.target)) return;
+        if (key === "/") {
+          event.preventDefault();
+          focusSearch();
+          return;
+        }
+        const tab = TABS.find((item) => item.key === key);
+        if (tab) {
+          event.preventDefault();
+          if (!activateNativeTab(key)) activateMode(tab.mode);
+        }
+      }
+
+      function scheduleDecorate() {
+        window.clearTimeout(state.observerTimer);
+        state.observerTimer = window.setTimeout(decorateSignalGrids, 80);
+      }
+
+      function start() {
+        decorateSignalGrids();
+        document.addEventListener("keydown", handleKeydown);
+        const observer = new MutationObserver(scheduleDecorate);
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+
+      window.StockHotkeys = {
+        focusSearch,
+        clearSearchAndBlur,
+        activateMode,
+        decorateSignalGrids,
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+      } else {
+        start();
+      }
+    })();
+    """
+
+
 def position_sizing_controls_html() -> str:
     return """
       <details class="position-sizing-settings">
@@ -1209,6 +1424,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="us-debug"></tbody></table></div>
   </main>
+  <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{us_dashboard_script()}</script>
@@ -1269,7 +1485,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
           </select>
         </label>
         <label>股票代號 symbol
-          <input id="manual-symbol" name="symbol" placeholder="NVDA 或 2330.TW" autocomplete="off">
+          <input id="manual-symbol" name="symbol" data-stock-search placeholder="NVDA 或 2330.TW" autocomplete="off">
         </label>
         <label>中文名稱 name_zh
           <input id="manual-name-zh" name="name_zh" placeholder="輝達 / 台積電">
@@ -1330,6 +1546,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="paper-debug"></tbody></table></div>
   </main>
+  <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{paper_dashboard_script()}</script>
@@ -1375,7 +1592,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
       <form id="tw-advisor-form" class="advisor-form">
         <label>
           股票代號或名稱
-          <input id="tw-advisor-symbol" autocomplete="off" placeholder="例如 1301、1301.TW、6603.TWO、台塑" value="">
+          <input id="tw-advisor-symbol" data-stock-search autocomplete="off" placeholder="例如 1301、1301.TW、6603.TWO、台塑" value="">
         </label>
         <button type="submit">取得建議</button>
       </form>
@@ -1387,6 +1604,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
     </section>
     <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
   </main>
+  <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{tw_advisor_script()}</script>
@@ -1445,6 +1663,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <h2>模型調整建議</h2>
     <div class="table-wrap"><table><tbody id="accuracy-suggestions"></tbody></table></div>
   </main>
+  <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>{accuracy_dashboard_script()}</script>
@@ -1494,6 +1713,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
   </section>
   {content}
+  <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
   <script>{notification_module_script()}</script>
   <script>
@@ -1615,6 +1835,11 @@ def base_css() -> str:
     .signal-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; margin-top:12px; }
     .signal-column { border:1px solid var(--line); border-radius:8px; background:#fff; padding:12px; min-height:120px; }
     .signal-column h3 { margin:0 0 10px; font-size:15px; }
+    .stock-hotkey-tabs { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0; }
+    .stock-hotkey-tabs button { padding:6px 10px; border-radius:999px; font-size:12px; background:#fff; color:#344054; }
+    .stock-hotkey-tabs button.is-active { background:#175cd3; border-color:#175cd3; color:#fff; }
+    .hotkey-empty-message { margin:8px 0; }
+    .hotkey-filter-hidden { display:none !important; }
     .signal-card { border-top:1px solid var(--line); padding:10px 0; }
     .signal-card:first-of-type { border-top:0; padding-top:0; }
     .signal-title { font-weight:750; }

@@ -511,6 +511,14 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn('data-position-entry="101"', html)
         self.assertIn('data-position-stop="98"', html)
 
+    def test_manual_scan_input_is_global_stock_search(self):
+        from stock_daytrade_system.tracker import _manual_scan_panel
+
+        html = _manual_scan_panel()
+
+        self.assertIn("tw-scan-symbol", html)
+        self.assertIn("data-stock-search", html)
+
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
 
