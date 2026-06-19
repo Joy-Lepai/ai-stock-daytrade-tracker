@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import WatchSymbol, load_config
-from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import (
     connect,
     default_db_path,
@@ -23,6 +22,7 @@ from stock_daytrade_system.db import (
 )
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
+from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.paper_broker import run_paper_trading
 from stock_daytrade_system.resilience import health_status_compact, health_status_snapshot
@@ -114,6 +114,7 @@ class RefreshCoordinator:
         any_stale = any(item["is_stale"] for item in by_layer.values())
         source_health = health_status_snapshot()
         source_health_compact = health_status_compact()
+        provider_status = get_market_data_provider_manager().status_payload()
         watchlist_ok = not by_layer["watchlist"]["is_stale"] and by_layer["watchlist"]["status"] == "success"
         positions_ok = not by_layer["positions"]["is_stale"] and by_layer["positions"]["status"] == "success"
         market_mode = evaluate_tw_market_mode(
@@ -142,6 +143,7 @@ class RefreshCoordinator:
             "layers": by_layer,
             "data_source_health": source_health,
             "data_source_health_compact": source_health_compact,
+            "provider_status": provider_status,
             "data_source_degraded": any(
                 item.get("status") in {"ERROR", "PARTIAL"}
                 for item in source_health.values()
@@ -219,7 +221,7 @@ class RefreshCoordinator:
         if not symbols:
             return 0, "目前沒有重點觀察標的，略過行情刷新。"
 
-        client = YahooChartClient()
+        provider = get_market_data_provider_manager()
         market_symbols = list(
             dict.fromkeys(
                 config.market.us_market_symbols
@@ -227,8 +229,8 @@ class RefreshCoordinator:
             )
         )
         all_daily_symbols = list(dict.fromkeys(market_symbols + [item.symbol for item in symbols]))
-        daily_data, _daily_errors = client.fetch_many_daily_with_errors(all_daily_symbols, range_="6mo")
-        intraday_data, _intraday_errors = client.fetch_many_intraday_with_errors(
+        daily_data, _daily_errors = provider.fetch_many_daily_with_errors(all_daily_symbols, range_="6mo")
+        intraday_data, _intraday_errors = provider.fetch_many_intraday_with_errors(
             [item.symbol for item in symbols],
             range_="1d",
             interval="5m",

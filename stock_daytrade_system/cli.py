@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 from stock_daytrade_system.cmoney import CMoneyClient, CMoneyDataError, merge_cmoney_symbols, rankings_by_symbol
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import load_config
-from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import (
     backtest_summary,
     connect,
@@ -25,6 +24,10 @@ from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confir
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
 from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
+from stock_daytrade_system.market_data_provider import (
+    PROVIDER_VERSION,
+    get_market_data_provider_manager,
+)
 from stock_daytrade_system.paper_trading import update_paper_trades
 from stock_daytrade_system.performance import record_signal_performance
 from stock_daytrade_system.position_management import build_position_command_center
@@ -113,7 +116,7 @@ def main() -> int:
 
 def run_report(config_path: Path, output_dir: Path, range_: str) -> int:
     config = load_config(config_path)
-    client = YahooChartClient()
+    client = get_market_data_provider_manager()
     market_symbols = list(
         dict.fromkeys(
             config.market.us_market_symbols
@@ -196,7 +199,7 @@ def run_open_check(
     opening_bars: int,
 ) -> int:
     config = load_config(config_path)
-    client = YahooChartClient()
+    client = get_market_data_provider_manager()
     watch_symbols = [item.symbol for item in config.symbols]
 
     print(f"Fetching intraday data for {len(watch_symbols)} symbols...")
@@ -244,7 +247,8 @@ def run_tracker(
     opening_bars: int,
 ) -> int:
     config = load_config(config_path)
-    client = YahooChartClient()
+    client = get_market_data_provider_manager()
+    provider_status = client.status_payload()
     cmoney_errors = {}
     cmoney_rankings = []
     try:
@@ -430,6 +434,10 @@ def run_tracker(
             "full_market_candidate_symbols": full_market_result.summary.get("candidate_symbols", 0),
             "full_market_out_of_pool": sum(1 for item in momentum_scan.items if item.source_scope == "out_of_pool"),
             "strategy_validation_version": STRATEGY_VALIDATION_VERSION,
+            "market_data_provider_version": PROVIDER_VERSION,
+            "market_data_provider_active": provider_status.get("active_provider", "-"),
+            "market_data_provider_primary": provider_status.get("primary_provider", "-"),
+            "market_data_provider_fallback": provider_status.get("fallback_provider", "-"),
             "post_market_verification_rows": int(post_market_verification.get("rows", 0)),
             "post_market_verification_verified": int(post_market_verification.get("verified", 0)),
             "post_market_verification_missing_intraday": int(post_market_verification.get("missing_intraday", 0)),
@@ -491,6 +499,7 @@ def run_tracker(
     data_status = [
         f"每日行情成功 {len(all_daily_symbols) - len(daily_errors)}/{len(all_daily_symbols)}；失敗標的已排除或以缺漏提示處理。",
         f"盤中行情成功 {len(watch_symbols) - len(intraday_errors)}/{len(watch_symbols)}；失敗標的不納入 VWAP、量比與盤中回測。",
+        f"行情 provider：目前使用 {provider_status.get('active_provider', 'yahoo')}；primary={provider_status.get('primary_provider', '-')}, fallback={provider_status.get('fallback_provider', '-')}。",
     ]
     if taifex_errors:
         data_status.append("台指期官方資料擷取失敗；已排除在大盤加權判斷外。")

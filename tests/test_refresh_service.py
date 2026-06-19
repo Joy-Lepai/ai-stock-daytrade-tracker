@@ -35,6 +35,8 @@ class RefreshServiceTests(unittest.TestCase):
             self.assertIn("market_mode", payload)
             self.assertIn("allow_strong_long", payload)
             self.assertIn("layers", payload)
+            self.assertIn("provider_status", payload)
+            self.assertEqual(payload["provider_status"]["active_provider"], "yahoo")
 
     def test_status_payload_includes_data_source_health(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -8,11 +8,11 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol, load_config
-from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import connect, default_db_path
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
+from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
@@ -31,12 +31,13 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     if not item.symbol:
         return {"ok": False, "message": "股票代號不可空白", "symbol": raw_symbol}
 
-    client = YahooChartClient()
+    provider = get_market_data_provider_manager()
+    provider_status = provider.status_payload()
     captured_at = now or datetime.now(ZoneInfo(config.market.timezone))
     symbols = [item.symbol, config.market.benchmark, config.market.taiwan_futures]
-    daily_data, daily_errors = client.fetch_many_daily_with_errors(symbols, range_="6mo")
-    intraday_data, intraday_errors = client.fetch_many_intraday_with_errors([item.symbol], range_="1d", interval="5m")
-    quote_intraday_data, quote_intraday_errors = client.fetch_many_intraday_with_errors(
+    daily_data, daily_errors = provider.fetch_many_daily_with_errors(symbols, range_="6mo")
+    intraday_data, intraday_errors = provider.fetch_many_intraday_with_errors([item.symbol], range_="1d", interval="5m")
+    quote_intraday_data, quote_intraday_errors = provider.fetch_many_intraday_with_errors(
         [item.symbol], range_="1d", interval="1m"
     )
     market_bias = score_market_bias(daily_data, config.market.benchmark, config.market.taiwan_futures)
@@ -133,7 +134,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
-        "data_source": "TWSE MIS + Yahoo Finance 1m/5m chart endpoint",
+        "data_source": f"TWSE MIS + {provider_status.get('active_provider', 'yahoo')} market data provider",
+        "provider_status": provider_status,
         "db_path": str(db_path),
     }
 

@@ -1784,6 +1784,19 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const degraded = payload.data_source_degraded ? '<div class="warn-mini">部分數據維護中，系統已降級處理；正常資料仍會繼續更新。</div>' : "";
         return body + degraded;
       }};
+      const providerStatusHtml = (payload) => {{
+        const provider = payload.provider_status || {{}};
+        const providers = Array.isArray(provider.providers) ? provider.providers : [];
+        if (!provider.active_provider && !providers.length) {{
+          return '<span class="refresh-layer-item"><strong>行情 provider：</strong>尚無狀態</span>';
+        }}
+        const providerRows = providers.map((item) => {{
+          const enabled = item.enabled && item.configured;
+          const cls = enabled ? "health-ok" : "health-warn";
+          return `<span class="refresh-layer-item"><strong>${{escapeHtml(item.name)}}：</strong><span class="${{cls}}">${{escapeHtml(item.role || "available")}}</span>｜${{escapeHtml(item.mode || "-")}}｜WebSocket ${{escapeHtml(item.websocket_status || "-")}}</span>`;
+        }}).join("");
+        return `<span class="refresh-layer-item"><strong>行情 provider：</strong>active=${{escapeHtml(provider.active_provider || "-")}}｜primary=${{escapeHtml(provider.primary_provider || "-")}}｜fallback=${{escapeHtml(provider.fallback_provider || "-")}}</span>${{providerRows}}`;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1797,6 +1810,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),
+              providerStatusHtml(payload),
               sourceHealthHtml(payload),
             ].join("");
             if (!payload.allow_strong_long) {{
