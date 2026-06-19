@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from html import unescape
 from typing import Dict, List, Optional
 
+from stock_daytrade_system.resilience import record_source_health, retry_sync
+
 
 @dataclass(frozen=True)
 class TaifexFutureQuote:
@@ -98,11 +100,19 @@ class TaifexClient:
             },
             method="POST" if data is not None else "GET",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                raw = response.read()
-        except Exception as exc:
-            raise TaifexDataError(f"failed to fetch TAIFEX data: {exc}") from exc
+        def operation() -> bytes:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return response.read()
+            except Exception as exc:
+                raise TaifexDataError(f"failed to fetch TAIFEX data: {exc}") from exc
+
+        raw = retry_sync(
+            operation,
+            source="taifex",
+            operation_name="TAIFEX futures quote",
+        )
+        record_source_health("taifex", "OK", success_count=1, message="TAIFEX 台指期資料擷取成功。")
         return raw.decode("utf-8", errors="replace")
 
 

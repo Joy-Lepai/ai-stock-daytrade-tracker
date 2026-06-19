@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import time
 import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -11,6 +10,7 @@ from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol
+from stock_daytrade_system.resilience import record_source_health, retry_sync
 
 
 TW_FULL_MARKET_VERSION = "tw_full_market_v1_official_pool_2026-06-18"
@@ -166,12 +166,13 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
     }
     quotes: list[FullMarketQuote] = []
     try:
-        payload = _fetch_json(TWSE_STOCK_DAY_ALL_URL, retries=2, status=status)
+        payload = _fetch_json(TWSE_STOCK_DAY_ALL_URL, status=status)
         parsed = _parse_twse_rows(payload)
         quotes.extend(parsed)
         status["twse_ok"] = True
         status["twse_rows"] = len(parsed)
         _write_cache(cache_dir / "twse_stock_day_all.json", payload)
+        record_source_health("twse", "OK", success_count=len(parsed), message="TWSE 上市資料擷取成功。")
     except Exception as exc:
         status["twse_error"] = str(exc)
         cached = _read_cache(cache_dir / "twse_stock_day_all.json")
@@ -181,10 +182,20 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
             parsed = _parse_twse_rows(cached)
             status["twse_rows"] = len(parsed)
             quotes.extend(parsed)
+            record_source_health(
+                "twse",
+                "PARTIAL",
+                success_count=len(parsed),
+                failure_count=1,
+                error=str(exc),
+                message="TWSE 抓取失敗，已使用 cache 降級。",
+            )
+        else:
+            record_source_health("twse", "ERROR", failure_count=1, error=str(exc), message="TWSE 抓取失敗且無 cache。")
     tpex_error = ""
     for url in TPEX_DAILY_URLS:
         try:
-            payload = _fetch_json(url, retries=1, status=status)
+            payload = _fetch_json(url, status=status)
             parsed = _parse_tpex_rows(payload)
             if parsed:
                 quotes.extend(parsed)
@@ -192,6 +203,7 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
                 status["tpex_rows"] = len(parsed)
                 status["tpex_endpoint"] = url
                 _write_cache(cache_dir / "tpex_daily_quotes.json", payload)
+                record_source_health("tpex", "OK", success_count=len(parsed), message="TPEX 上櫃資料擷取成功。")
                 break
         except Exception as exc:
             tpex_error = str(exc)
@@ -204,15 +216,25 @@ def _fetch_quotes_with_cache(cache_dir: Path) -> tuple[list[FullMarketQuote], di
             parsed = _parse_tpex_rows(cached)
             status["tpex_rows"] = len(parsed)
             quotes.extend(parsed)
+            record_source_health(
+                "tpex",
+                "PARTIAL",
+                success_count=len(parsed),
+                failure_count=1,
+                error=status["tpex_error"],
+                message="TPEX 抓取失敗，已使用 cache 降級。",
+            )
+        else:
+            record_source_health("tpex", "ERROR", failure_count=1, error=status["tpex_error"], message="TPEX 抓取失敗且無 cache。")
+    status["health_status"] = {"twse": status["twse_ok"], "tpex": status["tpex_ok"]}
     return quotes, status
 
 
-def _fetch_json(url: str, *, retries: int, status: dict) -> list[dict]:
-    last_error: Optional[Exception] = None
-    for attempt in range(retries + 1):
-        if attempt:
-            status["retry_count"] = int(status.get("retry_count", 0)) + 1
-            time.sleep(0.5 * attempt)
+def _fetch_json(url: str, *, status: dict) -> list[dict]:
+    attempts = {"count": 0}
+
+    def operation() -> list[dict]:
+        attempts["count"] += 1
         request = urllib.request.Request(
             url,
             headers={
@@ -224,7 +246,6 @@ def _fetch_json(url: str, *, retries: int, status: dict) -> list[dict]:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return json.loads(response.read().decode("utf-8"))
         except Exception as exc:
-            last_error = exc
             try:
                 completed = subprocess.run(
                     ["curl", "-L", "--max-time", "20", "-s", url],
@@ -236,7 +257,16 @@ def _fetch_json(url: str, *, retries: int, status: dict) -> list[dict]:
                     return json.loads(completed.stdout)
             except Exception:
                 pass
-    raise RuntimeError(f"failed to fetch {url}: {last_error}")
+            raise RuntimeError(f"failed to fetch {url}: {exc}") from exc
+
+    try:
+        return retry_sync(
+            operation,
+            source="twse" if "twse" in url else "tpex",
+            operation_name=f"official quote fetch {url}",
+        )
+    finally:
+        status["retry_count"] = int(status.get("retry_count", 0)) + max(attempts["count"] - 1, 0)
 
 
 def _parse_twse_rows(rows: Iterable[dict]) -> list[FullMarketQuote]:

@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from stock_daytrade_system.resilience import record_source_health, retry_sync
+
 
 @dataclass(frozen=True)
 class Bar:
@@ -28,7 +30,7 @@ class YahooChartClient:
 
     base_url = "https://query1.finance.yahoo.com/v8/finance/chart"
 
-    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2, retries: int = 1) -> None:
+    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2, retries: int = 3) -> None:
         self.timeout = timeout
         self.pause_seconds = pause_seconds
         self.retries = retries
@@ -102,11 +104,20 @@ class YahooChartClient:
                 "Accept": "application/json",
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except Exception as exc:
-            raise MarketDataError(f"failed to fetch {symbol}: {exc}") from exc
+        def operation() -> Dict:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except Exception as exc:
+                raise MarketDataError(f"failed to fetch {symbol}: {exc}") from exc
+
+        payload = retry_sync(
+            operation,
+            source="yahoo_chart",
+            operation_name=f"Yahoo chart {symbol} {interval}",
+            retry_delays=(1.0, 2.0, 4.0)[: self.retries],
+            should_retry=lambda exc: not _is_non_retryable(exc),
+        )
 
         result = payload.get("chart", {}).get("result")
         if not result:
@@ -148,29 +159,26 @@ class YahooChartClient:
         data: Dict[str, List[Bar]] = {}
         errors: Dict[str, str] = {}
         for symbol in symbols:
-            last_error: Optional[MarketDataError] = None
             try:
-                for attempt in range(self.retries + 1):
-                    try:
-                        data[symbol] = self._fetch_chart(
-                            symbol,
-                            range_=range_,
-                            interval=interval,
-                            include_prepost=include_prepost,
-                        )
-                        last_error = None
-                        break
-                    except MarketDataError as exc:
-                        last_error = exc
-                        if _is_non_retryable(exc):
-                            break
-                        if attempt < self.retries:
-                            time.sleep(0.5 * (attempt + 1))
-                if last_error is not None:
-                    raise last_error
+                data[symbol] = self._fetch_chart(
+                    symbol,
+                    range_=range_,
+                    interval=interval,
+                    include_prepost=include_prepost,
+                )
             except MarketDataError as exc:
                 data[symbol] = []
                 errors[symbol] = str(exc)
+        success_count = sum(1 for bars in data.values() if bars)
+        record_source_health(
+            "yahoo_chart",
+            "PARTIAL" if errors and success_count else "ERROR" if errors else "OK",
+            success_count=success_count,
+            failure_count=len(errors),
+            failed_symbols=errors.keys(),
+            error="; ".join(f"{symbol}: {error}" for symbol, error in sorted(errors.items())[:5]),
+            message="Yahoo 部分股票資料擷取失敗，已以空資料降級處理。" if errors else "Yahoo 資料擷取成功。",
+        )
         return data, errors
 
     def _parse_result(self, result: Dict) -> List[Bar]:

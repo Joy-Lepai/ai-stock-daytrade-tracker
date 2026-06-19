@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
 from stock_daytrade_system.config import WatchSymbol
+from stock_daytrade_system.resilience import record_source_health, retry_sync
 
 
 @dataclass(frozen=True)
@@ -58,13 +59,21 @@ class CMoneyClient:
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                data = json.loads(response.read().decode("utf-8-sig"))
-        except Exception as exc:
-            raise CMoneyDataError(f"failed to fetch CMoney institutional rankings: {exc}") from exc
+        def operation() -> list:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8-sig"))
+            except Exception as exc:
+                raise CMoneyDataError(f"failed to fetch CMoney institutional rankings: {exc}") from exc
+
+        data = retry_sync(
+            operation,
+            source="c_money",
+            operation_name="CMoney institutional rankings",
+        )
 
         if not isinstance(data, list) or len(data) < 2 or not isinstance(data[1], list):
+            record_source_health("c_money", "ERROR", failure_count=1, error=f"unexpected response: {data!r}")
             raise CMoneyDataError(f"unexpected CMoney response: {data!r}")
 
         date = str(data[0])
@@ -98,6 +107,7 @@ class CMoneyClient:
             if len(rankings) >= limit:
                 break
         time.sleep(self.pause_seconds)
+        record_source_health("c_money", "OK", success_count=len(rankings), message="CMoney 法人排行擷取成功。")
         return rankings
 
 

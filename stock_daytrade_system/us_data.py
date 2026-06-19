@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar, MarketDataError, YahooChartClient
 from stock_daytrade_system.indicators import average_volume, pct_change
+from stock_daytrade_system.resilience import record_source_health
 from stock_daytrade_system.us_symbols import USSymbolInfo, us_symbol_map, us_watchlist
 
 
@@ -95,6 +96,15 @@ def fetch_us_watchlist_data(
         errors=errors,
         last_success_at=updated_at if snapshots else None,
         updated_at=updated_at,
+    )
+    record_source_health(
+        "us_yahoo_chart",
+        "PARTIAL" if errors and snapshots else "ERROR" if errors else "OK",
+        success_count=len(snapshots),
+        failure_count=len(errors),
+        failed_symbols=errors.keys(),
+        error="; ".join(f"{symbol}: {error}" for symbol, error in sorted(errors.items())[:5]),
+        message="美股 Yahoo 部分標的擷取失敗，已降級顯示。" if errors else "美股 Yahoo watchlist 擷取成功。",
     )
     return USMarketDataBundle(snapshots=snapshots, status=status)
 

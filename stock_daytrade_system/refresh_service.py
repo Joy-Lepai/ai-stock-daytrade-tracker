@@ -25,6 +25,7 @@ from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.paper_broker import run_paper_trading
+from stock_daytrade_system.resilience import health_status_compact, health_status_snapshot
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.sectors import rank_sector_strength
 from stock_daytrade_system.strategy_validation import update_tw_scan_result_verification
@@ -111,6 +112,8 @@ class RefreshCoordinator:
             if layer in by_layer:
                 by_layer[layer] = _layer_status(row, now)
         any_stale = any(item["is_stale"] for item in by_layer.values())
+        source_health = health_status_snapshot()
+        source_health_compact = health_status_compact()
         watchlist_ok = not by_layer["watchlist"]["is_stale"] and by_layer["watchlist"]["status"] == "success"
         positions_ok = not by_layer["positions"]["is_stale"] and by_layer["positions"]["status"] == "success"
         market_mode = evaluate_tw_market_mode(
@@ -137,6 +140,12 @@ class RefreshCoordinator:
             "allow_intraday_signal": market_mode.allow_intraday_signal,
             "review_mode_message": market_mode.review_mode_message,
             "layers": by_layer,
+            "data_source_health": source_health,
+            "data_source_health_compact": source_health_compact,
+            "data_source_degraded": any(
+                item.get("status") in {"ERROR", "PARTIAL"}
+                for item in source_health.values()
+            ),
             "any_stale": any_stale,
             "allow_strong_long": market_mode.allow_strong_long,
             "strong_long_block_reason": "" if market_mode.allow_strong_long else _strong_long_block_reason(by_layer, market_mode.to_dict()),

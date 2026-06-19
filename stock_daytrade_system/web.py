@@ -1770,6 +1770,20 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           狀態 ${{escapeHtml(state.status)}}｜
           檔數 ${{escapeHtml(state.symbols_count || 0)}}</span>`;
       }};
+      const sourceHealthHtml = (payload) => {{
+        const health = payload.data_source_health || {{}};
+        const entries = Object.entries(health);
+        if (!entries.length) return '<span class="refresh-layer-item"><strong>資料源：</strong>尚無即時健康狀態</span>';
+        const body = entries.map(([source, item]) => {{
+          const state = item || {{}};
+          const statusText = state.status || "-";
+          const cls = statusText === "OK" ? "health-ok" : "health-warn";
+          const detail = state.message || state.last_error || "";
+          return `<span class="refresh-layer-item"><strong>${{escapeHtml(source)}}：</strong><span class="${{cls}}">${{escapeHtml(statusText)}}</span>${{detail ? `｜${{escapeHtml(detail)}}` : ""}}</span>`;
+        }}).join("");
+        const degraded = payload.data_source_degraded ? '<div class="warn-mini">部分數據維護中，系統已降級處理；正常資料仍會繼續更新。</div>' : "";
+        return body + degraded;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1783,6 +1797,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),
+              sourceHealthHtml(payload),
             ].join("");
             if (!payload.allow_strong_long) {{
               panel.innerHTML += `<div class="warn-mini">${{escapeHtml(payload.strong_long_block_reason || "資料層狀態不完整，禁止顯示強烈做多。")}}</div>`;

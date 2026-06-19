@@ -4,9 +4,13 @@ from pathlib import Path
 
 from stock_daytrade_system.db import connect, default_db_path
 from stock_daytrade_system.refresh_service import RefreshCoordinator
+from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
 
 class RefreshServiceTests(unittest.TestCase):
+    def tearDown(self):
+        GLOBAL_HEALTH.reset()
+
     def test_status_payload_returns_market_mode_without_triggering_scan(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
@@ -31,6 +35,22 @@ class RefreshServiceTests(unittest.TestCase):
             self.assertIn("market_mode", payload)
             self.assertIn("allow_strong_long", payload)
             self.assertIn("layers", payload)
+
+    def test_status_payload_includes_data_source_health(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)):
+                pass
+            record_source_health("twse", "OK", success_count=714)
+            record_source_health("c_money", "ERROR", failure_count=1, error="maintenance")
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload()
+
+        self.assertEqual(payload["data_source_health_compact"]["twse"], "OK")
+        self.assertEqual(payload["data_source_health_compact"]["c_money"], "ERROR")
+        self.assertTrue(payload["data_source_degraded"])
 
 
 if __name__ == "__main__":

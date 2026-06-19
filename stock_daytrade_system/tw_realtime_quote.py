@@ -9,6 +9,8 @@ import urllib.request
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+from stock_daytrade_system.resilience import record_source_health, retry_sync
+
 
 @dataclass(frozen=True)
 class TwRealtimeQuote:
@@ -46,10 +48,19 @@ class TwRealtimeQuoteClient:
             try:
                 quote = self._fetch_market(normalized, market)
                 if quote.price is not None:
+                    record_source_health("twse_mis", "OK", success_count=1, message="TWSE MIS 即時價擷取成功。")
                     return quote
                 errors.append(quote.error or "price unavailable")
             except Exception as exc:  # pragma: no cover - network best effort
                 errors.append(str(exc))
+        record_source_health(
+            "twse_mis",
+            "ERROR",
+            failure_count=1,
+            failed_symbols=[normalized],
+            error="; ".join(error for error in errors if error),
+            message="TWSE MIS 即時價擷取失敗，已交由呼叫端回退資料。",
+        )
         return TwRealtimeQuote(
             symbol=normalized,
             name=normalized,
@@ -80,15 +91,22 @@ class TwRealtimeQuoteClient:
                 "Referer": "https://mis.twse.com.tw/stock/index.jsp",
             },
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (ssl.SSLError, urllib.error.URLError) as exc:
-            if "CERTIFICATE_VERIFY_FAILED" not in str(exc) and not isinstance(exc, ssl.SSLError):
-                raise
-            context = ssl._create_unverified_context()
-            with urllib.request.urlopen(request, timeout=self.timeout, context=context) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+        def operation() -> dict:
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (ssl.SSLError, urllib.error.URLError) as exc:
+                if "CERTIFICATE_VERIFY_FAILED" not in str(exc) and not isinstance(exc, ssl.SSLError):
+                    raise
+                context = ssl._create_unverified_context()
+                with urllib.request.urlopen(request, timeout=self.timeout, context=context) as response:
+                    return json.loads(response.read().decode("utf-8"))
+
+        payload = retry_sync(
+            operation,
+            source="twse_mis",
+            operation_name=f"TWSE MIS quote {symbol}",
+        )
         rows = payload.get("msgArray") or []
         if not rows:
             return TwRealtimeQuote(
