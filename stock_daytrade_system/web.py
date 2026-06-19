@@ -3320,6 +3320,7 @@ def accuracy_dashboard_script() -> str:
         $("accuracy-summary").innerHTML = [
           metric("樣本數", summary.sample_size || 0),
           metric("最低樣本門檻", summary.min_sample_size || 20),
+          metric("樣本品質", sampleQualityLabel(summary.sample_quality)),
           metric("統計是否具意義", summary.is_statistically_meaningful ? "是" : "否"),
           metric("整體勝率", `${number(summary.win_rate)}%`),
           metric("平均報酬", `${number(summary.avg_return_pct)}%`),
@@ -3349,6 +3350,7 @@ def accuracy_dashboard_script() -> str:
         const body = rows.length ? rows.map((item) => `<tr>
           <td>${escapeHtml(item.group)}</td>
           <td>${item.sample_size}</td>
+          <td>${escapeHtml(sampleQualityLabel(item.sample_quality))}</td>
           <td>${item.is_statistically_meaningful ? "是" : "否"}</td>
           <td>${number(item.win_rate)}%</td>
           <td>${number(item.avg_return_pct)}%</td>
@@ -3356,8 +3358,18 @@ def accuracy_dashboard_script() -> str:
           <td>${number(item.avg_max_drawdown_pct)}%</td>
           <td>${number(item.stop_rate)}%</td>
           <td>${number(item.target_rate)}%</td>
-        </tr>`).join("") : `<tr><td colspan="9">目前沒有${label}統計資料。</td></tr>`;
-        return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th></tr></thead><tbody>${body}</tbody></table>`;
+          <td>${escapeHtml(item.sample_message || "")}</td>
+        </tr>`).join("") : `<tr><td colspan="11">目前沒有${label}統計資料。</td></tr>`;
+        return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>樣本品質</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th><th>提示</th></tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      function sampleQualityLabel(value) {
+        return {
+          insufficient: "樣本不足",
+          early: "初步樣本",
+          meaningful: "具參考性",
+          trusted: "較可信",
+        }[value] || "樣本不足";
       }
 
       function renderScorecard(scorecard) {
@@ -3372,6 +3384,7 @@ def accuracy_dashboard_script() -> str:
               <td>${escapeHtml(grade)}</td>
               <td>${item.sample_size || 0}</td>
               <td>${item.verified || 0}</td>
+              <td>${escapeHtml(sampleQualityLabel(item.sample_quality))}</td>
               <td>${number(item.trigger_rate)}%</td>
               <td>${number(item.win_rate)}%</td>
               <td>${number(item.avg_max_gain)}%</td>
@@ -3379,10 +3392,11 @@ def accuracy_dashboard_script() -> str:
               <td>${number(item.stop_rate)}%</td>
               <td>${number(item.target_rate)}%</td>
               <td>${number(item.reward_risk_ratio)}</td>
+              <td>${escapeHtml(item.sample_message || "")}</td>
             </tr>`);
           }
         }
-        $("accuracy-scorecard").innerHTML = `<table><thead><tr><th>期間</th><th>類別</th><th>出現次數</th><th>已驗證</th><th>觸發率</th><th>勝率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>停利率</th><th>平均賺賠比</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="11">目前沒有策略成績資料。</td></tr>'}</tbody></table>`;
+        $("accuracy-scorecard").innerHTML = `<table><thead><tr><th>期間</th><th>類別</th><th>出現次數</th><th>已驗證</th><th>樣本品質</th><th>觸發率</th><th>勝率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>停利率</th><th>平均賺賠比</th><th>提示</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="13">目前沒有策略成績資料。</td></tr>'}</tbody></table>`;
       }
 
       function renderReviewChart(distribution) {

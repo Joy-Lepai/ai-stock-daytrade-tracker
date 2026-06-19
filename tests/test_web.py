@@ -97,6 +97,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("accuracy-review-chart", html)
         self.assertIn("review_tag_loss_distribution", html)
         self.assertIn("虧損交易覆盤標籤", html)
+        self.assertIn("樣本品質", html)
+        self.assertIn("sampleQualityLabel", html)
 
     def test_tw_advisor_page_has_stock_input_and_scan_api(self):
         html = render_tw_advisor_page()

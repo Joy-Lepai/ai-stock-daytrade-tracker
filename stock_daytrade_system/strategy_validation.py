@@ -11,6 +11,9 @@ from stock_daytrade_system.data import Bar
 STRATEGY_VALIDATION_VERSION = "strategy_validation_v2_missed_seen_regret_2026-06-18"
 GRADES = ("A", "B+", "B", "high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "data_missing")
 FILTERED_STATUSES = {"high_risk", "avoid", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback", "practice_long"}
+MIN_MEANINGFUL_SAMPLE_SIZE = 20
+EARLY_SAMPLE_SIZE = 60
+TRUSTED_SAMPLE_SIZE = 100
 
 
 def update_tw_scan_result_verification(
@@ -19,14 +22,7 @@ def update_tw_scan_result_verification(
     intraday_bars_by_symbol: dict[str, list[Bar]],
 ) -> dict:
     captured_text = captured_at.isoformat(timespec="seconds")
-    rows = conn.execute(
-        """
-        SELECT *
-        FROM tw_full_market_snapshots
-        WHERE captured_at = ?
-        """,
-        (captured_text,),
-    ).fetchall()
+    rows, selection_mode = _verification_rows(conn, captured_at)
     updated = 0
     missing = 0
     with conn:
@@ -76,11 +72,63 @@ def update_tw_scan_result_verification(
     return {
         "version": STRATEGY_VALIDATION_VERSION,
         "captured_at": captured_text,
+        "selection_mode": selection_mode,
         "rows": len(rows),
         "verified": updated,
         "missing_intraday": missing,
         "message": "已補上盤後結果驗證。" if updated else "目前尚無可驗證的盤中資料。",
     }
+
+
+def _verification_rows(conn: sqlite3.Connection, captured_at: datetime) -> tuple[list[sqlite3.Row], str]:
+    captured_text = captured_at.isoformat(timespec="seconds")
+    exact = conn.execute(
+        """
+        SELECT *
+        FROM tw_full_market_snapshots
+        WHERE captured_at = ?
+        """,
+        (captured_text,),
+    ).fetchall()
+    if exact:
+        return exact, "exact_captured_at"
+    date_text = captured_at.date().isoformat()
+    latest_for_date = conn.execute(
+        """
+        SELECT s.*
+        FROM tw_full_market_snapshots s
+        JOIN (
+          SELECT symbol, MAX(captured_at) AS captured_at
+          FROM tw_full_market_snapshots
+          WHERE date = ?
+            AND verified_at IS NULL
+          GROUP BY symbol
+        ) latest
+          ON latest.symbol = s.symbol
+         AND latest.captured_at = s.captured_at
+        ORDER BY s.symbol
+        """,
+        (date_text,),
+    ).fetchall()
+    if latest_for_date:
+        return latest_for_date, "latest_unverified_for_date"
+    latest_any = conn.execute(
+        """
+        SELECT s.*
+        FROM tw_full_market_snapshots s
+        JOIN (
+          SELECT symbol, MAX(captured_at) AS captured_at
+          FROM tw_full_market_snapshots
+          WHERE date = ?
+          GROUP BY symbol
+        ) latest
+          ON latest.symbol = s.symbol
+         AND latest.captured_at = s.captured_at
+        ORDER BY s.symbol
+        """,
+        (date_text,),
+    ).fetchall()
+    return latest_any, "latest_for_date" if latest_any else "none"
 
 
 def build_strategy_scorecard(conn: sqlite3.Connection, windows: Iterable[int] = (20, 40, 60)) -> dict:
@@ -234,8 +282,12 @@ def _window_scorecard(rows: list[sqlite3.Row], window: int) -> dict:
     return {
         "window_days": window,
         "sample_size": len(rows),
+        "verified": sum(1 for row in rows if row["max_gain_after_scan"] is not None),
+        "sample_quality": _sample_quality(len(rows)),
+        "is_statistically_meaningful": len(rows) >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "is_trusted_sample": len(rows) >= TRUSTED_SAMPLE_SIZE,
         "groups": groups,
-        "sample_message": "樣本不足，先累積資料。" if len(rows) < 20 else "已有初步樣本，可觀察模型方向。",
+        "sample_message": _sample_message(len(rows)),
     }
 
 
@@ -259,6 +311,10 @@ def _group_stats(rows: list[sqlite3.Row]) -> dict:
     return {
         "sample_size": total,
         "verified": len(verified),
+        "sample_quality": _sample_quality(len(verified)),
+        "sample_message": _sample_message(len(verified)),
+        "is_statistically_meaningful": len(verified) >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "is_trusted_sample": len(verified) >= TRUSTED_SAMPLE_SIZE,
         "triggered": len(triggered),
         "trigger_rate": round(len(triggered) / total * 100, 2) if total else 0.0,
         "win_rate": round(len(wins) / len(verified) * 100, 2) if verified else 0.0,
@@ -272,6 +328,27 @@ def _group_stats(rows: list[sqlite3.Row]) -> dict:
         "pullback_rate": round(len(pullback) / len(verified) * 100, 2) if verified else 0.0,
         "false_negative_rate": round(len(big_up) / len(verified) * 100, 2) if verified else 0.0,
     }
+
+
+def _sample_quality(sample_size: int) -> str:
+    if sample_size < MIN_MEANINGFUL_SAMPLE_SIZE:
+        return "insufficient"
+    if sample_size < EARLY_SAMPLE_SIZE:
+        return "early"
+    if sample_size < TRUSTED_SAMPLE_SIZE:
+        return "meaningful"
+    return "trusted"
+
+
+def _sample_message(sample_size: int) -> str:
+    quality = _sample_quality(sample_size)
+    if quality == "insufficient":
+        return "樣本不足，不建議判斷模型準確度。"
+    if quality == "early":
+        return "已有初步樣本，可觀察方向，但不建議大幅調整模型。"
+    if quality == "meaningful":
+        return "樣本量已具初步參考價值，可用於檢查模型偏差。"
+    return "樣本量較充足，可作為模型調整的重要依據。"
 
 
 def _latest_snapshot_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:

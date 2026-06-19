@@ -98,6 +98,45 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(result["verified"], 1)
             self.assertEqual(row["post_scan_high"], 51.2)
 
+    def test_post_close_verification_falls_back_to_latest_unverified_snapshot_for_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            captured = datetime(2026, 6, 18, 9, 30)
+            save_tw_full_market_snapshots(
+                conn,
+                captured,
+                [
+                    {
+                        "symbol": "2303.TW",
+                        "name": "聯電",
+                        "latest_price": 50,
+                        "change_pct": 3.8,
+                        "volume": 8_000_000,
+                        "turnover": 400_000_000,
+                        "volume_ratio": 1.3,
+                        "vwap": 49.5,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "source_reasons": ["成交金額前段"],
+                        "ai_grade": "B+",
+                        "entry_status": "practice_long",
+                        "trade_bias": "long",
+                        "reason_code": "full_market_detected",
+                    }
+                ],
+            )
+            bars = [
+                Bar(datetime(2026, 6, 18, 9, 35), 50, 50.8, 49.8, 50.5, 1000),
+                Bar(datetime(2026, 6, 18, 13, 25), 50.5, 51.5, 50.2, 51.2, 1000),
+            ]
+
+            result = update_tw_scan_result_verification(conn, datetime(2026, 6, 18, 14, 5), {"2303.TW": bars})
+            row = conn.execute("SELECT * FROM tw_full_market_snapshots WHERE symbol = '2303.TW'").fetchone()
+
+            self.assertEqual(result["selection_mode"], "latest_unverified_for_date")
+            self.assertEqual(result["verified"], 1)
+            self.assertEqual(row["post_scan_high"], 51.5)
+
     def test_scorecard_and_missed_rate_are_empty_safe(self):
         with tempfile.TemporaryDirectory() as directory:
             conn = connect(default_db_path(Path(directory)))
@@ -107,6 +146,8 @@ class StrategyValidationTests(unittest.TestCase):
             notes = build_model_observations(scorecard, missed)
 
             self.assertEqual(scorecard["available_trade_days"], 0)
+            self.assertEqual(scorecard["windows"]["20"]["sample_quality"], "insufficient")
+            self.assertFalse(scorecard["windows"]["20"]["is_statistically_meaningful"])
             self.assertEqual(missed["missed_count"], 0)
             self.assertTrue(notes)
 

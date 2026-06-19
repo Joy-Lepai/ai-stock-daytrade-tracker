@@ -182,6 +182,8 @@ def _stats(samples: list[dict], config: ConfidenceConfig) -> dict:
         "sample_size": total,
         "min_sample_size": config.min_sample_size,
         "trusted_sample_size": config.trusted_sample_size,
+        "sample_quality": _sample_quality(total, config),
+        "sample_message": _sample_message(total, config),
         "is_statistically_meaningful": total >= config.min_sample_size,
         "is_trusted_sample": total >= config.trusted_sample_size,
         "win_rate": round(wins / total * 100, 2) if total else 0.0,
@@ -191,6 +193,16 @@ def _stats(samples: list[dict], config: ConfidenceConfig) -> dict:
         "stop_rate": round(stop / total * 100, 2) if total else 0.0,
         "target_rate": round(target / total * 100, 2) if total else 0.0,
     }
+
+
+def _sample_quality(sample_size: int, config: ConfidenceConfig) -> str:
+    if sample_size < config.min_sample_size:
+        return "insufficient"
+    if sample_size < 60:
+        return "early"
+    if sample_size < config.trusted_sample_size:
+        return "meaningful"
+    return "trusted"
 
 
 def _model_suggestions(samples: list[dict], config: ConfidenceConfig) -> list[str]:

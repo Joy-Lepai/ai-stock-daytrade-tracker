@@ -17,6 +17,7 @@ class AccuracyServiceTests(unittest.TestCase):
 
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["summary"]["sample_size"], 0)
+        self.assertEqual(payload["summary"]["sample_quality"], "insufficient")
         self.assertFalse(payload["summary"]["is_statistically_meaningful"])
         self.assertIn("樣本數不足", payload["summary"]["message"])
         self.assertEqual(payload["by_status"], [])
@@ -51,10 +52,12 @@ class AccuracyServiceTests(unittest.TestCase):
                 by_confidence = build_accuracy_group_payload(conn, "confidence_level")
 
         self.assertEqual(payload["summary"]["sample_size"], 1)
+        self.assertEqual(payload["summary"]["sample_quality"], "insufficient")
         self.assertEqual(payload["summary"]["high_confidence"]["sample_size"], 1)
         self.assertEqual(payload["summary"]["win_rate"], 100)
         self.assertFalse(payload["summary"]["is_statistically_meaningful"])
         self.assertEqual(by_confidence["rows"][0]["group"], "high")
+        self.assertEqual(by_confidence["rows"][0]["sample_quality"], "insufficient")
         self.assertEqual(by_confidence["rows"][0]["win_rate"], 100)
 
     def test_b_plus_accuracy_is_counted_separately(self):
