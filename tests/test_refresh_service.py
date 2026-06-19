@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from stock_daytrade_system.db import connect, default_db_path
+from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price
 from stock_daytrade_system.refresh_service import RefreshCoordinator
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
@@ -41,6 +41,9 @@ class RefreshServiceTests(unittest.TestCase):
             self.assertIn("deployment_status", payload)
             self.assertIn("commit", payload["deployment_status"])
             self.assertIn("signal_guard_version", payload)
+            self.assertIn("price_status_summary", payload)
+            self.assertIn("live_count", payload)
+            self.assertIn("can_show_any_strong_long", payload)
 
     def test_status_payload_includes_data_source_health(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -76,6 +79,30 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(layers["watchlist"]["symbols_count"], 120)
         self.assertEqual(layers["positions"]["status"], "success")
         self.assertEqual(layers["positions"]["symbols_count"], 0)
+
+    def test_status_payload_counts_cached_prices_without_global_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                upsert_last_known_price(
+                    conn,
+                    market="TW",
+                    symbol="2330.TW",
+                    price=100,
+                    price_at="2026-06-18T09:31:00+08:00",
+                    source="test",
+                    fallback_used=True,
+                    fallback_reason="api_failed",
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload()
+            summary = payload["price_status_summary"]
+
+        self.assertIn("cached_count", summary)
+        self.assertGreaterEqual(summary["cached_count"], 0)
+        self.assertIn("missing_ratio", summary)
 
 
 if __name__ == "__main__":

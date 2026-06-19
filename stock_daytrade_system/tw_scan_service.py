@@ -8,7 +8,8 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol, load_config
-from stock_daytrade_system.db import connect, default_db_path
+from stock_daytrade_system.data_freshness import evaluate_data_freshness
+from stock_daytrade_system.db import connect, default_db_path, last_known_price_row, upsert_last_known_price
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
@@ -65,13 +66,17 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         model,
     )
+    db_path = default_db_path(project_root)
+    with connect(db_path) as conn:
+        last_known_row = last_known_price_row(conn, "TW", item.symbol)
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
-    display_payload = _display_payload(scan_item, model, realtime_payload)
+    scan_payload = _scan_payload_with_last_known(scan_item.to_dict(), last_known_row)
+    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row)
     data_health = _data_health_payload(captured_at, display_payload, daily_errors, intraday_errors, quote_intraday_errors, item.symbol)
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
-        scan=scan_item.to_dict(),
+        scan=scan_payload,
         candidate=candidate_payload,
         display=display_payload,
         market_status=market_bias.direction,
@@ -80,26 +85,36 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         analysis_payload,
     )
-    db_path = default_db_path(project_root)
     with connect(db_path) as conn:
+        if display_payload.get("current_price") is not None and not data_health.get("uses_last_known"):
+            upsert_last_known_price(
+                conn,
+                market="TW",
+                symbol=item.symbol,
+                price=display_payload.get("current_price"),
+                price_at=display_payload.get("quote_time") or captured_at.isoformat(timespec="seconds"),
+                vwap=scan_payload.get("vwap"),
+                volume_ratio=scan_payload.get("volume_ratio"),
+                source=display_payload.get("price_source") or "tw_advisor",
+            )
         history_payload = _historical_validation_payload(conn, item.symbol)
         source_payload = _source_ranking_payload(conn, item.symbol)
         position_payload = position_action_for_symbol(conn, item.symbol, market="TW")
     safety_payload = _safety_payload(
         candidate_payload,
-        scan_item.to_dict(),
+        scan_payload,
         data_health,
         analysis_payload,
         captured_at,
     )
     front_trade_payload = front_trade_view(
-        candidate_payload or scan_item.to_dict(),
+        candidate_payload or scan_payload,
         data_today=bool(data_health.get("is_today_data")),
         intraday=bool(data_health.get("is_intraday_data")),
         stale=bool(data_health.get("is_stale")),
     ).to_dict()
-    key_metrics_payload = _key_metrics_payload(candidate_payload, scan_item.to_dict(), display_payload, analysis_payload)
-    reason_payload = _reason_payload(candidate_payload, scan_item.to_dict(), data_health, safety_payload)
+    key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
+    reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
     errors = {}
     if item.symbol in daily_errors:
         errors["daily"] = daily_errors[item.symbol]
@@ -119,7 +134,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "sector": item.sector,
         "market_status": market_bias.direction,
         "market_notes": list(market_bias.notes),
-        "scan": scan_item.to_dict(),
+        "scan": scan_payload,
         "candidate": candidate_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
@@ -206,8 +221,25 @@ def _candidate_payload(candidate) -> Optional[dict]:
     }
 
 
-def _display_payload(scan_item, candidate, realtime_quote: dict) -> dict:
-    scan_data = scan_item.to_dict() if scan_item else {}
+def _scan_payload_with_last_known(scan_data: dict, last_known_row) -> dict:
+    payload = dict(scan_data or {})
+    if not last_known_row:
+        return payload
+    if payload.get("latest_price") is None:
+        payload["latest_price"] = last_known_row["last_known_price"]
+        payload["latest_at"] = last_known_row["last_known_price_at"] or last_known_row["last_success_at"] or ""
+    if payload.get("vwap") is None:
+        payload["vwap"] = last_known_row["last_known_vwap"]
+    if payload.get("volume_ratio") is None:
+        payload["volume_ratio"] = last_known_row["last_known_volume_ratio"]
+    payload["fallback_used"] = bool(payload.get("data_error"))
+    payload["fallback_source"] = last_known_row["last_known_source"]
+    payload["fallback_reason"] = payload.get("data_error") or last_known_row["fallback_reason"] or ""
+    return payload
+
+
+def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None) -> dict:
+    scan_data = dict(scan_item or {})
     candidate_data = _candidate_payload(candidate) or {}
     current_price = realtime_quote.get("price")
     change_pct = realtime_quote.get("change_pct")
@@ -217,6 +249,14 @@ def _display_payload(scan_item, candidate, realtime_quote: dict) -> dict:
         current_price = scan_data.get("latest_price")
     if current_price is None:
         current_price = candidate_data.get("last_price")
+    fallback_source = ""
+    fallback_reason = ""
+    if current_price is None and last_known_row:
+        current_price = last_known_row["last_known_price"]
+        quote_time = last_known_row["last_known_price_at"] or last_known_row["last_success_at"] or quote_time
+        source = last_known_row["last_known_source"] or "last_known_price"
+        fallback_source = source
+        fallback_reason = last_known_row["fallback_reason"] or "latest_quote_failed"
     if change_pct is None:
         change_pct = scan_data.get("change_pct")
     if change_pct is None:
@@ -228,6 +268,8 @@ def _display_payload(scan_item, candidate, realtime_quote: dict) -> dict:
         "quote_time": quote_time,
         "model_reference_price": candidate_data.get("last_price"),
         "scanner_latest_price": scan_data.get("latest_price"),
+        "fallback_source": fallback_source or scan_data.get("fallback_source") or "",
+        "fallback_reason": fallback_reason or scan_data.get("fallback_reason") or "",
     }
 
 
@@ -247,10 +289,21 @@ def _data_health_payload(
     is_today = bool(quote_dt and quote_dt.date() == captured_at.astimezone(ZoneInfo("Asia/Taipei")).date())
     stale = bool(age_minutes is not None and age_minutes > 15)
     has_error = symbol in daily_errors or symbol in intraday_errors
-    if has_error:
+    freshness = evaluate_data_freshness(
+        now=captured_at,
+        latest_at=quote_dt,
+        source_failed=has_error,
+        partial=bool(symbol in quote_intraday_errors),
+        is_market_open=True,
+    )
+    if has_error and freshness.uses_last_known:
+        status = "部分缺漏"
+        credibility = "中"
+        advice = "使用上一筆有效價格：目前 API 暫時失敗，該判斷不可作為即時交易依據"
+    elif has_error:
         status = "異常"
         credibility = "資料不足 / 不可信"
-        advice = "目前資料不完整，僅供觀察，不建議交易"
+        advice = "資料不足：缺少核心行情資料，不能產生做多判斷"
     elif stale or (quote_dt is not None and not is_today):
         status = "過期"
         credibility = "低"
@@ -272,15 +325,46 @@ def _data_health_payload(
         "is_today_data": is_today,
         "is_intraday_data": bool(quote_dt),
         "is_stale": stale,
+        "price_status": _price_status_from_freshness(freshness.state),
+        "quote_state": freshness.state,
+        "quote_state_label": freshness.label,
+        "quote_state_badge": freshness.badge,
+        "quote_state_message": freshness.message,
+        "is_live": freshness.is_live,
+        "is_delayed": freshness.is_delayed,
+        "uses_last_known": freshness.uses_last_known,
+        "last_known_price": display.get("current_price"),
         "yahoo_daily_success": symbol not in daily_errors,
         "yahoo_intraday_5m_success": symbol not in intraday_errors,
         "yahoo_intraday_1m_success": symbol not in quote_intraday_errors,
         "twse_tpex_quote_success": status != "異常",
-        "uses_cache": False,
+        "uses_cache": freshness.uses_last_known,
         "is_data_missing": has_error,
-        "can_use_for_daytrade": status == "正常",
+        "can_use_for_daytrade": status == "正常" and freshness.state == "live",
+        "can_use_for_intraday_signal": status == "正常" and freshness.state == "live",
+        "can_show_strong_long": status == "正常" and freshness.state == "live",
         "advice": advice,
+        "fallback_source": display.get("fallback_source") or "",
+        "fallback_reason": display.get("fallback_reason") or "",
+        "error_reason": (
+            daily_errors.get(symbol)
+            or intraday_errors.get(symbol)
+            or quote_intraday_errors.get(symbol)
+            or ""
+        ),
     }
+
+
+def _price_status_from_freshness(state: str) -> str:
+    if state == "live":
+        return "live"
+    if state == "delayed":
+        return "delayed"
+    if state == "last_known":
+        return "cached"
+    if state == "stale":
+        return "delayed"
+    return "missing" if state == "missing" else state
 
 
 def _safety_payload(
@@ -314,7 +398,7 @@ def _safety_payload(
         intraday=bool(data_health.get("is_intraday_data", True)),
         stale=bool(data_health.get("is_stale")),
         data_missing=bool(data_health.get("is_data_missing")),
-        allow_strong_long=True,
+        allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
         market_mode="intraday" if clock.session == "regular" else "closed",
         market_session=clock.session,
         current_price=current_price,

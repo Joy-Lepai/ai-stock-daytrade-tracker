@@ -348,6 +348,22 @@ CREATE TABLE IF NOT EXISTS refresh_state (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS last_known_prices (
+  market TEXT NOT NULL DEFAULT 'TW',
+  symbol TEXT NOT NULL,
+  last_known_price REAL,
+  last_known_price_at TEXT,
+  last_known_vwap REAL,
+  last_known_volume_ratio REAL,
+  last_known_source TEXT,
+  last_success_at TEXT,
+  fallback_used INTEGER NOT NULL DEFAULT 0,
+  fallback_reason TEXT,
+  error_reason TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (market, symbol)
+);
 """
 
 
@@ -438,6 +454,73 @@ def refresh_state_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
     ).fetchall()
 
 
+def upsert_last_known_price(
+    conn: sqlite3.Connection,
+    *,
+    market: str,
+    symbol: str,
+    price: Optional[float],
+    price_at: Optional[str],
+    vwap: Optional[float] = None,
+    volume_ratio: Optional[float] = None,
+    source: str = "",
+    fallback_used: bool = False,
+    fallback_reason: str = "",
+    error_reason: str = "",
+) -> None:
+    if price is None or not symbol:
+        return
+    now_text = datetime.now().astimezone().isoformat(timespec="seconds")
+    success_at = price_at or now_text
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO last_known_prices (
+              market, symbol, last_known_price, last_known_price_at, last_known_vwap,
+              last_known_volume_ratio, last_known_source, last_success_at,
+              fallback_used, fallback_reason, error_reason, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(market, symbol) DO UPDATE SET
+              last_known_price=excluded.last_known_price,
+              last_known_price_at=excluded.last_known_price_at,
+              last_known_vwap=excluded.last_known_vwap,
+              last_known_volume_ratio=excluded.last_known_volume_ratio,
+              last_known_source=excluded.last_known_source,
+              last_success_at=excluded.last_success_at,
+              fallback_used=excluded.fallback_used,
+              fallback_reason=excluded.fallback_reason,
+              error_reason=excluded.error_reason,
+              updated_at=excluded.updated_at
+            """,
+            (
+                market,
+                symbol,
+                price,
+                price_at,
+                vwap,
+                volume_ratio,
+                source,
+                success_at,
+                int(bool(fallback_used)),
+                fallback_reason,
+                error_reason,
+                now_text,
+            ),
+        )
+
+
+def last_known_price_row(conn: sqlite3.Connection, market: str, symbol: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT *
+        FROM last_known_prices
+        WHERE market = ? AND symbol = ?
+        """,
+        (market, symbol),
+    ).fetchone()
+
+
 def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetime, rows: Iterable[dict]) -> None:
     captured_text = captured_at.isoformat(timespec="seconds")
     with conn:
@@ -491,6 +574,17 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
                     None,
                     captured_text,
                 ),
+            )
+            upsert_last_known_price(
+                conn,
+                market="TW",
+                symbol=str(item.get("symbol") or ""),
+                price=item.get("latest_price"),
+                price_at=signal_text,
+                vwap=item.get("vwap"),
+                volume_ratio=item.get("volume_ratio"),
+                source="tw_full_market_scan",
+                error_reason=str(item.get("data_error") or ""),
             )
 
 
@@ -586,6 +680,16 @@ def save_long_candidates(
                     data["opening_range_high"],
                     data["opening_range_low"],
                 ),
+            )
+            upsert_last_known_price(
+                conn,
+                market="TW",
+                symbol=data["symbol"],
+                price=data["last_price"],
+                price_at=captured_text,
+                vwap=data["vwap"],
+                volume_ratio=data["volume_ratio"],
+                source="long_model_intraday",
             )
             conn.execute(
                 """

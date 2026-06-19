@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.data import Bar
+from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, LongCandidate
 from stock_daytrade_system.tw_momentum_scanner import TW_MOMENTUM_SCANNER_VERSION
 
@@ -131,6 +132,14 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
     latest_at = _latest_intraday_at(inputs.intraday_data)
     age_minutes = _age_minutes(now, latest_at)
     is_intraday_session = inputs.market_session in {"regular", "open", "台股盤中"}
+    price_counts = _price_status_counts(inputs, now, is_intraday_session)
+    freshness = evaluate_data_freshness(
+        now=now,
+        latest_at=latest_at,
+        source_failed=bool(inputs.intraday_errors and not inputs.intraday_data),
+        partial=bool(inputs.daily_errors or inputs.intraday_errors or inputs.taifex_errors or inputs.cmoney_errors),
+        is_market_open=is_intraday_session,
+    )
     stale = bool(is_intraday_session and (latest_at is None or (age_minutes is not None and age_minutes > 15)))
     partial = bool(inputs.daily_errors or inputs.intraday_errors or inputs.taifex_errors or inputs.cmoney_errors)
     if stale:
@@ -146,6 +155,7 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
         status = "異常"
         recommendation_state = "目前盤中資料不足，暫停產生當沖建議"
     failures = sorted(set(inputs.daily_errors) | set(inputs.intraday_errors))
+    total_price_count = max(sum(price_counts.values()), 1)
     return {
         "status": status,
         "recommendation_state": recommendation_state,
@@ -162,6 +172,24 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
         "is_today_data": bool(latest_at and latest_at.date() == now.date()),
         "is_intraday_session": is_intraday_session,
         "is_stale": stale,
+        "live_state": freshness.state,
+        "live_state_label": freshness.label,
+        "live_state_badge": freshness.badge,
+        "live_state_message": freshness.message,
+        "is_live": freshness.is_live,
+        "is_delayed": freshness.is_delayed,
+        "uses_last_known": freshness.uses_last_known,
+        "last_known_price_policy": "單一資料源短暫失敗時保留上一筆有效價格狀態；若超過 15 分鐘或核心欄位缺漏，禁止顯示盤中可執行。",
+        "live_count": price_counts["live"],
+        "delayed_count": price_counts["delayed"],
+        "cached_count": price_counts["cached"],
+        "missing_count": price_counts["missing"],
+        "live_ratio": round(price_counts["live"] / total_price_count * 100, 2),
+        "delayed_ratio": round(price_counts["delayed"] / total_price_count * 100, 2),
+        "cached_ratio": round(price_counts["cached"] / total_price_count * 100, 2),
+        "missing_ratio": round(price_counts["missing"] / total_price_count * 100, 2),
+        "most_common_error": _most_common_error(inputs),
+        "data_source_status": status,
         "stock_pool_count": symbol_count,
         "intraday_symbol_count": intraday_symbol_count,
         "daily_success_count": max(symbol_count - len(inputs.daily_errors), 0),
@@ -171,6 +199,48 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
         "failed_symbols": failures[:40],
         "uses_realtime_or_delayed": "批次 dashboard 以 Yahoo chart endpoint 為主，可能延遲；個股頁優先 TWSE MIS。",
     }
+
+
+def _price_status_counts(inputs: DiagnosticInputs, now: datetime, is_intraday_session: bool) -> dict[str, int]:
+    counts = {"live": 0, "delayed": 0, "cached": 0, "missing": 0}
+    symbols = list(inputs.intraday_symbols)
+    for symbol in symbols:
+        bars = inputs.intraday_data.get(symbol) or []
+        latest = _latest_bar_at(bars)
+        freshness = evaluate_data_freshness(
+            now=now,
+            latest_at=latest,
+            source_failed=symbol in inputs.intraday_errors,
+            partial=symbol in inputs.daily_errors,
+            is_market_open=is_intraday_session,
+        )
+        if symbol in inputs.intraday_errors and latest is not None:
+            counts["cached"] += 1
+        elif freshness.state == "live":
+            counts["live"] += 1
+        elif freshness.state in {"delayed", "stale"}:
+            counts["delayed"] += 1
+        elif freshness.state == "last_known":
+            counts["cached"] += 1
+        else:
+            counts["missing"] += 1
+    return counts
+
+
+def _latest_bar_at(bars: list[Bar]) -> Optional[datetime]:
+    if not bars:
+        return None
+    return _taipei(bars[-1].timestamp)
+
+
+def _most_common_error(inputs: DiagnosticInputs) -> str:
+    counts: dict[str, int] = {}
+    for errors in (inputs.daily_errors, inputs.intraday_errors, inputs.taifex_errors, inputs.cmoney_errors):
+        for error in errors.values():
+            text = str(error or "")
+            if text:
+                counts[text] = counts.get(text, 0) + 1
+    return max(counts.items(), key=lambda item: item[1])[0] if counts else ""
 
 
 def _full_market_summary(full_market_scan: dict, scan_items: list[dict]) -> dict:

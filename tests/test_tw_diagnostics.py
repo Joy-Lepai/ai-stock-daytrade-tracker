@@ -32,6 +32,44 @@ class TWDiagnosticsTests(unittest.TestCase):
 
         self.assertEqual(payload["data_health"]["status"], "過期")
         self.assertIn("暫停產生當沖建議", payload["data_health"]["recommendation_state"])
+        self.assertEqual(payload["data_health"]["missing_count"], 0)
+        self.assertEqual(payload["data_health"]["delayed_count"], 1)
+
+    def test_single_missing_symbol_does_not_mark_whole_dashboard_abnormal(self):
+        now = datetime(2026, 6, 18, 9, 22, tzinfo=ZoneInfo("Asia/Taipei"))
+        fresh = now - timedelta(seconds=30)
+        symbols = [
+            WatchSymbol("2330.TW", "台積電", "semiconductor"),
+            WatchSymbol("2317.TW", "鴻海", "electronics"),
+            WatchSymbol("1301.TW", "台塑", "plastics"),
+        ]
+
+        payload = build_tw_diagnostics(
+            DiagnosticInputs(
+                now=now,
+                all_symbols=symbols,
+                intraday_symbols=[item.symbol for item in symbols],
+                daily_data={},
+                intraday_data={
+                    "2330.TW": [Bar(fresh, 100, 101, 99, 100, 1000)],
+                    "2317.TW": [Bar(fresh, 100, 101, 99, 100, 1000)],
+                },
+                daily_errors={},
+                intraday_errors={"1301.TW": "api failed"},
+                taifex_errors={},
+                cmoney_errors={},
+                market_session="regular",
+                market_status="偏多",
+                momentum_scan={"items": []},
+                candidates=[],
+            )
+        )
+
+        health = payload["data_health"]
+        self.assertEqual(health["status"], "部分缺漏")
+        self.assertEqual(health["live_count"], 2)
+        self.assertEqual(health["missing_count"], 1)
+        self.assertLess(health["missing_ratio"], 35)
 
     def test_missed_stock_analysis_has_reason_code(self):
         now = datetime(2026, 6, 18, 9, 22, tzinfo=ZoneInfo("Asia/Taipei"))

@@ -3,10 +3,46 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar
-from stock_daytrade_system.tw_scan_service import _intraday_chart_payload, _safety_payload
+from stock_daytrade_system.tw_scan_service import _data_health_payload, _intraday_chart_payload, _safety_payload
 
 
 class TWScanServiceTests(unittest.TestCase):
+    def test_cached_last_known_price_blocks_strong_long(self):
+        captured_at = datetime(2026, 6, 18, 9, 40, tzinfo=ZoneInfo("Asia/Taipei"))
+        data_health = _data_health_payload(
+            captured_at,
+            {
+                "current_price": 100,
+                "quote_time": "2026-06-18T09:35:00+08:00",
+                "fallback_source": "last_known_price",
+                "fallback_reason": "api_failed",
+            },
+            {"2330.TW": "daily failed"},
+            {},
+            {},
+            "2330.TW",
+        )
+        payload = _safety_payload(
+            {
+                "entry_status": "executable",
+                "grade": "A",
+                "vwap": 99,
+                "volume_ratio": 1.2,
+                "stop_loss": 98,
+                "last_price": 100,
+                "risk_score": 20,
+            },
+            {"vwap": 99, "volume_ratio": 1.2, "latest_price": 100, "change_pct": 1.5},
+            data_health,
+            {"action_plan": {"stop_loss": 98}},
+            captured_at,
+        )
+
+        self.assertEqual(data_health["price_status"], "cached")
+        self.assertFalse(data_health["can_show_strong_long"])
+        self.assertFalse(payload["is_executable_allowed"])
+        self.assertIn("refresh_layer_stale", payload["reason_codes"])
+
     def test_intraday_chart_payload_contains_bars_vwap_and_levels(self):
         start = datetime(2026, 6, 18, 9, 0)
         bars = [

@@ -8,12 +8,14 @@ from stock_daytrade_system.data import Bar
 from stock_daytrade_system.db import (
     backtest_summary,
     connect,
+    last_known_price_row,
     latest_candidates,
     latest_us_candidates,
     save_long_candidates,
     save_us_candidates,
     save_us_symbols,
     update_backtests,
+    upsert_last_known_price,
 )
 from stock_daytrade_system.long_model import LongCandidate
 from stock_daytrade_system.us_long_model import USLongCandidate
@@ -141,6 +143,26 @@ def us_candidate(entry_status="wait_volume", grade="B"):
 
 
 class DatabaseTests(unittest.TestCase):
+    def test_last_known_price_can_be_upserted_and_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "daytrade.db"
+            with connect(db_path) as conn:
+                upsert_last_known_price(
+                    conn,
+                    market="TW",
+                    symbol="2330.TW",
+                    price=100,
+                    price_at="2026-06-18T09:31:00+08:00",
+                    vwap=99.5,
+                    volume_ratio=1.2,
+                    source="test",
+                )
+                row = last_known_price_row(conn, "TW", "2330.TW")
+
+        self.assertIsNotNone(row)
+        self.assertEqual(row["last_known_price"], 100)
+        self.assertEqual(row["last_known_vwap"], 99.5)
+
     def test_saves_candidates_and_updates_backtest(self):
         with tempfile.TemporaryDirectory() as directory:
             with connect(Path(directory) / "daytrade.db") as conn:

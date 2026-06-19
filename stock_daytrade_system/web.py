@@ -1796,6 +1796,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const deploy = payload.deployment_status || {{}};
         return `<span class="refresh-layer-item"><strong>部署版本：</strong>commit=${{escapeHtml(deploy.commit || "-")}}｜來源=${{escapeHtml(deploy.source || "-")}}｜signal_guard=${{escapeHtml(payload.signal_guard_version || "-")}}</span>`;
       }};
+      const priceStatusHtml = (payload) => {{
+        const price = payload.price_status_summary || {{}};
+        return `<span class="refresh-layer-item"><strong>價格資料品質：</strong>${{escapeHtml(price.status || "-")}}｜live=${{escapeHtml(price.live_count || 0)}}｜delayed=${{escapeHtml(price.delayed_count || 0)}}｜cached=${{escapeHtml(price.cached_count || 0)}}｜missing=${{escapeHtml(price.missing_count || 0)}}｜missing ratio=${{escapeHtml(price.missing_ratio || 0)}}%</span>`;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1811,6 +1815,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.positions),
               layerHtml(layers.post_close_validation),
               layerHtml(layers.manual_full_refresh),
+              priceStatusHtml(payload),
               deploymentStatusHtml(payload),
               providerStatusHtml(payload),
               sourceHealthHtml(payload),
@@ -2560,6 +2565,7 @@ def tw_advisor_script() -> str:
               ${metric("最新成交價", escapeHtml(number(price)))}
               ${metric("漲跌幅", pct(changePct))}
               ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}
+              ${metric("行情狀態", escapeHtml(dataHealth.quote_state_label || dataHealth.quote_state || "-"))}
               ${metric("可用於當沖判斷", escapeHtml(dataHealth.can_use_for_daytrade && safety.is_executable_allowed ? "是" : "否"))}
             </div>
           </article>
@@ -2572,6 +2578,8 @@ def tw_advisor_script() -> str:
               ${metric("是否盤中資料", escapeHtml(yesNo(dataHealth.is_intraday_data)))}
               ${metric("最後更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
               ${metric("資料年齡", dataHealth.age_minutes === null || dataHealth.age_minutes === undefined ? "-" : `${escapeHtml(number(dataHealth.age_minutes, 1))} 分鐘`)}
+              ${metric("即時 / 延遲", escapeHtml(dataHealth.is_live ? "即時" : dataHealth.is_delayed ? "延遲 / 上一筆" : "非即時"))}
+              ${metric("上一筆有效價格", escapeHtml(number(dataHealth.last_known_price)))}
               ${metric("Yahoo 日線", escapeHtml(dataHealth.yahoo_daily_success ? "成功" : "失敗"))}
               ${metric("Yahoo 5分K", escapeHtml(dataHealth.yahoo_intraday_5m_success ? "成功" : "失敗"))}
               ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}

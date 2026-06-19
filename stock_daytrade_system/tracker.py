@@ -839,6 +839,9 @@ def _front_context(summary: Optional[LongModelSummary], market_mode: Optional[di
         "stale": stale,
         "allow_strong_long": bool((market_mode or {}).get("allow_strong_long", intraday and not stale)),
         "market_mode": mode,
+        "price_status_label": str(health.get("live_state_label") or health.get("live_state") or ""),
+        "uses_last_known": bool(health.get("uses_last_known")),
+        "is_delayed": bool(health.get("is_delayed")),
     }
 
 
@@ -907,6 +910,7 @@ def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> st
         invalidation = "若無法回測降溫，避免追價。"
     conclusion = _display_conclusion_for_candidate(item)
     front = front_trade_view(item, **(front_context or {}))
+    data_badge = _candidate_price_status_badge(item, front_context)
     bullish_reason = _display_reason_for_candidate(item)
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
@@ -914,7 +918,7 @@ def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> st
     return (
         '<div class="decision-panel">'
         f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a>{_position_size_tag(item.trigger_price or item.last_price, item.stop_loss)}</strong>'
-        f'<div>{escape(front.category)}｜{escape(front.subtitle)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
+        f'<div>{escape(front.category)}｜{escape(front.subtitle)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{data_badge}</div>'
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
         f'<p class="muted"><strong>下一步：</strong>{escape(next_step)}</p>'
@@ -1029,7 +1033,7 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
     html = []
     for key, title in columns:
         items = buckets.get(key, [])
-        cards = "".join(_front_signal_card(item, view) for item, view in items)
+        cards = "".join(_front_signal_card(item, view, front_context) for item, view in items)
         empty = _front_signal_center_empty_message(key)
         html.append(
             "<div class=\"signal-column\">"
@@ -1047,10 +1051,11 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
     )
 
 
-def _front_signal_card(item: LongCandidate, view) -> str:
+def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] = None) -> str:
+    data_badge = _candidate_price_status_badge(item, front_context)
     metrics = (
         f"現價 {_fmt(item.last_price)}｜VWAP {_fmt(item.vwap)}｜量比 {_fmt(item.volume_ratio)}x｜"
-        f"停損 {_fmt(item.stop_loss)}｜停利 {_fmt(item.target_price)}"
+        f"停損 {_fmt(item.stop_loss)}｜停利 {_fmt(item.target_price)}｜{data_badge}"
     )
     return (
         "<div class=\"signal-card\">"
@@ -1063,6 +1068,18 @@ def _front_signal_card(item: LongCandidate, view) -> str:
         f"<div class=\"signal-next\">下一步：{escape(view.next_step)}</div>"
         "</div>"
     )
+
+
+def _candidate_price_status_badge(item: LongCandidate, front_context: Optional[dict] = None) -> str:
+    if item.vwap is None or item.volume_ratio is None:
+        return "資料不足"
+    context = front_context or {}
+    if context.get("uses_last_known"):
+        return "使用上一筆，不作為即時判斷"
+    if context.get("is_delayed"):
+        return f"資料延遲：{context.get('price_status_label') or '延遲'}"
+    label = str(context.get("price_status_label") or "")
+    return label or "即時"
 
 
 def _signal_card(item: dict) -> str:
@@ -1691,6 +1708,14 @@ def _data_health_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("盤中成功", int(health.get("intraday_success_count", 0)))}'
         f'{_metric("盤中失敗", int(health.get("intraday_failed_count", 0)))}'
         f'{_metric_text("最後盤中資料", str(health.get("latest_intraday_at") or "-"))}'
+        f'{_metric_text("行情狀態", str(health.get("live_state_label") or health.get("live_state") or "-"))}'
+        f'{_metric("即時 live", int(health.get("live_count", 0) or 0))}'
+        f'{_metric("延遲 delayed", int(health.get("delayed_count", 0) or 0))}'
+        f'{_metric("使用上一筆 cached", int(health.get("cached_count", 0) or 0))}'
+        f'{_metric("資料不足 missing", int(health.get("missing_count", 0) or 0))}'
+        f'{_metric_text("是否即時", "是" if health.get("is_live") else "否")}'
+        f'{_metric_text("是否延遲", "是" if health.get("is_delayed") else "否")}'
+        f'{_metric_text("使用上一筆", "是" if health.get("uses_last_known") else "否")}'
         f'{_metric_text("資料日期", str(health.get("data_date") or "-"))}'
         f'{_metric_text("資料年齡", _age_text(health.get("age_minutes")))}'
         f'{_metric_text("交易時間", "是" if health.get("is_intraday_session") else "否")}'
@@ -1699,6 +1724,7 @@ def _data_health_panel(summary: Optional[LongModelSummary]) -> str:
         '</div>'
         f'<p class="muted">失敗標的：{escape(failed_text)}</p>'
         f'<p class="muted">{escape(str(health.get("uses_realtime_or_delayed", "")))}</p>'
+        f'<p class="muted">{escape(str(health.get("last_known_price_policy", "")))}</p>'
         f'<ul>{sources}</ul>'
         '</section>'
     )

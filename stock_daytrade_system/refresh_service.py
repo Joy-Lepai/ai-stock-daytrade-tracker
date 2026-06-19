@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from stock_daytrade_system.app_version import deployment_status
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import WatchSymbol, load_config
+from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.db import (
     connect,
     default_db_path,
@@ -107,6 +108,7 @@ class RefreshCoordinator:
         with connect(db_path) as conn:
             rows = [dict(row) for row in refresh_state_rows(conn)]
             data_meta = _latest_data_meta(conn)
+            price_status = _price_status_summary(conn, now=datetime.now(ZoneInfo("Asia/Taipei")))
         now = datetime.now(ZoneInfo("Asia/Taipei"))
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
@@ -149,13 +151,20 @@ class RefreshCoordinator:
             "provider_status": provider_status,
             "deployment_status": deployment_status(self.project_root),
             "signal_guard_version": SIGNAL_GUARD_VERSION,
+            "price_status_summary": price_status,
+            "live_count": price_status["live_count"],
+            "delayed_count": price_status["delayed_count"],
+            "cached_count": price_status["cached_count"],
+            "missing_count": price_status["missing_count"],
             "data_source_degraded": any(
                 item.get("status") in {"ERROR", "PARTIAL"}
                 for item in source_health.values()
             ),
             "any_stale": any_stale,
-            "allow_strong_long": market_mode.allow_strong_long,
-            "strong_long_block_reason": "" if market_mode.allow_strong_long else _strong_long_block_reason(by_layer, market_mode.to_dict()),
+            "can_show_any_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
+            "allow_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
+            "reason_if_blocked": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
+            "strong_long_block_reason": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
         }
 
     def _run_tracked_layer(self, layer: str, runner: Callable[[datetime], tuple[int, str]]) -> RefreshResult:
@@ -446,9 +455,97 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(ZoneInfo("Asia/Taipei"))
 
 
-def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None) -> str:
+def _price_status_summary(conn, now: datetime) -> dict:
+    rows = conn.execute(
+        """
+        SELECT symbol, last_known_price_at AS price_at, fallback_used, fallback_reason,
+               error_reason, last_known_source
+        FROM last_known_prices
+        WHERE market = 'TW'
+        """
+    ).fetchall()
+    if not rows:
+        rows = conn.execute(
+            """
+            SELECT i.symbol, i.captured_at AS price_at, 0 AS fallback_used,
+                   '' AS fallback_reason, '' AS error_reason, 'intraday_snapshots' AS last_known_source
+            FROM intraday_snapshots i
+            JOIN (
+              SELECT symbol, MAX(captured_at) AS captured_at
+              FROM intraday_snapshots
+              GROUP BY symbol
+            ) latest ON latest.symbol = i.symbol AND latest.captured_at = i.captured_at
+            """
+        ).fetchall()
+    counts = {"live": 0, "delayed": 0, "cached": 0, "missing": 0}
+    failed_symbols: list[str] = []
+    error_counts: dict[str, int] = {}
+    for row in rows:
+        price_at = _parse_datetime(row["price_at"])
+        freshness = evaluate_data_freshness(
+            now=now,
+            latest_at=price_at,
+            source_failed=bool(row["error_reason"]),
+            partial=bool(row["fallback_reason"]),
+            is_market_open=True,
+        )
+        status = _price_status_from_freshness(freshness.state, bool(row["fallback_used"]))
+        counts[status] = counts.get(status, 0) + 1
+        if status == "missing" or row["error_reason"]:
+            failed_symbols.append(str(row["symbol"]))
+        error = str(row["error_reason"] or row["fallback_reason"] or "")
+        if error:
+            error_counts[error] = error_counts.get(error, 0) + 1
+    total = sum(counts.values())
+    most_common_error = max(error_counts.items(), key=lambda item: item[1])[0] if error_counts else ""
+    missing_ratio = (counts["missing"] / total * 100) if total else 0.0
+    cached_ratio = (counts["cached"] / total * 100) if total else 0.0
+    delayed_ratio = (counts["delayed"] / total * 100) if total else 0.0
+    if total == 0:
+        status = "資料不足"
+    elif missing_ratio >= 35:
+        status = "嚴重缺漏"
+    elif missing_ratio >= 10:
+        status = "部分缺漏"
+    elif cached_ratio + delayed_ratio >= 20:
+        status = "部分延遲"
+    else:
+        status = "正常"
+    return {
+        "status": status,
+        "total": total,
+        "live_count": counts["live"],
+        "delayed_count": counts["delayed"],
+        "cached_count": counts["cached"],
+        "missing_count": counts["missing"],
+        "live_ratio": round((counts["live"] / total * 100) if total else 0.0, 2),
+        "delayed_ratio": round(delayed_ratio, 2),
+        "cached_ratio": round(cached_ratio, 2),
+        "missing_ratio": round(missing_ratio, 2),
+        "failed_symbols": failed_symbols[:40],
+        "most_common_error": most_common_error,
+        "data_source_status": status,
+        "can_show_any_strong_long": counts["live"] > 0 and missing_ratio < 35,
+    }
+
+
+def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str:
+    if fallback_used:
+        return "cached"
+    if state == "live":
+        return "live"
+    if state in {"delayed", "stale"}:
+        return "delayed"
+    if state == "last_known":
+        return "cached"
+    return "missing"
+
+
+def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None, price_status: Optional[dict] = None) -> str:
     if market_mode and market_mode.get("mode") != "intraday":
         return str(market_mode.get("review_mode_message") or "目前不是盤中模式，禁止顯示即時強烈做多。")
+    if price_status and int(price_status.get("live_count", 0) or 0) <= 0:
+        return "目前沒有即時價格資料，禁止顯示強烈做多。"
     if layers["watchlist"]["is_stale"]:
         return "watchlist 層資料過期，禁止顯示強烈做多。"
     if layers["positions"]["is_stale"]:
