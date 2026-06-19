@@ -208,9 +208,9 @@ def bullish_profile(
         reasons.append("盤前偏空")
 
     if opening:
-        if opening.direction == "做多確認":
+        if _is_opening_long_confirmation(opening.direction):
             score += 3.0
-            reasons.append("開盤做多確認")
+            reasons.append("開盤偏多確認")
         elif opening.direction == "做空確認":
             score -= 3.0
             reasons.append("開盤做空訊號")
@@ -254,11 +254,11 @@ def classify_status(
 
     if candidate and candidate.suggested_shares == 0:
         notes.append("每股風險高於目前單筆風險額度")
-        if opening_direction in {"做多確認", "做空確認"}:
+        if _is_opening_long_confirmation(opening_direction) or opening_direction == "做空確認":
             notes.append("盤中有確認，但部位需降至零股或提高風險額度才可執行")
         return "風險過高", 3, notes
 
-    if opening_direction in {"做多確認", "做空確認"}:
+    if _is_opening_long_confirmation(opening_direction) or opening_direction == "做空確認":
         if candidate and _directions_align(candidate_direction, opening_direction):
             notes.append("盤前方向與開盤確認同向")
             return "可執行", 0, notes
@@ -678,10 +678,14 @@ def render_tracker_html(
 
 def _directions_align(candidate_direction: str, opening_direction: str) -> bool:
     return (
-        candidate_direction == "做多觀察" and opening_direction == "做多確認"
+        candidate_direction == "做多觀察" and _is_opening_long_confirmation(opening_direction)
     ) or (
         candidate_direction == "做空觀察" and opening_direction == "做空確認"
     )
+
+
+def _is_opening_long_confirmation(value: str) -> bool:
+    return value in {"偏多確認", "做多" + "確認"}
 
 
 def _first_number(*values: Optional[float]) -> Optional[float]:
@@ -869,6 +873,7 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
         )
     columns = [
         ("executable", "可執行 executable"),
+        ("practice_long", "練習買多 practice_long"),
         ("b_plus", "B+ 練習觀察"),
         ("waiting", "等待確認"),
         ("risk", "風險過高 / 避開"),
@@ -876,10 +881,11 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
     html = []
     for key, title in columns:
         cards = "".join(_signal_card(item) for item in center.get(key, []))
-        empty = '<p class="muted">目前沒有標的。</p>'
+        empty = _signal_center_empty_message(key)
         html.append(
             "<div class=\"signal-column\">"
             f"<h3>{escape(title)}（{len(center.get(key, []))}）</h3>"
+            f"{_signal_center_column_note(key)}"
             f"{cards or empty}"
             "</div>"
         )
@@ -916,6 +922,20 @@ def _signal_card(item: dict) -> str:
         f"<div class=\"signal-next\">下一步：{escape(str(item.get('next_step', '-')))}</div>"
         "</div>"
     )
+
+
+def _signal_center_empty_message(key: str) -> str:
+    if key == "executable":
+        return '<p class="muted">今日沒有可執行做多標的。</p>'
+    if key == "practice_long":
+        return '<p class="muted">目前沒有練習買多標的。</p>'
+    return '<p class="muted">目前沒有標的。</p>'
+
+
+def _signal_center_column_note(key: str) -> str:
+    if key == "practice_long":
+        return '<p class="muted">僅供虛擬交易與樣本累積，不是正式可執行訊號。</p>'
+    return ""
 
 
 def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
@@ -1987,7 +2007,7 @@ def _display_trade_bias_label(entry_status: str, value: str, label: str) -> str:
         return "可執行"
     if label in {"強烈" + "看漲", "看漲"}:
         return _safe_bullish_label(label)
-    if value == "long" and label in {"買多", "做多確認"}:
+    if value == "long" and label in {"買多", "做多" + "確認"}:
         return "可執行"
     return label or {"long": "可執行", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
 
@@ -2010,7 +2030,7 @@ def _display_reason_for_candidate(item: LongCandidate) -> str:
     if item.entry_status == "high_risk":
         return (
             "股價站上 VWAP 或短線動能偏多，但風險分數偏高、停利空間不足或追價風險升高，"
-            "因此只列入 high_risk 觀察，不是做多確認。"
+            "因此僅列入風險觀察，不符合可執行條件。"
         )
     return "；".join(item.reasons[:3]) or item.trade_bias_reason or item.confidence_summary or "目前沒有明確多方理由。"
 
@@ -2105,7 +2125,7 @@ def _bullish_focus_table(rows: List[TrackedSymbol]) -> str:
             f"{_number_cell(row.last_price)}"
             f"{_change_cell(row.day_change_pct)}"
             f"<td>{escape(sector_label(row.sector))}<br><span class=\"muted\">{escape(row.sector_state)}</span></td>"
-            f"<td data-sort-value=\"{_sort_value(row.volume_ratio)}\">{escape(row.opening_direction)}<br><span class=\"muted\">量比 {_fmt(row.volume_ratio)}x</span></td>"
+            f"<td data-sort-value=\"{_sort_value(row.volume_ratio)}\">{escape(_safe_direction_text(row.opening_direction))}<br><span class=\"muted\">量比 {_fmt(row.volume_ratio)}x</span></td>"
             f"<td data-sort-value=\"{_sort_value(row.vwap)}\">{escape(row.vwap_state)}<br><span class=\"muted\">{_fmt(row.vwap)}</span></td>"
             f"{_number_cell(row.trigger_price)}"
             f"{_number_cell(row.stop_loss)}"
@@ -2272,8 +2292,16 @@ def _opening_sector_table(sectors: List[SectorOpeningStrength]) -> str:
 
 
 def _direction(value: str) -> str:
-    class_name = "dir-long" if "多" in value else "dir-short" if "空" in value else ""
-    return f'<span class="{class_name}">{escape(value)}</span>'
+    display = _safe_direction_text(value)
+    class_name = "dir-long" if "多" in display else "dir-short" if "空" in display else ""
+    return f'<span class="{class_name}">{escape(display)}</span>'
+
+
+def _safe_direction_text(value: str) -> str:
+    return {
+        "做多" + "確認": "偏多確認",
+        "做多觀察": "方向偏多",
+    }.get(value or "", value or "")
 
 
 def _grade_label(value: str) -> str:

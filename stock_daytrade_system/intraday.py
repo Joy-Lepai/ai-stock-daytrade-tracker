@@ -71,7 +71,7 @@ def analyze_opening_confirmation(
         short_reasons.append("現價低於開盤價")
 
     if has_volume_confirmation and long_score >= 3 and long_score >= short_score:
-        direction = "做多確認"
+        direction = "偏多確認"
         score = long_score
         reasons = long_reasons
     elif has_volume_confirmation and short_score >= 3:

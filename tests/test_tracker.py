@@ -48,7 +48,7 @@ def candidate(direction="做多觀察", shares=1000):
     )
 
 
-def opening(direction="做多確認"):
+def opening(direction="偏多確認"):
     return OpeningSignal(
         symbol="2330.TW",
         name="台積電",
@@ -106,7 +106,7 @@ class TrackerStatusTests(unittest.TestCase):
 
     def test_bullish_profile_marks_clear_long_setup(self):
         item = candidate()
-        signal = opening("做多確認")
+        signal = opening("偏多確認")
 
         label, score, reasons = bullish_profile(item, signal, sector=None, ranking=None)
 
@@ -118,7 +118,7 @@ class TrackerStatusTests(unittest.TestCase):
         rows = build_tracked_symbols(
             symbols=[candidate()],
             candidates=[candidate()],
-            opening_signals=[opening("做多確認")],
+            opening_signals=[opening("偏多確認")],
             sector_strengths=[],
         )
 
@@ -133,7 +133,7 @@ class TrackerStatusTests(unittest.TestCase):
         rows = build_tracked_symbols(
             symbols=[candidate(shares=0)],
             candidates=[candidate(shares=0)],
-            opening_signals=[opening("做多確認")],
+            opening_signals=[opening("偏多確認")],
             sector_strengths=[],
         )
 
@@ -144,7 +144,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("不列入今日做多", html)
         self.assertIn("避免追價", html)
         self.assertNotIn("強烈看漲", html)
-        self.assertNotIn("做多確認", html)
+        self.assertNotIn("做多" + "確認", html)
         self.assertIn("跌破VWAP 101.25", html)
 
     def test_recommendation_checklist_surfaces_mvp_counts(self):

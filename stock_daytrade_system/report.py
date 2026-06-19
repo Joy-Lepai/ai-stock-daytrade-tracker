@@ -153,7 +153,7 @@ def _render_opening_sector_table(sectors: List[SectorOpeningStrength]) -> List[s
         return ["目前沒有足夠資料計算族群開盤強弱。"]
 
     lines = [
-        "| 族群 | 狀態 | 分數 | 檔數 | 做多確認 | 做空確認 | 觀望 | 平均量比 |",
+        "| 族群 | 狀態 | 分數 | 檔數 | 偏多確認 | 做空確認 | 觀望 | 平均量比 |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for item in sectors:

@@ -1285,15 +1285,27 @@ def us_dashboard_script() -> str:
       function renderSignalCenter(center) {
         const columns = [
           ["executable", "可執行 executable"],
+          ["practice_long", "練習買多 practice_long"],
           ["b_plus", "B+ 練習觀察"],
           ["waiting", "等待確認"],
           ["risk", "風險過高 / 避開"],
         ];
         $("us-signal-center").innerHTML = `<h2>訊號中心</h2><div class="signal-grid">${columns.map(([key, title]) => {
           const items = Array.isArray(center[key]) ? center[key] : [];
-          const cards = items.length ? items.map(signalCard).join("") : '<p class="muted">目前沒有標的。</p>';
-          return `<div class="signal-column"><h3>${escapeHtml(title)}（${items.length}）</h3>${cards}</div>`;
+          const cards = items.length ? items.map(signalCard).join("") : signalCenterEmpty(key);
+          return `<div class="signal-column"><h3>${escapeHtml(title)}（${items.length}）</h3>${signalCenterNote(key)}${cards}</div>`;
         }).join("")}</div>`;
+      }
+
+      function signalCenterEmpty(key) {
+        if (key === "executable") return '<p class="muted">今日沒有可執行做多標的。</p>';
+        if (key === "practice_long") return '<p class="muted">目前沒有練習買多標的。</p>';
+        return '<p class="muted">目前沒有標的。</p>';
+      }
+
+      function signalCenterNote(key) {
+        if (key === "practice_long") return '<p class="muted">僅供虛擬交易與樣本累積，不是正式可執行訊號。</p>';
+        return "";
       }
 
       function signalCard(item) {
@@ -1445,7 +1457,7 @@ def tw_advisor_script() -> str:
         if (entry === "executable") return "可執行";
         if (label === "強烈" + "看漲") return "方向偏多";
         if (label === "看漲") return "偏多";
-        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多確認")) return "可執行";
+        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多" + "確認")) return "可執行";
         return label || item?.trade_bias || "觀察";
       };
       const displayTradeReason = (item) => {

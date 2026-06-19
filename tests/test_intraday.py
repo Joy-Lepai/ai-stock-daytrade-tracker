@@ -61,7 +61,7 @@ class IntradaySignalTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(signal)
-        self.assertEqual(signal.direction, "做多確認")
+        self.assertEqual(signal.direction, "偏多確認")
         self.assertGreater(signal.vwap, 0)
 
     def test_returns_watch_when_breakout_has_insufficient_volume(self):

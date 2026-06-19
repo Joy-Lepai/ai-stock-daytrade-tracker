@@ -39,7 +39,7 @@ class DecisionCenterTests(unittest.TestCase):
         )
 
         self.assertIn(payload["operation_tendency"], {"保守觀望", "等待確認"})
-        self.assertIn("今日系統尚未產生可執行訊號", payload["no_trade_reason"])
+        self.assertIn("今日沒有可執行做多標的", payload["no_trade_reason"])
 
     def test_b_plus_generates_waiting_confirmation(self):
         payload = build_decision_center(
@@ -100,6 +100,7 @@ class DecisionCenterTests(unittest.TestCase):
             market="TW",
             candidates=[
                 candidate("2330.TW", grade="A", entry_status="executable", above_vwap=True),
+                candidate("3711.TW", grade="B", entry_status="practice_long", above_vwap=True),
                 candidate("2884.TW", grade="B+", entry_status="wait_vwap"),
                 candidate("5880.TW", grade="B", entry_status="wait_volume"),
                 candidate("1216.TW", grade="D", entry_status="avoid"),
@@ -108,6 +109,7 @@ class DecisionCenterTests(unittest.TestCase):
 
         center = payload["signal_center"]
         self.assertEqual(len(center["executable"]), 1)
+        self.assertEqual(len(center["practice_long"]), 1)
         self.assertEqual(len(center["b_plus"]), 1)
         self.assertEqual(len(center["waiting"]), 1)
         self.assertEqual(len(center["risk"]), 1)

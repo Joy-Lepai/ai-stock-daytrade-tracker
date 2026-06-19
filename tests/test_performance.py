@@ -26,7 +26,7 @@ def tracked_symbol(entry_status="可進場", shares=1000):
         day_change_pct=2,
         candidate_direction="做多觀察",
         candidate_score=7,
-        opening_direction="做多確認",
+        opening_direction="偏多確認",
         opening_score=4,
         sector_state="強勢",
         trigger_price=101,

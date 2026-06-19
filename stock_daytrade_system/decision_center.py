@@ -38,9 +38,14 @@ def build_decision_center(
 
     if not items and not triggers:
         executable_summary = "目前沒有符合條件的候選股。"
-    elif executable == 0 and triggered == 0 and b_plus > 0:
+    elif executable == 0 and b_plus > 0:
         executable_summary = (
             f"目前沒有 A 級可執行標的，但有 {b_plus} 檔 B+ 練習觀察，正在等待 VWAP、量能或突破條件確認。"
+        )
+    elif executable == 0:
+        executable_summary = (
+            f"今日沒有可執行做多標的；目前有 {triggered} 檔 triggered、{practice_long} 檔練習買多，"
+            "僅供觀察、虛擬交易與樣本累積。"
         )
     else:
         executable_summary = (
@@ -50,8 +55,10 @@ def build_decision_center(
         )
 
     no_trade_reason = ""
-    if executable == 0 and triggered == 0:
-        no_trade_reason = "今日系統尚未產生可執行訊號，主要原因是量能、VWAP 或突破條件尚未確認。此狀態下不建議為了交易而交易。"
+    if executable == 0:
+        no_trade_reason = "今日沒有可執行做多標的。主要原因是量能、VWAP、突破或風險條件尚未完整確認。此狀態下不建議為了交易而交易。"
+        if practice_long > 0:
+            no_trade_reason += " practice_long 僅供虛擬交易與樣本累積，不是正式可執行訊號。"
         if b_plus > 0:
             no_trade_reason += " 可將 B+ 作為虛擬交易練習觀察，但不代表正式做多建議。"
 
@@ -99,14 +106,16 @@ def build_signal_center(candidates: Iterable[Any], b_plus_triggers: Iterable[dic
         (_string(item.get("market") or "TW"), _string(item.get("symbol"))): item
         for item in b_plus_triggers or []
     }
-    buckets = {"executable": [], "b_plus": [], "waiting": [], "risk": []}
+    buckets = {"executable": [], "practice_long": [], "b_plus": [], "waiting": [], "risk": []}
     for raw in candidates or []:
         item = _signal_card(raw, trigger_map)
         grade = item["grade"]
         entry = item["entry_status"]
         lifecycle = item["lifecycle_status"]
-        if entry in {"executable", "practice_long"} or lifecycle == "triggered":
+        if entry == "executable":
             buckets["executable"].append(item)
+        elif entry == "practice_long":
+            buckets["practice_long"].append(item)
         elif grade == "B+":
             buckets["b_plus"].append(item)
         elif entry in {"high_risk", "avoid"} or grade in {"C", "D"}:
