@@ -288,6 +288,12 @@ def _with_model_result(item: MomentumScanItem, model: Optional[object], selected
     grade = str(getattr(model, "grade", "-"))
     entry_status = str(getattr(model, "entry_status", "-"))
     reason = _not_selected_reason(model, selected)
+    trend_reason_code = str(getattr(model, "trend_reason_code", "") or "")
+    reason_code_override = (
+        trend_reason_code
+        if trend_reason_code in {"trend_continuation_watch", "high_risk_chase"} and grade not in {"A", "B+", "B"}
+        else None
+    )
     return _replace_model(
         item,
         grade,
@@ -302,6 +308,7 @@ def _with_model_result(item: MomentumScanItem, model: Optional[object], selected
         float(getattr(model, "confidence_score", 0) or 0),
         str(getattr(model, "confidence_level", "")),
         str(getattr(model, "confidence_summary", "")),
+        reason_code_override=reason_code_override,
     )
 
 
@@ -319,8 +326,9 @@ def _replace_model(
     confidence_score: Optional[float] = None,
     confidence_level: str = "",
     confidence_summary: str = "",
+    reason_code_override: Optional[str] = None,
 ) -> MomentumScanItem:
-    reason_code = _reason_code(reason, grade, entry_status, item)
+    reason_code = reason_code_override or _reason_code(reason, grade, entry_status, item)
     data = item.to_dict()
     data.update(
         {

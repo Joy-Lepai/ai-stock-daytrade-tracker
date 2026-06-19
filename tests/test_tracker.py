@@ -17,6 +17,7 @@ from stock_daytrade_system.tracker import (
     _recommendation_checklist_table,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
+    _trend_continuation_panel,
     _tracked_table,
     bullish_profile,
     build_tracked_symbols,
@@ -511,6 +512,105 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("position-size-tag", html)
         self.assertIn('data-position-entry="101"', html)
         self.assertIn('data-position-stop="98"', html)
+
+    def test_trend_continuation_panel_displays_watch_items(self):
+        item = LongCandidate(
+            symbol="2330.TW",
+            name="台積電",
+            sector="semiconductor",
+            last_price=100,
+            change_pct=1.2,
+            volume=1_000_000,
+            turnover=100_000_000,
+            avg_volume_20=900_000,
+            daily_volume_ratio=1.1,
+            intraday_volume=500_000,
+            volume_ratio=1.2,
+            vwap=99.5,
+            above_vwap=True,
+            previous_high=99,
+            high_5d=101,
+            high_10d=102,
+            break_prev_high=True,
+            break_5d_high=False,
+            break_10d_high=False,
+            upper_shadow_pct=0.1,
+            institutional_buy_million=None,
+            margin_balance=None,
+            short_balance=None,
+            daytrade_ratio=None,
+            sector_strength=1,
+            news_topics=[],
+            market_state="偏多",
+            bullish_score=72,
+            risk_score=35,
+            grade="B+",
+            entry_status="practice_long",
+            original_entry_status="practice_long",
+            adjusted_entry_status="practice_long",
+            confidence_score=65,
+            confidence_level="medium",
+            confidence_level_label="中等信心",
+            conflicts_count=0,
+            conflicts=[],
+            conflict_summary="",
+            confidence_summary="資料完整度尚可。",
+            confidence_adjustment_reason="",
+            trade_bias="watch",
+            trade_bias_label="練習買多",
+            trade_bias_reason="",
+            trigger_price=101,
+            stop_loss=98,
+            target_price=103,
+            opening_range_high=100.5,
+            opening_range_low=98.5,
+            reasons=["站上 VWAP"],
+            risk_reasons=[],
+            timeframe_diagnostics={
+                "intraday_window": {
+                    "higher_high": True,
+                    "higher_low": True,
+                    "vwap_above_minutes": 20,
+                    "pullback_depth_pct": 0.8,
+                    "volume_continuation": True,
+                }
+            },
+            trend_diagnosis={
+                "status": "trend_continuation_watch",
+                "label": "做多｜趨勢延續觀察",
+                "summary": "盤中曲線具備趨勢延續特徵。",
+                "next_step": "等待即時確認。",
+            },
+            trend_status="trend_continuation_watch",
+            trend_label="做多｜趨勢延續觀察",
+            trend_reason_code="trend_continuation_watch",
+        )
+        summary = LongModelSummary(
+            candidates=[item],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "strategy_scorecard": {
+                    "windows": {
+                        "20": {
+                            "trend_continuation": {
+                                "message": "趨勢延續樣本不足，不建議調整模型。"
+                            }
+                        }
+                    }
+                }
+            },
+        )
+
+        html = _trend_continuation_panel(summary, datetime(2026, 6, 18, 10, 0))
+
+        self.assertIn("趨勢延續觀察", html)
+        self.assertIn("2330.TW｜台積電", html)
+        self.assertIn("趨勢延續樣本不足", html)
 
     def test_manual_scan_input_is_global_stock_search(self):
         from stock_daytrade_system.tracker import _manual_scan_panel

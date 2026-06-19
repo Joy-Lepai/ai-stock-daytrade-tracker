@@ -148,6 +148,8 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(scorecard["available_trade_days"], 0)
             self.assertEqual(scorecard["windows"]["20"]["sample_quality"], "insufficient")
             self.assertFalse(scorecard["windows"]["20"]["is_statistically_meaningful"])
+            self.assertIn("trend_continuation", scorecard["windows"]["20"])
+            self.assertIn("樣本不足", scorecard["windows"]["20"]["trend_continuation"]["message"])
             self.assertEqual(missed["missed_count"], 0)
             self.assertTrue(notes)
 

@@ -13,6 +13,7 @@ from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.scoring import MarketBias
 from stock_daytrade_system.sectors import SectorStrength
 from stock_daytrade_system.session_policy import apply_tw_entry_timing_policy
+from stock_daytrade_system.timeframe_diagnostics import build_timeframe_windows, classify_trend_continuation
 from stock_daytrade_system.trade_bias import evaluate_trade_bias
 
 
@@ -80,6 +81,11 @@ class LongCandidate:
     opening_range_low: Optional[float]
     reasons: List[str]
     risk_reasons: List[str]
+    timeframe_diagnostics: dict = field(default_factory=dict)
+    trend_diagnosis: dict = field(default_factory=dict)
+    trend_status: str = ""
+    trend_label: str = ""
+    trend_reason_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -337,6 +343,33 @@ def _build_candidate(
         break_prev_high=break_prev_high,
         risk_reasons=risk_reasons,
     )
+    timeframe_diagnostics = build_timeframe_windows(
+        bars,
+        intraday_bars,
+        last_price=last_price,
+        vwap=vwap,
+        previous_high=previous_high,
+        high_5d=high_5d,
+        high_10d=high_10d,
+        volume_ratio=volume_ratio,
+    )
+    trend_diagnosis = classify_trend_continuation(
+        grade=grade,
+        entry_status=entry_status,
+        last_price=last_price,
+        vwap=vwap,
+        volume_ratio=volume_ratio,
+        risk_score=risk_score,
+        bullish_score=bullish_score,
+        change_pct=change_pct,
+        stop_loss=stop_loss,
+        target_price=target_price,
+        upper_shadow_pct=upper_shadow_pct,
+        break_prev_high=break_prev_high,
+        break_5d_high=break_5d_high,
+        market_state=market_bias.direction,
+        timeframe_diagnostics=timeframe_diagnostics,
+    )
     return LongCandidate(
         symbol=symbol.symbol,
         name=symbol.name,
@@ -389,6 +422,11 @@ def _build_candidate(
         opening_range_low=opening.opening_range_low if opening else None,
         reasons=reasons,
         risk_reasons=risk_reasons,
+        timeframe_diagnostics=timeframe_diagnostics,
+        trend_diagnosis=trend_diagnosis,
+        trend_status=str(trend_diagnosis.get("status") or ""),
+        trend_label=str(trend_diagnosis.get("label") or ""),
+        trend_reason_code=str(trend_diagnosis.get("reason_code") or ""),
     )
 
 

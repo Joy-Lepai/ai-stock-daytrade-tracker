@@ -123,6 +123,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("價格來源", html)
         self.assertIn("關鍵指標", html)
         self.assertIn("預估賺賠比", html)
+        self.assertIn("趨勢延續診斷", html)
         self.assertIn("分時走勢圖", html)
         self.assertIn("價格 / VWAP / 關鍵價位 / 停損停利", html)
         self.assertIn("做多理由", html)

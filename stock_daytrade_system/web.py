@@ -2452,6 +2452,55 @@ def tw_advisor_script() -> str:
           </div>
         `;
       };
+      const renderTrendDiagnosis = (candidate) => {
+        const diagnosis = candidate?.trend_diagnosis || {};
+        const timeframe = candidate?.timeframe_diagnostics || {};
+        const intraday = timeframe.intraday_window || {};
+        const reasons = Array.isArray(diagnosis.reasons) ? diagnosis.reasons : [];
+        const risks = Array.isArray(diagnosis.risk_reasons) ? diagnosis.risk_reasons : [];
+        const blockers = Array.isArray(diagnosis.blockers) ? diagnosis.blockers : [];
+        const status = diagnosis.status || candidate?.trend_status || "";
+        const title = diagnosis.label || candidate?.trend_label || (status ? status : "趨勢延續尚未確認");
+        const notice = status === "trend_continuation_watch"
+          ? "此訊號為趨勢延續觀察，不代表正式可執行；仍需即時資料、VWAP、量能、停損距離與主模型條件同步通過。"
+          : status === "high_risk_chase"
+          ? "目前較偏追價風險，避免直接追高。"
+          : "目前盤中曲線尚未形成完整趨勢延續判斷。";
+        return `
+          <article class="advisor-card">
+            <h3>趨勢延續診斷</h3>
+            <p><strong>${escapeHtml(title)}</strong></p>
+            <p class="muted">${escapeHtml(diagnosis.summary || notice)}</p>
+            <div class="advisor-grid">
+              ${metric("盤中 K 棒數", escapeHtml(intraday.bars_count ?? "-"))}
+              ${metric("VWAP 上方時間", intraday.vwap_above_minutes === undefined ? "-" : `${escapeHtml(intraday.vwap_above_minutes)} 分`)}
+              ${metric("高點墊高", escapeHtml(yesNo(intraday.higher_high)))}
+              ${metric("低點墊高", escapeHtml(yesNo(intraday.higher_low)))}
+              ${metric("回檔深度", intraday.pullback_depth_pct === null || intraday.pullback_depth_pct === undefined ? "-" : `${escapeHtml(number(intraday.pullback_depth_pct))}%`)}
+              ${metric("量能延續", escapeHtml(yesNo(intraday.volume_continuation)))}
+              ${metric("量能退潮", escapeHtml(yesNo(intraday.volume_decay)))}
+              ${metric("上影線偏長", escapeHtml(yesNo(intraday.long_upper_shadow)))}
+              ${metric("停損距離", diagnosis.stop_distance_pct === null || diagnosis.stop_distance_pct === undefined ? "-" : `${escapeHtml(number(diagnosis.stop_distance_pct))}%`)}
+              ${metric("reason code", escapeHtml(diagnosis.reason_code || candidate?.trend_reason_code || "-"))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>延續理由</h3>
+                ${list(reasons.length ? reasons : [notice])}
+              </section>
+              <section class="advisor-panel">
+                <h3>風險 / 阻擋</h3>
+                ${list([...(risks || []), ...(blockers || [])])}
+              </section>
+              <section class="advisor-panel">
+                <h3>下一步 / 失效條件</h3>
+                <p>${escapeHtml(diagnosis.next_step || "等待 VWAP、量能、突破與曲線結構同步確認。")}</p>
+                <p class="muted">${escapeHtml(diagnosis.invalidation || "跌破 VWAP、量能退潮或資料轉為延遲 / 快取時失效。")}</p>
+              </section>
+            </div>
+          </article>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -2620,6 +2669,8 @@ def tw_advisor_script() -> str:
               ${renderIntradayChart(chart)}
             </section>
           </article>
+
+          ${renderTrendDiagnosis(candidate)}
 
           <article class="advisor-card">
             <div class="advisor-sections">

@@ -9,6 +9,7 @@ from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, LongCandidate
+from stock_daytrade_system.timeframe_diagnostics import build_timeframe_gap_report, build_trend_continuation_report
 from stock_daytrade_system.tw_momentum_scanner import TW_MOMENTUM_SCANNER_VERSION
 
 
@@ -56,6 +57,8 @@ def build_tw_diagnostics(inputs: DiagnosticInputs) -> dict:
         "full_market_scan": full_market,
         "missed_stock_analysis": missed,
         "model_conditions": model_conditions(),
+        "timeframe_gap_report": build_timeframe_gap_report(),
+        "trend_continuation_report": build_trend_continuation_report(candidates),
         "root_cause_diagnosis": _root_cause_diagnosis(data_health, missed),
         "user_guide": user_guide(),
         "backtest_diagnostic": _backtest_diagnostic(),
@@ -462,6 +465,8 @@ def _reason_message(code: str) -> str:
         "risk_high": "risk_score 過高或波動太大",
         "confidence_low": "confidence_score 不足",
         "no_prev_high_breakout": "沒有突破昨高",
+        "trend_continuation_watch": "盤中曲線偏趨勢延續，但仍屬觀察，不直接升級推薦",
+        "high_risk_chase": "追價風險高，避免直接追高",
         "avoid": "已列為 avoid",
         "not_in_candidate_grade": "未進入 A / B+ / B",
         "condition_not_met": "條件未達 A / B+ / B",

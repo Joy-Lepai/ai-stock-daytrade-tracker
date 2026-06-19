@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Iterable
 
 from stock_daytrade_system.data import Bar
+from stock_daytrade_system.timeframe_diagnostics import trend_continuation_validation
 
 
 STRATEGY_VALIDATION_VERSION = "strategy_validation_v2_missed_seen_regret_2026-06-18"
@@ -204,9 +205,10 @@ def build_model_observations(scorecard: dict, missed_report: dict) -> list[str]:
     grade_a = rows.get("A") or {}
     data_missing = rows.get("data_missing") or {}
     avoid = rows.get("avoid") or {}
+    trend = window.get("trend_continuation") or {}
 
     if high_risk.get("sample_size", 0) >= 10 and high_risk.get("continue_up_rate", 0) >= 35:
-        notes.append("可能過度保守：high_risk 後續仍有較高比例繼續上漲，建議觀察 high_risk_watch 分層，但不要直接升級 A。")
+        notes.append("可能過度保守：high_risk 後續仍有較高比例繼續上漲，建議觀察 trend_continuation_watch 分層，但不要直接升級 A。")
     if b_plus.get("sample_size", 0) >= 10 and b_plus.get("trigger_rate", 0) < 25:
         notes.append("B+ 觸發率偏低，建議檢查 triggered 條件是否過嚴，先觀察不要放寬 A 級。")
     if grade_a.get("sample_size", 0) < 5 and grade_a.get("win_rate", 0) >= 60:
@@ -219,6 +221,10 @@ def build_model_observations(scorecard: dict, missed_report: dict) -> list[str]:
         notes.append("真漏抓率偏高，建議先檢查掃描池與資料源穩定性，不要直接調低 A / B+ / B 條件。")
     if (missed_report.get("regret_after_close") or {}).get("rate", 0) >= 30:
         notes.append("盤後可惜漏掉率偏高，建議先觀察 high_risk / wait 類別，不要直接升級為推薦。")
+    if not trend.get("is_statistically_meaningful"):
+        notes.append("趨勢延續樣本不足，不建議調整模型；先累積 trend_continuation_watch 的盤後結果。")
+    elif trend.get("continue_up_rate", 0) >= 50:
+        notes.append("趨勢延續觀察已有初步續漲樣本，可繼續追蹤，但不應自動放寬 A / B+ / B 條件。")
     if not notes:
         notes.append("目前樣本仍需累積；建議觀察 20 日後再調整，暫不建議修改模型條件。")
     return notes
@@ -287,6 +293,7 @@ def _window_scorecard(rows: list[sqlite3.Row], window: int) -> dict:
         "is_statistically_meaningful": len(rows) >= MIN_MEANINGFUL_SAMPLE_SIZE,
         "is_trusted_sample": len(rows) >= TRUSTED_SAMPLE_SIZE,
         "groups": groups,
+        "trend_continuation": trend_continuation_validation(rows),
         "sample_message": _sample_message(len(rows)),
     }
 

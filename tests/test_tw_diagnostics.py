@@ -34,6 +34,8 @@ class TWDiagnosticsTests(unittest.TestCase):
         self.assertIn("暫停產生當沖建議", payload["data_health"]["recommendation_state"])
         self.assertEqual(payload["data_health"]["missing_count"], 0)
         self.assertEqual(payload["data_health"]["delayed_count"], 1)
+        self.assertIn("timeframe_gap_report", payload)
+        self.assertIn("trend_continuation_report", payload)
 
     def test_single_missing_symbol_does_not_mark_whole_dashboard_abnormal(self):
         now = datetime(2026, 6, 18, 9, 22, tzinfo=ZoneInfo("Asia/Taipei"))

@@ -546,6 +546,7 @@ def render_tracker_html(
     {_decision_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    {_trend_continuation_panel(long_summary, report_time)}
     {_position_command_center(long_summary)}
     {_review_mode_sections(long_summary, report_time)}
     <h2>本週模型觀察</h2>
@@ -558,6 +559,8 @@ def render_tracker_html(
     {_missed_stock_diagnostic_table(long_summary)}
     <h2>模型條件診斷</h2>
     {_model_diagnostic_panel(long_summary)}
+    <h2>做多判斷時間框架診斷</h2>
+    {_timeframe_gap_report_panel(long_summary)}
     <h2>明日續強候選股</h2>
     <div class="table-wrap">{_tomorrow_continuation_candidates(long_summary)}</div>
     <h2>明日買多觀察池</h2>
@@ -958,6 +961,32 @@ def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
     )
 
 
+def _timeframe_gap_report_panel(summary: Optional[LongModelSummary]) -> str:
+    report = ((summary.diagnostics or {}).get("timeframe_gap_report") if summary else None) or {}
+    if not report:
+        return '<section class="decision-center"><p class="muted">目前沒有時間框架診斷資料。</p></section>'
+    current = report.get("current_inputs") or {}
+    gaps = report.get("known_gaps") or []
+    new_items = report.get("new_diagnostics") or []
+    def block(title: str, items) -> str:
+        rows = "".join(f"<li>{escape(str(item))}</li>" for item in (items or [])) or "<li>目前沒有資料。</li>"
+        return f'<section class="advisor-panel"><h3>{escape(title)}</h3><ul>{rows}</ul></section>'
+    return (
+        '<section class="decision-center">'
+        f'<p class="muted">{escape(str(report.get("summary") or ""))}</p>'
+        '<div class="advisor-sections">'
+        f'{block("盤中時間框架", current.get("intraday"))}'
+        f'{block("短線時間框架", current.get("short_term"))}'
+        f'{block("背景時間框架", current.get("context"))}'
+        '</div>'
+        '<div class="advisor-sections">'
+        f'{block("目前限制", gaps)}'
+        f'{block("本版新增診斷", new_items)}'
+        '</div>'
+        '</section>'
+    )
+
+
 def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
     if summary is None or not summary.decision_center:
         return (
@@ -1140,6 +1169,66 @@ def _front_signal_center_column_note(key: str) -> str:
     if key == "觀察":
         return '<p class="muted">包含 high_risk、avoid、資料不足與風險觀察。</p>'
     return ""
+
+
+def _trend_continuation_panel(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    if summary is None:
+        return (
+            '<section class="decision-center">'
+            '<h2>趨勢延續觀察</h2>'
+            '<p class="muted">目前沒有候選股資料可做趨勢延續診斷。</p>'
+            '</section>'
+        )
+    mode = _dashboard_market_mode(summary, report_time)
+    title_prefix = "上一交易日" if mode.get("mode") == "closed_review" else "盤中"
+    trend_items = [item for item in summary.candidates if getattr(item, "trend_status", "") == "trend_continuation_watch"]
+    chase_items = [item for item in summary.candidates if getattr(item, "trend_status", "") == "high_risk_chase"]
+    insufficient = [item for item in summary.candidates if getattr(item, "trend_status", "") == "insufficient_curve_data"]
+    rows = []
+    for item in (trend_items + chase_items)[:12]:
+        diagnosis = getattr(item, "trend_diagnosis", {}) or {}
+        intraday = ((getattr(item, "timeframe_diagnostics", {}) or {}).get("intraday_window") or {})
+        rows.append(
+            '<tr>'
+            f'<td><strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a></strong><br><span class="muted">{escape(item.sector)}</span></td>'
+            f'<td>{escape(str(diagnosis.get("label") or item.trend_label or "-"))}<br><span class="muted">{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</span></td>'
+            f'<td>{_fmt(item.last_price)}<br><span class="muted">VWAP {_fmt(item.vwap)}</span></td>'
+            f'<td>{_fmt(item.volume_ratio)}x</td>'
+            f'<td>{escape("是" if intraday.get("higher_high") else "否")} / {escape("是" if intraday.get("higher_low") else "否")}</td>'
+            f'<td>{_fmt(intraday.get("vwap_above_minutes"))} 分</td>'
+            f'<td>{_fmt(intraday.get("pullback_depth_pct"))}%</td>'
+            f'<td>{escape("延續" if intraday.get("volume_continuation") else "未確認")}<br><span class="muted">{escape("退潮" if intraday.get("volume_decay") else "")}</span></td>'
+            f'<td>{escape(str(diagnosis.get("summary") or "-"))}</td>'
+            f'<td>{escape(str(diagnosis.get("next_step") or "-"))}</td>'
+            '</tr>'
+        )
+    report = ((summary.diagnostics or {}).get("trend_continuation_report") or {})
+    sample_note = _trend_validation_note(summary)
+    return (
+        '<section class="decision-center">'
+        f'<h2>{escape(title_prefix)}趨勢延續觀察</h2>'
+        '<section class="notice">此區只做「趨勢延續型做多診斷」，不會放寬 A / B+ / B，也不會把 high_risk 直接升級為推薦。</section>'
+        '<div class="summary">'
+        f'{_metric("趨勢延續觀察", len(trend_items))}'
+        f'{_metric("追價風險型 high_risk", len(chase_items))}'
+        f'{_metric("曲線資料不足", len(insufficient))}'
+        f'{_metric_text("驗證狀態", sample_note)}'
+        '</div>'
+        f'<p class="muted">{escape(str(report.get("message") or ""))}</p>'
+        '<div class="table-wrap"><table><thead><tr>'
+        '<th>股票</th><th>診斷</th><th>價格 / VWAP</th><th>量比</th><th>高 / 低墊高</th>'
+        '<th>VWAP上方</th><th>回檔深度</th><th>量能</th><th>摘要</th><th>下一步</th>'
+        '</tr></thead><tbody>'
+        + ("".join(rows) if rows else '<tr><td colspan="10">目前沒有可顯示的趨勢延續診斷標的。</td></tr>')
+        + '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _trend_validation_note(summary: Optional[LongModelSummary]) -> str:
+    scorecard = ((summary.diagnostics or {}).get("strategy_scorecard") or {}).get("windows", {}).get("20", {}) if summary else {}
+    trend = scorecard.get("trend_continuation") or {}
+    return str(trend.get("message") or "趨勢延續樣本不足，不建議調整模型。")
 
 
 def _position_command_center(summary: Optional[LongModelSummary]) -> str:

@@ -218,6 +218,11 @@ def _candidate_payload(candidate) -> Optional[dict]:
         "conflicts_count": getattr(candidate, "conflicts_count", 0),
         "conflict_summary": getattr(candidate, "conflict_summary", ""),
         "confidence_level_label": getattr(candidate, "confidence_level_label", candidate.confidence_level),
+        "timeframe_diagnostics": getattr(candidate, "timeframe_diagnostics", {}) or {},
+        "trend_diagnosis": getattr(candidate, "trend_diagnosis", {}) or {},
+        "trend_status": getattr(candidate, "trend_status", ""),
+        "trend_label": getattr(candidate, "trend_label", ""),
+        "trend_reason_code": getattr(candidate, "trend_reason_code", ""),
     }
 
 

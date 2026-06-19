@@ -71,6 +71,8 @@ class LongModelTests(unittest.TestCase):
         self.assertEqual(candidates[0].trade_bias_label, "可執行")
         self.assertGreaterEqual(candidates[0].bullish_score, 60)
         self.assertTrue(candidates[0].above_vwap)
+        self.assertIn("intraday_window", candidates[0].timeframe_diagnostics)
+        self.assertTrue(candidates[0].trend_diagnosis)
 
     def test_pre_open_time_policy_does_not_mark_candidate_executable(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
