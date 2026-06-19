@@ -37,6 +37,19 @@ class MarketModeTests(unittest.TestCase):
         self.assertFalse(mode.allow_strong_long)
         self.assertIn("休市復盤模式", mode.review_mode_message)
 
+    def test_holiday_data_labeled_today_uses_effective_previous_trading_day(self):
+        mode = evaluate_tw_market_mode(
+            now=datetime(2026, 6, 19, 19, 10, tzinfo=ZoneInfo("Asia/Taipei")),
+            data_date="2026-06-19",
+            latest_data_at="2026-06-19T19:03:00+08:00",
+        )
+
+        self.assertEqual(mode.mode, "closed_review")
+        self.assertEqual(mode.last_trading_date, "2026-06-18")
+        self.assertEqual(mode.data_date, "2026-06-18")
+        self.assertTrue(mode.is_holiday)
+        self.assertTrue(mode.is_data_current_for_mode)
+
     def test_weekend_with_previous_trading_day_is_closed_review_not_error(self):
         mode = evaluate_tw_market_mode(
             now=datetime(2026, 6, 20, 10, 0, tzinfo=ZoneInfo("Asia/Taipei")),
