@@ -10,6 +10,7 @@ from stock_daytrade_system.web import (
     _tracker_html_needs_refresh,
     latest_tracker_file,
     render_paper_dashboard_page,
+    render_shell,
     render_tw_advisor_page,
 )
 
@@ -127,7 +128,7 @@ class WebTests(unittest.TestCase):
         )
         self.assertEqual(
             _scheduled_tracker_interval(datetime(2026, 6, 17, 9, 30, tzinfo=tw)),
-            (300, "台股盤中"),
+            (900, "台股盤中"),
         )
         self.assertEqual(
             _scheduled_tracker_interval(datetime(2026, 6, 17, 13, 45, tzinfo=tw)),
@@ -137,6 +138,14 @@ class WebTests(unittest.TestCase):
             _scheduled_tracker_interval(datetime(2026, 6, 20, 9, 30, tzinfo=tw)),
             (None, "週末休市"),
         )
+
+    def test_dashboard_shell_polls_refresh_status_without_auto_refresh(self):
+        html = render_shell("<main>ok</main>", active_file="today.html")
+
+        self.assertIn("/api/refresh/status", html)
+        self.assertIn("/refresh_watchlist", html)
+        self.assertIn("/refresh_positions", html)
+        self.assertNotIn('fetch("/refresh"', html)
 
 
 if __name__ == "__main__":

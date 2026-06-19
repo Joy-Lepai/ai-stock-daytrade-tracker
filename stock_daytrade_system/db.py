@@ -333,6 +333,19 @@ CREATE TABLE IF NOT EXISTS tw_full_market_snapshots (
   created_at TEXT NOT NULL,
   PRIMARY KEY (captured_at, symbol)
 );
+
+CREATE TABLE IF NOT EXISTS refresh_state (
+  layer TEXT PRIMARY KEY,
+  last_started_at TEXT,
+  last_success_at TEXT,
+  duration_seconds REAL,
+  status TEXT NOT NULL DEFAULT 'idle',
+  symbols_count INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  stale_after_seconds INTEGER NOT NULL DEFAULT 300,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 
@@ -354,7 +367,73 @@ def connect(db_path: Path) -> sqlite3.Connection:
     _ensure_time_bucket_columns(conn)
     _ensure_paper_trade_columns(conn)
     _ensure_tw_full_market_snapshot_columns(conn)
+    _ensure_refresh_state_columns(conn)
     return conn
+
+
+def upsert_refresh_state(
+    conn: sqlite3.Connection,
+    *,
+    layer: str,
+    status: str,
+    stale_after_seconds: int,
+    started_at: Optional[datetime] = None,
+    success_at: Optional[datetime] = None,
+    duration_seconds: Optional[float] = None,
+    symbols_count: Optional[int] = None,
+    error: str = "",
+) -> None:
+    now_text = datetime.now().astimezone().isoformat(timespec="seconds")
+    started_text = started_at.isoformat(timespec="seconds") if started_at else None
+    success_text = success_at.isoformat(timespec="seconds") if success_at else None
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO refresh_state (
+              layer, last_started_at, last_success_at, duration_seconds, status,
+              symbols_count, error, stale_after_seconds, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(layer) DO UPDATE SET
+              last_started_at=COALESCE(excluded.last_started_at, refresh_state.last_started_at),
+              last_success_at=COALESCE(excluded.last_success_at, refresh_state.last_success_at),
+              duration_seconds=COALESCE(excluded.duration_seconds, refresh_state.duration_seconds),
+              status=excluded.status,
+              symbols_count=COALESCE(excluded.symbols_count, refresh_state.symbols_count),
+              error=excluded.error,
+              stale_after_seconds=excluded.stale_after_seconds,
+              updated_at=excluded.updated_at
+            """,
+            (
+                layer,
+                started_text,
+                success_text,
+                duration_seconds,
+                status,
+                0 if symbols_count is None else symbols_count,
+                error,
+                stale_after_seconds,
+                now_text,
+                now_text,
+            ),
+        )
+
+
+def refresh_state_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT *
+        FROM refresh_state
+        ORDER BY CASE layer
+          WHEN 'full_market' THEN 1
+          WHEN 'watchlist' THEN 2
+          WHEN 'positions' THEN 3
+          WHEN 'post_close_validation' THEN 4
+          WHEN 'manual_full_refresh' THEN 5
+          ELSE 99
+        END, layer
+        """
+    ).fetchall()
 
 
 def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetime, rows: Iterable[dict]) -> None:
@@ -428,7 +507,13 @@ def _snapshot_date_text(signal_text: str, captured_at: datetime) -> str:
     return captured_at.strftime("%Y-%m-%d")
 
 
-def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candidates: Iterable[object]) -> None:
+def save_long_candidates(
+    conn: sqlite3.Connection,
+    captured_at: datetime,
+    candidates: Iterable[object],
+    *,
+    prune_stale: bool = True,
+) -> None:
     date_text = captured_at.strftime("%Y-%m-%d")
     captured_text = captured_at.isoformat(timespec="seconds")
     recommendation_time_bucket = _time_bucket_for_market(captured_at, "TW")
@@ -439,7 +524,8 @@ def save_long_candidates(conn: sqlite3.Connection, captured_at: datetime, candid
         if data["grade"] in {"A", "B+", "B"}
     }
     with conn:
-        _delete_stale_recommendations(conn, date_text, eligible_recommendation_symbols)
+        if prune_stale:
+            _delete_stale_recommendations(conn, date_text, eligible_recommendation_symbols)
         for data in candidate_rows:
             conn.execute(
                 """
@@ -1675,6 +1761,33 @@ def _ensure_tw_full_market_snapshot_columns(conn: sqlite3.Connection) -> None:
             "verification_outcome": "TEXT",
             "verified_at": "TEXT",
         },
+    )
+
+
+def _ensure_refresh_state_columns(conn: sqlite3.Connection) -> None:
+    _add_missing_columns(
+        conn,
+        "refresh_state",
+        {
+            "last_started_at": "TEXT",
+            "last_success_at": "TEXT",
+            "duration_seconds": "REAL",
+            "symbols_count": "INTEGER NOT NULL DEFAULT 0",
+            "error": "TEXT",
+            "stale_after_seconds": "INTEGER NOT NULL DEFAULT 300",
+            "created_at": "TEXT",
+            "updated_at": "TEXT",
+        },
+    )
+    now_text = datetime.now().astimezone().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        UPDATE refresh_state
+        SET created_at = COALESCE(created_at, ?),
+            updated_at = COALESCE(updated_at, ?),
+            status = COALESCE(NULLIF(status, ''), 'idle')
+        """,
+        (now_text, now_text),
     )
 
 

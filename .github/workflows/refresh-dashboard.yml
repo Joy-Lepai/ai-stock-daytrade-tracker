@@ -5,19 +5,45 @@ on:
   schedule:
     # Taiwan market pre-open: 08:30 Asia/Taipei, weekdays.
     - cron: "30 0 * * 1-5"
-    # Taiwan regular session: every 15 minutes from 09:00 to 13:45 Asia/Taipei, weekdays.
-    - cron: "0,15,30,45 1-5 * * 1-5"
+    # Taiwan regular session: every 5 minutes from 09:00 to 13:55 Asia/Taipei, weekdays.
+    # The script below runs full_market only on 15-minute marks.
+    - cron: "*/5 1-5 * * 1-5"
     # Taiwan post-close verification: 14:15 and 15:00 Asia/Taipei, weekdays.
     - cron: "15 6 * * 1-5"
     - cron: "0 7 * * 1-5"
 
 jobs:
-  refresh:
+  layered-refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      DASHBOARD_URL: https://ai-stock-daytrade-tracker.onrender.com
     steps:
-      - name: Trigger Render dashboard refresh
+      - name: Trigger layered Render refresh
         run: |
-          curl --fail --show-error --silent --max-time 240 \
-            -X POST \
-            https://ai-stock-daytrade-tracker.onrender.com/refresh
+          set -euo pipefail
+          minute="$(date -u +%M)"
+          hour="$(date -u +%H)"
+
+          call_endpoint() {
+            endpoint="$1"
+            curl --fail --show-error --silent --max-time 240 \
+              -X POST \
+              "${DASHBOARD_URL}${endpoint}"
+          }
+
+          # Post-close verification windows.
+          if [ "$hour" = "06" ] || [ "$hour" = "07" ]; then
+            call_endpoint "/refresh_full_market"
+            call_endpoint "/refresh_post_close_validation"
+            exit 0
+          fi
+
+          # 08:30 pre-open and 15-minute marks during regular session.
+          if [ "$hour" = "00" ] || [ "$minute" = "00" ] || [ "$minute" = "15" ] || [ "$minute" = "30" ] || [ "$minute" = "45" ]; then
+            call_endpoint "/refresh_full_market"
+          fi
+
+          # Lightweight layers for regular-session tracking.
+          call_endpoint "/refresh_watchlist"
+          call_endpoint "/refresh_positions"

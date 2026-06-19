@@ -1,0 +1,399 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Callable, Iterable, Optional
+from zoneinfo import ZoneInfo
+
+from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
+from stock_daytrade_system.config import WatchSymbol, load_config
+from stock_daytrade_system.data import YahooChartClient
+from stock_daytrade_system.db import (
+    connect,
+    default_db_path,
+    refresh_state_rows,
+    save_long_candidates,
+    update_backtests,
+    upsert_refresh_state,
+)
+from stock_daytrade_system.intraday import analyze_opening_confirmation
+from stock_daytrade_system.long_model import build_long_candidates
+from stock_daytrade_system.paper_broker import run_paper_trading
+from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.sectors import rank_sector_strength
+from stock_daytrade_system.strategy_validation import update_tw_scan_result_verification
+
+
+REFRESH_LAYER_STALE_SECONDS = {
+    "full_market": 15 * 60,
+    "watchlist": 5 * 60,
+    "positions": 5 * 60,
+    "post_close_validation": 60 * 60,
+    "manual_full_refresh": 15 * 60,
+}
+
+WATCHLIST_ENTRY_STATUSES = {
+    "executable",
+    "practice_long",
+    "wait_volume",
+    "wait_vwap",
+    "wait_breakout",
+    "wait_pullback",
+    "high_risk",
+}
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    layer: str
+    status: str
+    message: str
+    duration_seconds: float
+    symbols_count: int = 0
+    error: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "layer": self.layer,
+            "status": self.status,
+            "message": self.message,
+            "duration_seconds": round(self.duration_seconds, 2),
+            "symbols_count": self.symbols_count,
+            "error": self.error,
+        }
+
+
+class RefreshCoordinator:
+    def __init__(
+        self,
+        project_root: Path,
+        report_dir: Path,
+        *,
+        tracker_timeout_seconds: int = 45,
+        config_path: Optional[Path] = None,
+    ) -> None:
+        self.project_root = project_root
+        self.report_dir = report_dir
+        self.tracker_timeout_seconds = tracker_timeout_seconds
+        self.config_path = config_path or project_root / "config" / "watchlist.json"
+        self._locks = {layer: threading.Lock() for layer in REFRESH_LAYER_STALE_SECONDS}
+
+    def refresh_manual_full(self) -> RefreshResult:
+        return self._run_tracked_layer("manual_full_refresh", lambda started_at: self._run_full_tracker("manual_full_refresh"))
+
+    def refresh_full_market(self) -> RefreshResult:
+        return self._run_tracked_layer("full_market", lambda started_at: self._run_full_tracker("full_market"))
+
+    def refresh_watchlist(self) -> RefreshResult:
+        return self._run_tracked_layer("watchlist", self._run_watchlist_refresh)
+
+    def refresh_positions(self) -> RefreshResult:
+        return self._run_tracked_layer("positions", self._run_positions_refresh)
+
+    def refresh_post_close_validation(self) -> RefreshResult:
+        return self._run_tracked_layer("post_close_validation", self._run_post_close_validation)
+
+    def status_payload(self) -> dict:
+        db_path = default_db_path(self.project_root)
+        with connect(db_path) as conn:
+            rows = [dict(row) for row in refresh_state_rows(conn)]
+        now = datetime.now(ZoneInfo("Asia/Taipei"))
+        by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
+        for row in rows:
+            layer = row["layer"]
+            if layer in by_layer:
+                by_layer[layer] = _layer_status(row, now)
+        any_stale = any(item["is_stale"] for item in by_layer.values())
+        watchlist_ok = not by_layer["watchlist"]["is_stale"] and by_layer["watchlist"]["status"] == "success"
+        positions_ok = not by_layer["positions"]["is_stale"] and by_layer["positions"]["status"] == "success"
+        return {
+            "api_status": "ok",
+            "generated_at": now.isoformat(timespec="seconds"),
+            "layers": by_layer,
+            "any_stale": any_stale,
+            "allow_strong_long": watchlist_ok and positions_ok,
+            "strong_long_block_reason": "" if watchlist_ok and positions_ok else _strong_long_block_reason(by_layer),
+        }
+
+    def _run_tracked_layer(self, layer: str, runner: Callable[[datetime], tuple[int, str]]) -> RefreshResult:
+        lock = self._locks[layer]
+        if not lock.acquire(blocking=False):
+            self._write_state(layer, status="skipped", error="already_running")
+            return RefreshResult(layer, "skipped", "同一層刷新正在執行中，已略過本次請求。", 0.0, error="already_running")
+        started_at = datetime.now(ZoneInfo("Asia/Taipei"))
+        monotonic_start = time.monotonic()
+        self._write_state(layer, status="running", started_at=started_at, error="")
+        try:
+            symbols_count, message = runner(started_at)
+            duration = time.monotonic() - monotonic_start
+            success_at = datetime.now(ZoneInfo("Asia/Taipei"))
+            self._write_state(
+                layer,
+                status="success",
+                started_at=started_at,
+                success_at=success_at,
+                duration_seconds=duration,
+                symbols_count=symbols_count,
+                error="",
+            )
+            return RefreshResult(layer, "success", message or "刷新完成。", duration, symbols_count=symbols_count)
+        except subprocess.TimeoutExpired as exc:
+            duration = time.monotonic() - monotonic_start
+            error = f"timeout_after_{self.tracker_timeout_seconds}s"
+            self._write_state(layer, status="failed", started_at=started_at, duration_seconds=duration, error=error)
+            return RefreshResult(layer, "failed", "刷新逾時，已保留上一筆可用資料。", duration, error=str(exc))
+        except Exception as exc:
+            duration = time.monotonic() - monotonic_start
+            self._write_state(layer, status="failed", started_at=started_at, duration_seconds=duration, error=str(exc))
+            return RefreshResult(layer, "failed", "刷新失敗，已保留上一筆可用資料。", duration, error=str(exc))
+        finally:
+            lock.release()
+
+    def _run_full_tracker(self, layer: str) -> tuple[int, str]:
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "stock_daytrade_system.cli",
+                "tracker",
+                "--output-dir",
+                str(self.report_dir),
+                "--daily-range",
+                "6mo",
+                "--intraday-range",
+                "1d",
+                "--interval",
+                "5m",
+                "--opening-bars",
+                "3",
+            ],
+            cwd=self.project_root,
+            check=True,
+            timeout=self.tracker_timeout_seconds,
+        )
+        symbols_count = _latest_snapshot_count(default_db_path(self.project_root))
+        if layer in {"full_market", "manual_full_refresh"}:
+            self._mark_implied_layer_success("watchlist", symbols_count)
+            self._mark_implied_layer_success("positions", 0)
+        return symbols_count, "完整 tracker 已刷新。"
+
+    def _run_watchlist_refresh(self, started_at: datetime) -> tuple[int, str]:
+        config = load_config(self.config_path)
+        symbols = _watchlist_refresh_symbols(default_db_path(self.project_root), config.manual_symbols)
+        if not symbols:
+            return 0, "目前沒有重點觀察標的，略過行情刷新。"
+
+        client = YahooChartClient()
+        market_symbols = list(
+            dict.fromkeys(
+                config.market.us_market_symbols
+                + [config.market.benchmark, config.market.taiwan_futures]
+            )
+        )
+        all_daily_symbols = list(dict.fromkeys(market_symbols + [item.symbol for item in symbols]))
+        daily_data, _daily_errors = client.fetch_many_daily_with_errors(all_daily_symbols, range_="6mo")
+        intraday_data, _intraday_errors = client.fetch_many_intraday_with_errors(
+            [item.symbol for item in symbols],
+            range_="1d",
+            interval="5m",
+        )
+        market_bias = score_market_bias(daily_data, config.market.benchmark, config.market.taiwan_futures)
+        benchmark_bars = daily_data.get(config.market.benchmark, [])
+        sector_strengths = rank_sector_strength(symbols, daily_data, benchmark_bars)
+        opening_signals = [
+            signal
+            for item in symbols
+            if (
+                signal := analyze_opening_confirmation(
+                    item,
+                    intraday_data.get(item.symbol, []),
+                    daily_data.get(item.symbol, []),
+                    opening_bars=3,
+                )
+            )
+            is not None
+        ]
+        long_candidates = build_long_candidates(
+            symbols,
+            daily_data,
+            intraday_data,
+            opening_signals,
+            sector_strengths,
+            market_bias,
+            {},
+            captured_at=started_at,
+        )
+        with connect(default_db_path(self.project_root)) as conn:
+            save_long_candidates(conn, started_at, long_candidates, prune_stale=False)
+            update_backtests(conn, started_at, intraday_data)
+        return len(symbols), f"重點觀察刷新完成，更新 {len(symbols)} 檔。"
+
+    def _run_positions_refresh(self, started_at: datetime) -> tuple[int, str]:
+        with connect(default_db_path(self.project_root)) as conn:
+            b_plus_count = len(build_b_plus_trigger_tracker(conn, market="TW", date_text=started_at.strftime("%Y-%m-%d")))
+            summary = run_paper_trading(conn, started_at)
+        count = int(summary.positions or 0) + b_plus_count
+        return count, f"持倉與觸發刷新完成，追蹤 {count} 筆。"
+
+    def _run_post_close_validation(self, started_at: datetime) -> tuple[int, str]:
+        with connect(default_db_path(self.project_root)) as conn:
+            result = update_tw_scan_result_verification(conn, started_at, {})
+        return int(result.get("rows", 0) or 0), str(result.get("message") or "盤後驗證已更新。")
+
+    def _mark_implied_layer_success(self, layer: str, symbols_count: int) -> None:
+        now = datetime.now(ZoneInfo("Asia/Taipei"))
+        self._write_state(
+            layer,
+            status="success",
+            started_at=now,
+            success_at=now,
+            duration_seconds=0.0,
+            symbols_count=symbols_count,
+            error="updated_by_full_refresh",
+        )
+
+    def _write_state(
+        self,
+        layer: str,
+        *,
+        status: str,
+        started_at: Optional[datetime] = None,
+        success_at: Optional[datetime] = None,
+        duration_seconds: Optional[float] = None,
+        symbols_count: Optional[int] = None,
+        error: str = "",
+    ) -> None:
+        with connect(default_db_path(self.project_root)) as conn:
+            upsert_refresh_state(
+                conn,
+                layer=layer,
+                status=status,
+                stale_after_seconds=REFRESH_LAYER_STALE_SECONDS[layer],
+                started_at=started_at,
+                success_at=success_at,
+                duration_seconds=duration_seconds,
+                symbols_count=symbols_count,
+                error=error,
+            )
+
+
+def _watchlist_refresh_symbols(db_path: Path, manual_symbols: Iterable[WatchSymbol]) -> list[WatchSymbol]:
+    today = datetime.now(ZoneInfo("Asia/Taipei")).strftime("%Y-%m-%d")
+    items: dict[str, WatchSymbol] = {item.symbol: item for item in manual_symbols}
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT r.symbol, COALESCE(s.name, r.symbol) AS name, COALESCE(s.sector, 'watchlist') AS sector
+            FROM recommendations r
+            LEFT JOIN symbols s ON s.symbol = r.symbol
+            WHERE r.market = 'TW'
+              AND r.date = ?
+              AND (
+                r.grade IN ('A', 'B+', 'B')
+                OR r.entry_status IN ('executable', 'practice_long', 'wait_volume', 'wait_vwap',
+                                      'wait_breakout', 'wait_pullback', 'high_risk')
+              )
+            """,
+            (today,),
+        ).fetchall()
+        for row in rows:
+            items[row["symbol"]] = WatchSymbol(row["symbol"], row["name"], row["sector"])
+
+        scan_rows = conn.execute(
+            """
+            SELECT symbol, COALESCE(name, symbol) AS name, COALESCE(market_type, 'full_market') AS sector
+            FROM tw_full_market_snapshots
+            WHERE date = ?
+              AND (
+                source_scope = 'out_of_pool'
+                OR ai_grade IN ('A', 'B+', 'B')
+                OR entry_status IN ('executable', 'practice_long', 'wait_volume', 'wait_vwap',
+                                    'wait_breakout', 'wait_pullback', 'high_risk')
+              )
+            ORDER BY captured_at DESC
+            LIMIT 120
+            """,
+            (today,),
+        ).fetchall()
+        for row in scan_rows:
+            items.setdefault(row["symbol"], WatchSymbol(row["symbol"], row["name"], row["sector"]))
+    return sorted(items.values(), key=lambda item: item.symbol)
+
+
+def _latest_snapshot_count(db_path: Path) -> int:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS total
+            FROM tw_full_market_snapshots
+            WHERE captured_at = (SELECT MAX(captured_at) FROM tw_full_market_snapshots)
+            """
+        ).fetchone()
+    return int(row["total"] or 0) if row else 0
+
+
+def _empty_layer_status(layer: str, now: datetime) -> dict:
+    return {
+        "layer": layer,
+        "last_started_at": None,
+        "last_success_at": None,
+        "duration_seconds": None,
+        "status": "idle",
+        "symbols_count": 0,
+        "error": "",
+        "stale_after_seconds": REFRESH_LAYER_STALE_SECONDS[layer],
+        "age_seconds": None,
+        "is_stale": True,
+        "stale_label": "尚未更新",
+    }
+
+
+def _layer_status(row: dict, now: datetime) -> dict:
+    stale_after = int(row.get("stale_after_seconds") or 300)
+    last_success = _parse_datetime(row.get("last_success_at"))
+    last_started = _parse_datetime(row.get("last_started_at"))
+    age_seconds = (now - last_success).total_seconds() if last_success else None
+    running_age = (now - last_started).total_seconds() if last_started and row.get("status") == "running" else None
+    running_stuck = running_age is not None and running_age > stale_after
+    is_stale = age_seconds is None or age_seconds > stale_after or row.get("status") == "failed" or running_stuck
+    status = "stale" if is_stale and row.get("status") == "success" else row.get("status")
+    if running_stuck:
+        status = "stale"
+    return {
+        "layer": row["layer"],
+        "last_started_at": row.get("last_started_at"),
+        "last_success_at": row.get("last_success_at"),
+        "duration_seconds": row.get("duration_seconds"),
+        "status": status,
+        "symbols_count": int(row.get("symbols_count") or 0),
+        "error": row.get("error") or "",
+        "stale_after_seconds": stale_after,
+        "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+        "is_stale": is_stale,
+        "stale_label": "已過期" if is_stale else "正常",
+    }
+
+
+def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=ZoneInfo("Asia/Taipei"))
+    return parsed.astimezone(ZoneInfo("Asia/Taipei"))
+
+
+def _strong_long_block_reason(layers: dict[str, dict]) -> str:
+    if layers["watchlist"]["is_stale"]:
+        return "watchlist 層資料過期，禁止顯示強烈做多。"
+    if layers["positions"]["is_stale"]:
+        return "positions 層資料過期，禁止顯示停損停利觸發判斷。"
+    return "資料層狀態不完整。"

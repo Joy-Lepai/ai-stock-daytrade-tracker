@@ -35,6 +35,7 @@ from stock_daytrade_system.db import (
 from stock_daytrade_system.market_clock import taiwan_market_session, us_market_session
 from stock_daytrade_system.paper_broker import close_manual_trade, create_manual_trade, paper_quote
 from stock_daytrade_system.paper_service import build_empty_paper_dashboard, build_paper_dashboard, build_paper_performance
+from stock_daytrade_system.refresh_service import RefreshCoordinator
 from stock_daytrade_system.tw_scan_service import add_tw_watchlist_symbol, scan_tw_symbol_payload
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
@@ -46,7 +47,7 @@ SESSION_COOKIE = "ai_stock_session"
 TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "45"))
 WEB_SCHEDULER_POLL_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_POLL_SECONDS", "30"))
 TW_PREMARKET_REFRESH_SECONDS = int(os.getenv("STOCK_TW_PREMARKET_REFRESH_SECONDS", "1800"))
-TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "300"))
+TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "900"))
 TW_AFTER_CLOSE_REFRESH_SECONDS = int(os.getenv("STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS", "900"))
 
 
@@ -57,7 +58,12 @@ class WebApp:
         self.require_auth = require_auth
         self.sessions: Dict[str, str] = {}
         self.refresh_lock = threading.Lock()
-        self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "1").lower() not in {"0", "false", "no"}
+        self.refresh_coordinator = RefreshCoordinator(
+            PROJECT_ROOT,
+            report_dir,
+            tracker_timeout_seconds=TRACKER_REFRESH_TIMEOUT_SECONDS,
+        )
+        self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "0").lower() not in {"0", "false", "no"}
         self.scheduler_thread: Optional[threading.Thread] = None
         self.last_scheduled_refresh_at: Optional[datetime] = None
         self.last_scheduled_refresh_status = "尚未執行"
@@ -88,8 +94,8 @@ class WebApp:
             interval, label = _scheduled_tracker_interval(now)
             if interval is not None and self._scheduled_refresh_due(now, interval):
                 self.last_scheduled_refresh_at = now
-                message = _safe_refresh_tracker(self.report_dir, self.refresh_lock, wait=False)
-                self.last_scheduled_refresh_status = message or f"{label} 更新完成"
+                result = self.refresh_coordinator.refresh_full_market()
+                self.last_scheduled_refresh_status = result.message or f"{label} 更新完成"
             time_module.sleep(max(WEB_SCHEDULER_POLL_SECONDS, 5))
 
     def _scheduled_refresh_due(self, now: datetime, interval_seconds: int) -> bool:
@@ -230,6 +236,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(build_paper_performance(conn))
             return
+        if path == "/api/refresh/status":
+            self._send_json(self.web_app.refresh_coordinator.status_payload())
+            return
         if path == "/api/accuracy/summary":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(build_accuracy_dashboard_payload(conn))
@@ -264,6 +273,18 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/refresh":
             self._handle_refresh()
+            return
+        if path == "/refresh_full_market":
+            self._handle_layer_refresh("full_market")
+            return
+        if path == "/refresh_watchlist":
+            self._handle_layer_refresh("watchlist")
+            return
+        if path == "/refresh_positions":
+            self._handle_layer_refresh("positions")
+            return
+        if path == "/refresh_post_close_validation":
+            self._handle_layer_refresh("post_close_validation")
             return
         if path == "/api/paper/manual-trade":
             payload = self._read_json_body()
@@ -308,7 +329,28 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self._send_html(render_login_page("帳號或密碼錯誤"), status=HTTPStatus.UNAUTHORIZED)
 
     def _handle_refresh(self) -> None:
-        _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=True)
+        result = self.web_app.refresh_coordinator.refresh_manual_full()
+        if self.headers.get("X-Requested-With") == "fetch":
+            self._send_json(result.to_dict(), HTTPStatus.OK if result.status in {"success", "skipped"} else HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self._redirect("/dashboard")
+
+    def _handle_layer_refresh(self, layer: str) -> None:
+        coordinator = self.web_app.refresh_coordinator
+        if layer == "full_market":
+            result = coordinator.refresh_full_market()
+        elif layer == "watchlist":
+            result = coordinator.refresh_watchlist()
+        elif layer == "positions":
+            result = coordinator.refresh_positions()
+        elif layer == "post_close_validation":
+            result = coordinator.refresh_post_close_validation()
+        else:
+            self._send_not_found()
+            return
+        if self.headers.get("X-Requested-With") == "fetch":
+            self._send_json(result.to_dict(), HTTPStatus.OK if result.status in {"success", "skipped"} else HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
         self._redirect("/dashboard")
 
     def _read_json_body(self) -> dict:
@@ -327,8 +369,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
     def _dashboard_html(self, force_refresh: bool = False) -> str:
         latest = latest_tracker_file(self.web_app.report_dir)
         refresh_error = ""
-        if latest is None or force_refresh:
-            refresh_error = _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=False)
+        if force_refresh:
+            result = self.web_app.refresh_coordinator.refresh_manual_full()
+            refresh_error = result.error if result.status == "failed" else ""
             latest = latest_tracker_file(self.web_app.report_dir)
         if latest is None:
             return render_shell(
@@ -338,9 +381,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             )
         html = latest.read_text(encoding="utf-8")
         if _tracker_html_needs_refresh(html):
-            refresh_error = _safe_refresh_tracker(self.web_app.report_dir, self.web_app.refresh_lock, wait=False)
-            latest = latest_tracker_file(self.web_app.report_dir) or latest
-            html = latest.read_text(encoding="utf-8")
+            refresh_error = "目前顯示的是最近一次可用 dashboard；請使用完整刷新按鈕重建最新 HTML。"
         body = _extract_body(html)
         if refresh_error:
             if _tracker_html_needs_refresh(html):
@@ -979,50 +1020,73 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     </div>
     <div class="topbar-actions">
       {file_text}
-      <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">上次更新：{_escape(clock.now_local.strftime('%H:%M:%S'))}</span>
-      <form method="post" action="/refresh"><button type="submit">更新</button></form>
+      <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">準備讀取分層更新狀態</span>
+      <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
+      <form method="post" action="/refresh_watchlist" title="只更新 A/B+/B、等待條件、手動加入與今日重點觀察股。"><button type="submit">更新重點觀察</button></form>
+      <form method="post" action="/refresh_positions" title="只更新 B+ 觸發、虛擬交易持倉與停損停利狀態。"><button type="submit">更新持倉/觸發</button></form>
       {logout_link}
     </div>
   </nav>
+  <section class="refresh-layer-panel" aria-label="分層更新狀態">
+    <div id="refresh-layer-status" class="refresh-layer-status">正在讀取分層更新狀態...</div>
+    <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
+  </section>
   {content}
   <script>
     (() => {{
       const status = document.getElementById("refresh-status");
+      const panel = document.getElementById("refresh-layer-status");
       if (!status) return;
-      const intervalSeconds = Number(status.dataset.interval || "300");
-      let remaining = intervalSeconds;
-
-      const renderCountdown = () => {{
-        const minutes = Math.floor(remaining / 60);
-        const seconds = String(remaining % 60).padStart(2, "0");
-        status.textContent = `上次更新：${{new Date().toLocaleTimeString()}}｜下一次更新 ${{minutes}}:${{seconds}}`;
+      const escapeHtml = (value) => String(value ?? "-")
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+      const labelMap = {{
+        full_market: "全市場掃描",
+        watchlist: "重點觀察",
+        positions: "交易觸發",
+        post_close_validation: "盤後驗證",
+        manual_full_refresh: "手動完整刷新",
       }};
-
-      const refreshDashboard = async () => {{
-        status.textContent = "正在更新資料...";
+      const timeText = (value) => {{
+        if (!value) return "尚未更新";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString();
+      }};
+      const layerHtml = (layer) => {{
+        const state = layer || {{}};
+        const stale = state.is_stale ? "已過期" : "正常";
+        const cls = state.is_stale ? "health-warn" : "health-ok";
+        return `<span class="refresh-layer-item"><strong>${{escapeHtml(labelMap[state.layer] || state.layer)}}：</strong>
+          <span class="${{cls}}">${{escapeHtml(stale)}}</span>｜
+          最後成功 ${{escapeHtml(timeText(state.last_success_at))}}｜
+          狀態 ${{escapeHtml(state.status)}}｜
+          檔數 ${{escapeHtml(state.symbols_count || 0)}}</span>`;
+      }};
+      const loadRefreshStatus = async () => {{
         try {{
-          const response = await fetch("/refresh", {{
-            method: "POST",
-            credentials: "same-origin",
-            headers: {{ "X-Requested-With": "fetch" }},
-          }});
-          if (!response.ok && response.status !== 0) throw new Error(`HTTP ${{response.status}}`);
-          window.location.href = "/dashboard";
+          const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
+          if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+          const payload = await response.json();
+          const layers = payload.layers || {{}};
+          status.textContent = `分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈做多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          if (panel) {{
+            panel.innerHTML = [
+              layerHtml(layers.full_market),
+              layerHtml(layers.watchlist),
+              layerHtml(layers.positions),
+            ].join("");
+            if (!payload.allow_strong_long) {{
+              panel.innerHTML += `<div class="warn-mini">${{escapeHtml(payload.strong_long_block_reason || "資料層狀態不完整，禁止顯示強烈做多。")}}</div>`;
+            }}
+          }}
         }} catch (error) {{
-          remaining = intervalSeconds;
-          status.textContent = "自動更新失敗，請按更新";
+          status.textContent = "分層狀態讀取失敗";
+          if (panel) panel.textContent = `狀態 API 讀取失敗：${{error.message}}`;
         }}
       }};
-
-      renderCountdown();
-      window.setInterval(() => {{
-        remaining -= 1;
-        if (remaining <= 0) {{
-          refreshDashboard();
-          return;
-        }}
-        renderCountdown();
-      }}, 1000);
+      loadRefreshStatus();
+      window.setInterval(loadRefreshStatus, 60000);
     }})();
   </script>
 </body>
@@ -1041,6 +1105,13 @@ def base_css() -> str:
     .nav-links a:hover { color:var(--accent); background:#eef4ff; }
     .topbar form { margin:0; }
     .refresh-status { white-space:nowrap; font-size:13px; color:var(--muted); }
+    .refresh-layer-panel { padding:10px 18px; background:#f8fafc; border-bottom:1px solid var(--line); }
+    .refresh-layer-panel p { margin:6px 0 0; font-size:12px; }
+    .refresh-layer-status { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; color:#344054; font-size:13px; }
+    .refresh-layer-item { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
+    .health-ok { color:#067647; font-weight:750; }
+    .health-warn { color:#8a5a00; font-weight:750; }
+    .warn-mini { flex-basis:100%; color:#7c2d12; font-weight:700; }
     button, .topbar a { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:6px 10px; font:inherit; text-decoration:none; cursor:pointer; }
     button:hover, .topbar a:hover { border-color:var(--accent); color:var(--accent); }
     .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:12px 0; }
@@ -1069,7 +1140,7 @@ def base_css() -> str:
     .signal-title { font-weight:750; }
     .signal-meta { color:var(--muted); font-size:12px; white-space:normal; }
     .signal-next { margin-top:6px; color:var(--accent); font-weight:700; }
-    @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } }
+    @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } .refresh-layer-item { white-space:normal; } }
     """
 
 
