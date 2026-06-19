@@ -110,7 +110,7 @@ class TrackerStatusTests(unittest.TestCase):
 
         label, score, reasons = bullish_profile(item, signal, sector=None, ranking=None)
 
-        self.assertIn(label, {"看漲", "強烈看漲"})
+        self.assertIn(label, {"偏多", "方向偏多"})
         self.assertGreaterEqual(score, 5)
         self.assertIn("盤前做多", reasons)
 
@@ -124,10 +124,27 @@ class TrackerStatusTests(unittest.TestCase):
 
         html = _bullish_focus_table(rows)
 
-        self.assertIn("當日看漲", html)
-        self.assertIn("看漲理由", html)
+        self.assertIn("方向偏多", html)
+        self.assertIn("偏多理由", html)
         self.assertIn("可進場", html)
         self.assertIn("站上VWAP", html)
+
+    def test_tracked_table_labels_high_risk_as_no_chase_not_long_confirmation(self):
+        rows = build_tracked_symbols(
+            symbols=[candidate(shares=0)],
+            candidates=[candidate(shares=0)],
+            opening_signals=[opening("做多確認")],
+            sector_strengths=[],
+        )
+
+        html = _tracked_table(rows)
+
+        self.assertIn("方向偏多", html)
+        self.assertIn("追價風險高", html)
+        self.assertIn("不列入今日做多", html)
+        self.assertIn("避免追價", html)
+        self.assertNotIn("強烈看漲", html)
+        self.assertNotIn("做多確認", html)
         self.assertIn("跌破VWAP 101.25", html)
 
     def test_recommendation_checklist_surfaces_mvp_counts(self):
@@ -272,7 +289,7 @@ class TrackerStatusTests(unittest.TestCase):
                         "ai_grade": "A",
                         "entry_status": "executable",
                         "trade_bias": "long",
-                        "trade_bias_label": "買多",
+                        "trade_bias_label": "可執行",
                         "trade_bias_reason": "站上 VWAP、量能達標且訊號可執行。",
                         "not_selected_reason": "已進入正式候選",
                     },
@@ -291,7 +308,7 @@ class TrackerStatusTests(unittest.TestCase):
                         "ai_grade": "B+",
                         "entry_status": "practice_long",
                         "trade_bias": "long",
-                        "trade_bias_label": "買多",
+                        "trade_bias_label": "練習買多",
                         "trade_bias_reason": "練習買多條件成立",
                         "not_selected_reason": "已進入正式候選",
                     },

@@ -232,9 +232,9 @@ def bullish_profile(
 
     score = round(score, 2)
     if score >= 8:
-        label = "強烈看漲"
+        label = "方向偏多"
     elif score >= 5:
-        label = "看漲"
+        label = "偏多"
     elif score >= 3:
         label = "偏多觀察"
     elif score <= 0:
@@ -417,8 +417,8 @@ def render_tracker_html(
     .s-風險過高 {{ color: var(--risk); background: #fff1f2; border-color: #fecdd3; }}
     .s-等待確認 {{ color: var(--wait); background: #fffbeb; border-color: #fde68a; }}
     .s-低優先 {{ color: #475467; background: #f2f4f7; }}
-    .b-強烈看漲 {{ color: #fff; background: var(--long); border-color: var(--long); }}
-    .b-看漲 {{ color: var(--long); background: #fff1f3; border-color: #fecdd3; }}
+    .b-方向偏多 {{ color: #fff; background: var(--long); border-color: var(--long); }}
+    .b-偏多 {{ color: var(--long); background: #fff1f3; border-color: #fecdd3; }}
     .b-偏多觀察 {{ color: #9a3412; background: #fff7ed; border-color: #fed7aa; }}
     .b-低度偏多, .b-不明確 {{ color: #475467; background: #f2f4f7; }}
     .bias-long {{ color: #fff; background: var(--long); border-color: var(--long); }}
@@ -553,7 +553,7 @@ def render_tracker_html(
     {_manual_scan_panel()}
     <h2>信心雷達</h2>
     {_confidence_radar(long_summary)}
-    <h2>今日做多候選股 MVP</h2>
+    <h2>今日候選股分級 MVP</h2>
     <section class="notice">B+ 為策略練習觀察，不代表正式做多建議。</section>
     <div class="table-wrap">{_long_candidate_table(long_summary)}</div>
     <h2>今日推薦檢查表</h2>
@@ -757,11 +757,11 @@ def _focus_card(item: LongCandidate) -> str:
     invalidation = "跌破 VWAP、量能退潮或風險分數升高時失效。"
     if item.entry_status == "high_risk":
         invalidation = "若無法回測降溫，避免追價。"
-    conclusion = item.trade_bias_label or _entry_status_label(item.entry_status)
-    bullish_reason = "；".join(item.reasons[:3]) or item.trade_bias_reason or item.confidence_summary or "目前沒有明確多方理由。"
+    conclusion = _display_conclusion_for_candidate(item)
+    bullish_reason = _display_reason_for_candidate(item)
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
-    display_label = item.trade_bias_label or conclusion or "觀察"
+    display_label = _display_trade_bias_label(item.entry_status, item.trade_bias, item.trade_bias_label)
     return (
         '<div class="decision-panel">'
         f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a></strong>'
@@ -908,7 +908,7 @@ def _signal_card(item: dict) -> str:
     return (
         "<div class=\"signal-card\">"
         f"<div class=\"signal-title\"><a href=\"{_advisor_link(symbol)}\">{escape(name)}</a></div>"
-        f"<div class=\"signal-meta\">當下狀態：{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}</div>"
+        f"<div class=\"signal-meta\">當下狀態：{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')), str(item.get('entry_status', '')))}</div>"
         f"<div class=\"signal-meta\">{escape(meta)}</div>"
         f"<div class=\"signal-meta\">{escape(metrics)}</div>"
         f"<div class=\"signal-meta\">信心：{escape(str(item.get('confidence_level', '-')))}</div>"
@@ -951,7 +951,7 @@ def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:
             f"<td>{_yes_no(bool(item.get('break_prev_high')))}</td>"
             f"<td>{_yes_no(bool(item.get('break_5d_high')))}</td>"
             f"<td>{_yes_no(bool(item.get('break_20d_high')))}</td>"
-            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}<br><span class=\"muted\">{escape(str(item.get('trade_bias_reason', '')))}</span></td>"
+            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')), str(item.get('entry_status', '')))}<br><span class=\"muted\">{escape(_display_trade_bias_reason(str(item.get('entry_status', '')), str(item.get('trade_bias_reason', ''))))}</span></td>"
             f"<td class=\"notes\">{escape(str(item.get('initial_status', '-')))}<br><span class=\"muted\">{escape('；'.join(item.get('source_reasons') or []))}</span></td>"
             f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
             f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
@@ -1004,7 +1004,7 @@ def _tomorrow_long_watch_pool(summary: Optional[LongModelSummary]) -> str:
             "<tr>"
             f"<td><strong>{escape(str(item.get('symbol', '')))}｜{escape(str(item.get('name', '')))}</strong><br><span class=\"muted\">{escape(str(item.get('sector', '')))}</span></td>"
             f"<td>{escape(status)}</td>"
-            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')))}<br><span class=\"muted\">{escape(str(item.get('trade_bias_reason', '')))}</span></td>"
+            f"<td>{_trade_bias_badge(str(item.get('trade_bias', 'watch')), str(item.get('trade_bias_label', '觀察')), str(item.get('entry_status', '')))}<br><span class=\"muted\">{escape(_display_trade_bias_reason(str(item.get('entry_status', '')), str(item.get('trade_bias_reason', ''))))}</span></td>"
             f"<td>{escape(str(item.get('ai_grade', '-')))}</td>"
             f"<td>{escape(_entry_status_label(str(item.get('entry_status', '-'))))}</td>"
             f"{_change_cell(item.get('change_pct'))}"
@@ -1528,17 +1528,24 @@ def _age_text(value) -> str:
 def _tracked_table(rows: List[TrackedSymbol], empty_text: str = "目前沒有追蹤標的。") -> str:
     body = []
     for row in rows:
+        high_risk = _is_tracked_high_risk(row)
+        bullish_label = "方向偏多" if high_risk else _safe_bullish_label(row.bullish_label)
+        entry_status = "追價風險高" if high_risk else row.entry_status
+        candidate_direction = "方向偏多" if high_risk and "做多" in row.candidate_direction else row.candidate_direction
+        opening_direction = "避免追價" if high_risk and "做多" in row.opening_direction else row.opening_direction
+        bullish_reasons = _tracked_bullish_reasons(row) if high_risk else row.bullish_reasons
+        notes = _tracked_notes(row) if high_risk else row.notes
         body.append(
             "<tr>"
             f'<td><span class="badge s-{escape(row.status)}">{escape(row.status)}</span></td>'
-            f'<td data-sort-value="{_sort_value(row.bullish_score)}"><span class="badge b-{escape(row.bullish_label)}">{escape(row.bullish_label)}</span><br><span class="muted">{_fmt(row.bullish_score)}</span></td>'
-            f"<td>{escape(row.entry_status)}</td>"
+            f'<td data-sort-value="{_sort_value(row.bullish_score)}"><span class="badge b-{escape(bullish_label)}">{escape(bullish_label)}</span><br><span class="muted">{_fmt(row.bullish_score)}</span></td>'
+            f"<td>{escape(entry_status)}</td>"
             f"<td><strong><a href=\"{_advisor_link(row.symbol)}\">{escape(stock_label(row.name, row.symbol))}</a></strong></td>"
             f"<td>{escape(sector_label(row.sector))}<br><span class=\"muted\">{escape(row.sector_state)}</span></td>"
             f"{_number_cell(row.last_price)}"
             f"{_change_cell(row.day_change_pct)}"
-            f"<td data-sort-value=\"{_sort_value(row.candidate_score)}\">{_direction(row.candidate_direction)}<br><span class=\"muted\">{_fmt(row.candidate_score)}</span></td>"
-            f"<td data-sort-value=\"{_sort_value(row.volume_ratio)}\">{_direction(row.opening_direction)}<br><span class=\"muted\">量比 {_fmt(row.volume_ratio)}x</span></td>"
+            f"<td data-sort-value=\"{_sort_value(row.candidate_score)}\">{_direction(candidate_direction)}<br><span class=\"muted\">{_fmt(row.candidate_score)}</span></td>"
+            f"<td data-sort-value=\"{_sort_value(row.volume_ratio)}\">{_direction(opening_direction)}<br><span class=\"muted\">量比 {_fmt(row.volume_ratio)}x</span></td>"
             f"<td data-sort-value=\"{_sort_value(row.vwap)}\">{escape(row.vwap_state)}<br><span class=\"muted\">{_fmt(row.vwap)}</span></td>"
             f"{_number_cell(row.trigger_price)}"
             f"{_number_cell(row.stop_loss)}"
@@ -1547,23 +1554,23 @@ def _tracked_table(rows: List[TrackedSymbol], empty_text: str = "目前沒有追
             f"<td data-sort-value=\"{_sort_value(row.suggested_shares)}\">{'' if row.suggested_shares is None else row.suggested_shares}</td>"
             f"<td data-sort-value=\"{_sort_value(row.institutional_rank)}\">{'' if row.institutional_rank is None else row.institutional_rank}</td>"
             f"{_change_cell(row.institutional_buy_million, suffix=' 百萬')}"
-            f"<td class=\"notes\">{escape('；'.join(row.bullish_reasons))}</td>"
+            f"<td class=\"notes\">{escape('；'.join(bullish_reasons))}</td>"
             f"<td class=\"notes\">{escape('；'.join(row.cancel_conditions))}</td>"
-            f"<td class=\"notes\">{escape('；'.join(row.notes))}</td>"
+            f"<td class=\"notes\">{escape('；'.join(notes))}</td>"
             "</tr>"
         )
     if not body:
         body.append(f'<tr><td colspan="20">{escape(empty_text)}</td></tr>')
     return (
         "<table class=\"sortable\"><thead><tr>"
-        "<th data-sort=\"text\">狀態</th><th data-sort=\"number\">當日看漲</th><th data-sort=\"text\">進場狀態</th>"
+        "<th data-sort=\"text\">狀態</th><th data-sort=\"number\">方向偏多</th><th data-sort=\"text\">進場狀態</th>"
         "<th data-sort=\"text\">標的</th><th data-sort=\"text\">族群</th>"
         "<th data-sort=\"number\">現價</th><th data-sort=\"number\">漲跌</th>"
         "<th data-sort=\"number\">盤前</th><th data-sort=\"number\">開盤</th>"
         "<th data-sort=\"number\">VWAP</th>"
         "<th data-sort=\"number\">觸發</th><th data-sort=\"number\">停損</th><th data-sort=\"number\">目標</th>"
         "<th data-sort=\"number\">每股風險</th><th data-sort=\"number\">股數上限</th>"
-        "<th data-sort=\"number\">法人排行</th><th data-sort=\"number\">法人買超</th><th>看漲理由</th><th>取消條件</th><th>備註</th></tr></thead><tbody>"
+        "<th data-sort=\"number\">法人排行</th><th data-sort=\"number\">法人買超</th><th>偏多理由</th><th>取消條件</th><th>備註</th></tr></thead><tbody>"
         + "".join(body)
         + "</tbody></table>"
     )
@@ -1588,7 +1595,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
             f"<td>{_yes_no(item.break_10d_high)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.bullish_score)}\">{_fmt(item.bullish_score)}</td>"
             f"<td data-sort-value=\"{_sort_value(item.risk_score)}\">{_fmt(item.risk_score)}</td>"
-            f"<td>{_trade_bias_badge(item.trade_bias, item.trade_bias_label)}<br><span class=\"muted\">{escape(item.trade_bias_reason)}</span></td>"
+            f"<td>{_trade_bias_badge(item.trade_bias, item.trade_bias_label, item.entry_status)}<br><span class=\"muted\">{escape(_display_trade_bias_reason(item.entry_status, item.trade_bias_reason))}</span></td>"
             f"<td>{escape(_entry_status_label(item.entry_status))}<br><span class=\"muted\">{escape(_entry_status_message(item.entry_status))}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.confidence_score)}\">{_fmt(item.confidence_score)}<br><span class=\"muted\">{escape(item.confidence_level_label)}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.conflicts_count)}\">{item.conflicts_count}<br><span class=\"muted\">{escape(item.conflict_summary)}</span></td>"
@@ -1964,10 +1971,75 @@ def _entry_status_message(value: str) -> str:
     }.get(value, "")
 
 
-def _trade_bias_badge(value: str, label: str) -> str:
+def _safe_bullish_label(label: str) -> str:
+    return {
+        "強烈" + "看漲": "方向偏多",
+        "看漲": "偏多",
+    }.get(label or "", label or "觀察")
+
+
+def _display_trade_bias_label(entry_status: str, value: str, label: str) -> str:
+    if entry_status == "high_risk":
+        return "方向偏多"
+    if entry_status == "practice_long":
+        return "練習買多"
+    if entry_status == "executable":
+        return "可執行"
+    if label in {"強烈" + "看漲", "看漲"}:
+        return _safe_bullish_label(label)
+    if value == "long" and label in {"買多", "做多確認"}:
+        return "可執行"
+    return label or {"long": "可執行", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
+
+
+def _display_trade_bias_reason(entry_status: str, reason: str) -> str:
+    if entry_status == "high_risk":
+        return "方向偏多，但追價風險高，不列入今日做多。"
+    if entry_status == "practice_long":
+        return "可作為練習買多觀察，不是正式可執行。"
+    return reason or ""
+
+
+def _display_conclusion_for_candidate(item: LongCandidate) -> str:
+    if item.entry_status == "high_risk":
+        return "方向偏多，但追價風險高，不列入今日做多。"
+    return _display_trade_bias_label(item.entry_status, item.trade_bias, item.trade_bias_label) or _entry_status_label(item.entry_status)
+
+
+def _display_reason_for_candidate(item: LongCandidate) -> str:
+    if item.entry_status == "high_risk":
+        return (
+            "股價站上 VWAP 或短線動能偏多，但風險分數偏高、停利空間不足或追價風險升高，"
+            "因此只列入 high_risk 觀察，不是做多確認。"
+        )
+    return "；".join(item.reasons[:3]) or item.trade_bias_reason or item.confidence_summary or "目前沒有明確多方理由。"
+
+
+def _is_tracked_high_risk(row: TrackedSymbol) -> bool:
+    return row.status == "風險過高" or row.entry_status == "風險過高" or row.suggested_shares == 0
+
+
+def _tracked_bullish_reasons(row: TrackedSymbol) -> List[str]:
+    reasons = ["方向偏多，但追價風險高，不列入今日做多"]
+    if row.vwap_state == "站上VWAP":
+        reasons.append("股價站上 VWAP")
+    if row.volume_ratio is not None:
+        reasons.append(f"量比 {_fmt(row.volume_ratio)}x")
+    return reasons[:4]
+
+
+def _tracked_notes(row: TrackedSymbol) -> List[str]:
+    notes = ["避免追價，等待拉回 VWAP 附近、風險分數下降或重新突破後再評估。"]
+    if row.risk_per_share is not None:
+        notes.append("停損距離或每股風險偏高")
+    return notes
+
+
+def _trade_bias_badge(value: str, label: str, entry_status: str = "") -> str:
     bias = value if value in {"long", "short", "watch"} else "watch"
-    text = label or {"long": "買多", "short": "賣空", "watch": "觀察"}[bias]
-    return f'<span class="badge bias-{escape(bias)}">{escape(text)}</span>'
+    text = _display_trade_bias_label(entry_status, bias, label)
+    display_bias = "watch" if entry_status in {"high_risk", "avoid"} else bias
+    return f'<span class="badge bias-{escape(display_bias)}">{escape(text)}</span>'
 
 
 def _debug_block(summary: Optional[LongModelSummary]) -> str:
@@ -2022,7 +2094,7 @@ def _bullish_focus_rows(rows: List[TrackedSymbol]) -> List[TrackedSymbol]:
 
 def _bullish_focus_table(rows: List[TrackedSymbol]) -> str:
     if not rows:
-        return "<table><tbody><tr><td>目前沒有足夠明確的當日看漲標的。</td></tr></tbody></table>"
+        return "<table><tbody><tr><td>目前沒有足夠明確的方向偏多標的。</td></tr></tbody></table>"
     body = []
     for row in rows:
         body.append(
@@ -2045,11 +2117,11 @@ def _bullish_focus_table(rows: List[TrackedSymbol]) -> str:
             "</tr>"
         )
     return (
-        "<table class=\"sortable\"><thead><tr><th data-sort=\"number\">當日看漲</th>"
+        "<table class=\"sortable\"><thead><tr><th data-sort=\"number\">方向偏多</th>"
         "<th data-sort=\"text\">進場狀態</th><th data-sort=\"text\">標的</th><th data-sort=\"number\">現價</th><th data-sort=\"number\">漲跌</th>"
         "<th data-sort=\"text\">族群</th><th data-sort=\"number\">開盤</th><th data-sort=\"number\">VWAP</th>"
         "<th data-sort=\"number\">觸發</th><th data-sort=\"number\">停損</th><th data-sort=\"number\">目標</th>"
-        "<th data-sort=\"number\">股數上限</th><th data-sort=\"number\">法人排行</th><th>看漲理由</th><th>取消條件</th></tr></thead><tbody>"
+        "<th data-sort=\"number\">股數上限</th><th data-sort=\"number\">法人排行</th><th>偏多理由</th><th>取消條件</th></tr></thead><tbody>"
         + "".join(body)
         + "</tbody></table>"
     )
@@ -2057,7 +2129,7 @@ def _bullish_focus_table(rows: List[TrackedSymbol]) -> str:
 
 def _performance_table(summary: Optional[SignalPerformanceSummary]) -> str:
     if summary is None or summary.total == 0:
-        return "<table><tbody><tr><td>尚未累積可評估的看漲訊號。系統更新後會自動建立紀錄。</td></tr></tbody></table>"
+        return "<table><tbody><tr><td>尚未累積可評估的偏多訊號。系統更新後會自動建立紀錄。</td></tr></tbody></table>"
     status_rows = []
     for item in summary.by_status:
         status_rows.append(

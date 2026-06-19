@@ -17,7 +17,7 @@ def tracked_symbol(entry_status="可進場", shares=1000):
         sector="semiconductor",
         status="可執行",
         priority=0,
-        bullish_label="強烈看漲",
+        bullish_label="方向偏多",
         bullish_score=8,
         bullish_reasons=["盤前做多"],
         entry_status=entry_status,

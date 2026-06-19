@@ -242,7 +242,7 @@ def _action_label(
 ) -> str:
     if below_opening_low and not above_vwap and volume_ratio >= 0.8:
         return "賣空"
-    if candidate_label in {"買多", "賣空"}:
+    if candidate_label in {"可執行", "練習買多", "賣空"}:
         return candidate_label
     if (
         technical_score >= 75
@@ -252,7 +252,7 @@ def _action_label(
         and above_vwap
         and break_prev_high
     ):
-        return "買多"
+        return "可執行"
     if not above_vwap and change_pct <= -1 and volume_ratio >= 1.0:
         return "賣空"
     return "觀察"
@@ -306,8 +306,10 @@ def _risk_summary(chase_risk_score: float, vwap_distance: Optional[float], chang
 
 
 def _action_summary(action_label: str, technical_score: float, volume_score: float, chase_risk_score: float, confidence_score: float) -> str:
-    if action_label == "買多":
-        return "技術結構、量能與風險條件相對配合，可列入買多觀察。"
+    if action_label == "可執行":
+        return "技術結構、量能與風險條件相對配合，可列入可執行觀察。"
+    if action_label == "練習買多":
+        return "條件接近，但尚未等同正式可執行，可用虛擬交易練習觀察。"
     if action_label == "賣空":
         return "價格結構偏弱且量能配合，可列入賣空觀察。"
     if technical_score >= 65 and volume_score < 55:
@@ -320,8 +322,10 @@ def _action_summary(action_label: str, technical_score: float, volume_score: flo
 
 
 def _next_step(action_label: str, above_vwap: bool, volume_ratio: float, has_breakout: bool, chase_risk_score: float) -> str:
-    if action_label == "買多":
+    if action_label == "可執行":
         return "先確認停損距離、VWAP 是否守住，再用虛擬交易練習。"
+    if action_label == "練習買多":
+        return "先等待觸發條件成立，僅以虛擬交易練習累積樣本。"
     if action_label == "賣空":
         return "賣空觀察需確認跌破 VWAP 後未快速站回，並設定停損。"
     if not above_vwap:
@@ -354,7 +358,7 @@ def _action_plan(
     long_trigger = _max_price(trigger_price, previous_high, opening_range_high, current_price if break_prev_high or break_orb else None)
     short_trigger = _min_price(opening_range_low, vwap)
     entry_reference = current_price
-    if action_label == "買多":
+    if action_label in {"可執行", "練習買多"}:
         plan_stop = stop_loss or _pct(current_price, -1.0) or _pct(vwap, -0.3)
         plan_target = _valid_long_target(target_price, entry_reference) or _pct(current_price, 2.0)
         return _plan_dict(
@@ -364,7 +368,7 @@ def _action_plan(
             stop_loss=plan_stop,
             target_price=plan_target,
             wait_condition="若拉回 VWAP 不破，可用虛擬交易練習分批觀察。",
-            invalidation_condition="跌破 VWAP 或量能快速萎縮，取消買多觀察。",
+            invalidation_condition="跌破 VWAP 或量能快速萎縮，取消可執行觀察。",
             no_chase_reason="若距離 VWAP 超過 3% 或出現長上影，不直接追價。",
         )
     if action_label == "賣空":

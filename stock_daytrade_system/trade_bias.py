@@ -47,7 +47,7 @@ def evaluate_trade_bias(
         and risk_score <= 55
         and confidence >= 55
     ):
-        return TradeBias("long", "買多", "練習買多條件成立；尚未等同 A 級正式訊號，適合用虛擬交易累積樣本。")
+        return TradeBias("long", "練習買多", "練習買多條件成立；尚未等同 A 級正式訊號，適合用虛擬交易累積樣本。")
 
     if (
         status == "executable"
@@ -57,7 +57,7 @@ def evaluate_trade_bias(
         and risk_score <= 55
         and confidence >= 60
     ):
-        return TradeBias("long", "買多", "站上 VWAP、量能達標且訊號可執行。")
+        return TradeBias("long", "可執行", "站上 VWAP、量能達標且訊號可執行。")
 
     if (
         grade == "A"
@@ -67,7 +67,7 @@ def evaluate_trade_bias(
         and risk_score <= 40
         and confidence >= 70
     ):
-        return TradeBias("long", "買多", "A 級多方結構完整，可列入買多觀察。")
+        return TradeBias("long", "可執行", "A 級多方結構完整，可列入可執行觀察。")
 
     if _short_conditions(
         above_vwap=above_vwap,

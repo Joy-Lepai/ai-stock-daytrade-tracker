@@ -33,12 +33,12 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
             market_status="偏多",
         )
 
-        self.assertEqual(analysis.action_label, "買多")
+        self.assertEqual(analysis.action_label, "可執行")
         self.assertGreaterEqual(analysis.technical_score, 75)
         self.assertGreaterEqual(analysis.volume_score, 65)
         self.assertLessEqual(analysis.chase_risk_score, 55)
-        self.assertIn("可列入買多觀察", analysis.action_summary)
-        self.assertEqual(analysis.action_plan["state"], "買多")
+        self.assertIn("可列入可執行觀察", analysis.action_summary)
+        self.assertEqual(analysis.action_plan["state"], "可執行")
         self.assertEqual(analysis.action_plan["stop_loss"], 102)
         self.assertEqual(analysis.action_plan["target_price"], 108)
         self.assertGreaterEqual(len(analysis.key_levels), 5)

@@ -1302,7 +1302,7 @@ def us_dashboard_script() -> str:
         const metrics = `現價 ${number(item.current_price)}｜VWAP ${number(item.vwap)}｜量比 ${number(item.volume_ratio)}x｜停損 ${number(item.stop_loss)}｜停利 ${number(item.target_price)}`;
         return `<div class="signal-card">
           <div class="signal-title">${label}</div>
-          <div class="signal-meta">當下狀態：${escapeHtml(item.trade_bias_label || "觀察")}</div>
+          <div class="signal-meta">當下狀態：${escapeHtml(displayTradeBias(item))}</div>
           <div class="signal-meta">${meta}</div>
           <div class="signal-meta">${escapeHtml(metrics)}</div>
           <div class="signal-meta">信心：${escapeHtml(item.confidence_level || "-")}</div>
@@ -1357,7 +1357,7 @@ def us_dashboard_script() -> str:
             <td>${number(item.risk_score)}</td>
             <td><span class="badge grade-${escapeHtml(item.grade)}">${escapeHtml(item.grade)}</span></td>
             <td>${escapeHtml(item.entry_status)}</td>
-            <td>${escapeHtml(item.trade_bias_label || "觀察")}<br><span class="muted">${escapeHtml(item.trade_bias_reason || "")}</span></td>
+            <td>${escapeHtml(displayTradeBias(item))}<br><span class="muted">${escapeHtml(displayTradeReason(item))}</span></td>
             <td>${number(item.confidence_score)}<br><span class="muted">${escapeHtml(item.confidence_level_label || item.confidence_level)}</span></td>
             <td>${escapeHtml(item.conflicts_count || 0)}<br><span class="muted">${escapeHtml(item.conflict_summary || "無明顯衝突")}</span></td>
             <td>${escapeHtml(lifecycle)}</td>
@@ -1408,7 +1408,7 @@ def tw_advisor_script() -> str:
       };
       const yesNo = (value) => value ? "是" : "否";
       const decisionClass = (bias) => bias === "long" ? "decision-long" : bias === "short" ? "decision-short" : "decision-watch";
-      const decisionLabel = (candidate) => candidate?.trade_bias_label || candidate?.trade_bias || "觀察";
+      const decisionLabel = (candidate) => displayTradeBias(candidate || {});
       const list = (items) => {
         const rows = Array.isArray(items) && items.length ? items : ["目前沒有明確訊息。"];
         return `<ul>${rows.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
@@ -1428,7 +1428,7 @@ def tw_advisor_script() -> str:
       };
       const statusZh = (entry) => ({
         executable: "可執行",
-        practice_long: "可執行",
+        practice_long: "練習買多",
         wait_volume: "等待量能",
         wait_vwap: "等待 VWAP",
         wait_breakout: "等待突破",
@@ -1437,6 +1437,23 @@ def tw_advisor_script() -> str:
         avoid: "避開",
         data_missing: "資料不足",
       }[entry] || entry || "-");
+      const displayTradeBias = (item) => {
+        const entry = item?.entry_status || "";
+        const label = item?.trade_bias_label || "";
+        if (entry === "high_risk") return "方向偏多";
+        if (entry === "practice_long") return "練習買多";
+        if (entry === "executable") return "可執行";
+        if (label === "強烈" + "看漲") return "方向偏多";
+        if (label === "看漲") return "偏多";
+        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多確認")) return "可執行";
+        return label || item?.trade_bias || "觀察";
+      };
+      const displayTradeReason = (item) => {
+        const entry = item?.entry_status || "";
+        if (entry === "high_risk") return "方向偏多，但追價風險高，不列入今日做多。";
+        if (entry === "practice_long") return "可作為練習買多觀察，不是正式可執行。";
+        return item?.trade_bias_reason || "";
+      };
       const conclusionClass = (state) => state === "可執行" ? "conclusion-ok" : state === "資料不足" ? "conclusion-missing" : state === "避開" ? "conclusion-risk" : "conclusion-watch";
       const advisorLink = (symbol) => `/tw/advisor?symbol=${encodeURIComponent(symbol || "")}`;
       const renderReasonCodes = (codes) => {
