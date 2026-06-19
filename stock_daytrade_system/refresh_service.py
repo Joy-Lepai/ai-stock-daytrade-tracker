@@ -23,6 +23,7 @@ from stock_daytrade_system.db import (
 )
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
+from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.paper_broker import run_paper_trading
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.sectors import rank_sector_strength
@@ -102,6 +103,7 @@ class RefreshCoordinator:
         db_path = default_db_path(self.project_root)
         with connect(db_path) as conn:
             rows = [dict(row) for row in refresh_state_rows(conn)]
+            data_meta = _latest_data_meta(conn)
         now = datetime.now(ZoneInfo("Asia/Taipei"))
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
@@ -111,13 +113,33 @@ class RefreshCoordinator:
         any_stale = any(item["is_stale"] for item in by_layer.values())
         watchlist_ok = not by_layer["watchlist"]["is_stale"] and by_layer["watchlist"]["status"] == "success"
         positions_ok = not by_layer["positions"]["is_stale"] and by_layer["positions"]["status"] == "success"
+        market_mode = evaluate_tw_market_mode(
+            now=now,
+            data_date=data_meta.get("data_date"),
+            latest_data_at=data_meta.get("latest_data_at"),
+            data_stale=False,
+            severe_missing=False,
+            watchlist_fresh=watchlist_ok,
+            positions_fresh=positions_ok,
+        )
         return {
             "api_status": "ok",
             "generated_at": now.isoformat(timespec="seconds"),
+            "market_mode": market_mode.mode,
+            "market_mode_label": market_mode.label,
+            "last_trading_date": market_mode.last_trading_date,
+            "data_date": market_mode.data_date,
+            "is_trading_day": market_mode.is_trading_day,
+            "is_market_open": market_mode.is_market_open,
+            "is_post_close": market_mode.is_post_close,
+            "is_weekend": market_mode.is_weekend,
+            "is_data_current_for_mode": market_mode.is_data_current_for_mode,
+            "allow_intraday_signal": market_mode.allow_intraday_signal,
+            "review_mode_message": market_mode.review_mode_message,
             "layers": by_layer,
             "any_stale": any_stale,
-            "allow_strong_long": watchlist_ok and positions_ok,
-            "strong_long_block_reason": "" if watchlist_ok and positions_ok else _strong_long_block_reason(by_layer),
+            "allow_strong_long": market_mode.allow_strong_long,
+            "strong_long_block_reason": "" if market_mode.allow_strong_long else _strong_long_block_reason(by_layer, market_mode.to_dict()),
         }
 
     def _run_tracked_layer(self, layer: str, runner: Callable[[datetime], tuple[int, str]]) -> RefreshResult:
@@ -337,6 +359,18 @@ def _latest_snapshot_count(db_path: Path) -> int:
     return int(row["total"] or 0) if row else 0
 
 
+def _latest_data_meta(conn) -> dict:
+    intraday = conn.execute(
+        "SELECT MAX(date) AS data_date, MAX(captured_at) AS captured_at FROM intraday_snapshots"
+    ).fetchone()
+    full_market = conn.execute(
+        "SELECT MAX(date) AS data_date, MAX(captured_at) AS captured_at FROM tw_full_market_snapshots"
+    ).fetchone()
+    data_date = (intraday["data_date"] if intraday else None) or (full_market["data_date"] if full_market else None)
+    latest_data_at = (intraday["captured_at"] if intraday else None) or (full_market["captured_at"] if full_market else None)
+    return {"data_date": data_date, "latest_data_at": latest_data_at}
+
+
 def _empty_layer_status(layer: str, now: datetime) -> dict:
     return {
         "layer": layer,
@@ -391,7 +425,9 @@ def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(ZoneInfo("Asia/Taipei"))
 
 
-def _strong_long_block_reason(layers: dict[str, dict]) -> str:
+def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None) -> str:
+    if market_mode and market_mode.get("mode") != "intraday":
+        return str(market_mode.get("review_mode_message") or "目前不是盤中模式，禁止顯示即時強烈做多。")
     if layers["watchlist"]["is_stale"]:
         return "watchlist 層資料過期，禁止顯示強烈做多。"
     if layers["positions"]["is_stale"]:

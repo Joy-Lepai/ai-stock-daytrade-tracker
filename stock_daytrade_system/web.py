@@ -577,6 +577,11 @@ def _tracker_html_needs_refresh(html: str) -> bool:
         "明日買多觀察池",
         "AI 今日決策中心",
         "訊號中心",
+        "台股做多當沖追蹤器 v1",
+        "我的持倉作戰區",
+        "上一交易日復盤",
+        "下個交易日觀察清單",
+        "模型檢討",
         "資料健康度",
         "台股全市場異動掃描池",
         "漏抓股票診斷",
@@ -1022,6 +1027,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       {file_text}
       <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">準備讀取分層更新狀態</span>
       <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
+      <form method="post" action="/refresh_full_market" title="更新 TWSE + TPEX 全市場異動候選池。"><button type="submit">更新全市場</button></form>
       <form method="post" action="/refresh_watchlist" title="只更新 A/B+/B、等待條件、手動加入與今日重點觀察股。"><button type="submit">更新重點觀察</button></form>
       <form method="post" action="/refresh_positions" title="只更新 B+ 觸發、虛擬交易持倉與停損停利狀態。"><button type="submit">更新持倉/觸發</button></form>
       {logout_link}
@@ -1069,9 +1075,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
           const payload = await response.json();
           const layers = payload.layers || {{}};
-          status.textContent = `分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈做多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈做多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
           if (panel) {{
             panel.innerHTML = [
+              `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),

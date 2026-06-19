@@ -49,6 +49,11 @@ class WebTests(unittest.TestCase):
           明日買多觀察池
           AI 今日決策中心
           訊號中心
+          台股做多當沖追蹤器 v1
+          我的持倉作戰區
+          上一交易日復盤
+          下個交易日觀察清單
+          模型檢討
           資料健康度
           台股全市場異動掃描池
           漏抓股票診斷
@@ -143,8 +148,10 @@ class WebTests(unittest.TestCase):
         html = render_shell("<main>ok</main>", active_file="today.html")
 
         self.assertIn("/api/refresh/status", html)
+        self.assertIn("/refresh_full_market", html)
         self.assertIn("/refresh_watchlist", html)
         self.assertIn("/refresh_positions", html)
+        self.assertIn("market_mode_label", html)
         self.assertNotIn('fetch("/refresh"', html)
 
 

@@ -11,6 +11,7 @@ from stock_daytrade_system.frontend_language import front_trade_counts, front_tr
 from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.labels import sector_label, stock_label
 from stock_daytrade_system.long_model import LongModelSummary
+from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.paper_trading import PaperTradingSummary
 from stock_daytrade_system.performance import SignalPerformanceSummary
@@ -297,6 +298,15 @@ def render_tracker_html(
     warnings = list(data_warnings)
     statuses = list(data_status)
     checklist = long_summary.recommendation_checklist if long_summary else {}
+    mode_payload = _dashboard_market_mode(long_summary, report_time)
+    header_front = front_trade_counts(
+        list(long_summary.candidates) if long_summary else [],
+        data_today=bool(mode_payload.get("is_data_current_for_mode", True)),
+        intraday=bool(mode_payload.get("allow_intraday_signal", True)),
+        stale=mode_payload.get("mode") == "stale_data",
+        allow_strong_long=bool(mode_payload.get("allow_strong_long", True)),
+        market_mode=str(mode_payload.get("mode", "intraday")),
+    )["counts"]
 
     html = f"""<!doctype html>
 <html lang="zh-Hant">
@@ -522,20 +532,22 @@ def render_tracker_html(
     <h1>股票當沖追蹤器</h1>
     <div class="meta">產生時間：{escape(report_time.strftime('%Y-%m-%d %H:%M:%S'))} ｜ 市場背景：{escape(market_bias.direction)}（{market_bias.score:+.2f}）</div>
     <div class="summary">
-      {_metric('executable 可執行', int(checklist.get('executable', 0)))}
-      {_metric('practice_long 練習買多', int(checklist.get('practice_long', 0)))}
-      {_metric('wait_volume 等量能', int(checklist.get('wait_volume', 0)))}
-      {_metric('wait_vwap 等VWAP', int(checklist.get('wait_vwap', 0)))}
-      {_metric('high_risk 風險過高', int(checklist.get('high_risk', 0)))}
+      {_metric('強烈做多', int(header_front.get('強烈做多', 0)))}
+      {_metric('做多', int(header_front.get('做多', 0)))}
+      {_metric('觀察', int(header_front.get('觀察', 0)))}
+      {_metric('做空', int(header_front.get('做空', 0)))}
+      {_metric_text('模式', str(mode_payload.get('label', '未知')))}
     </div>
     {_data_status_block(statuses)}
     {_warning_block(warnings)}
   </header>
   <main>
+    {_market_mode_panel(long_summary, report_time)}
     {_decision_overview(long_summary)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
     {_position_command_center(long_summary)}
+    {_review_mode_sections(long_summary, report_time)}
     <h2>本週模型觀察</h2>
     {_model_observation_panel(long_summary)}
     <h2>資料健康度</h2>
@@ -716,17 +728,97 @@ def _advisor_link(symbol: str) -> str:
     return f"/tw/advisor?symbol={escape(str(symbol or ''), quote=True)}"
 
 
+def _dashboard_market_mode(summary: Optional[LongModelSummary], report_time: datetime) -> dict:
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics or {}).get("data_health") or {}
+    mode = evaluate_tw_market_mode(
+        now=report_time,
+        data_date=health.get("data_date"),
+        latest_data_at=health.get("latest_intraday_at") or health.get("last_success_at"),
+        data_stale=bool(health.get("is_stale")),
+        severe_missing=str(health.get("status") or "") in {"異常", "嚴重缺漏"},
+        watchlist_fresh=True,
+        positions_fresh=True,
+    )
+    return mode.to_dict()
+
+
+def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    mode = _dashboard_market_mode(summary, report_time)
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics or {}).get("data_health") or {}
+    checklist = summary.recommendation_checklist if summary else {}
+    front = front_trade_counts(
+        list(summary.candidates) if summary else [],
+        data_today=bool(mode.get("is_data_current_for_mode")),
+        intraday=bool(mode.get("allow_intraday_signal")),
+        stale=mode.get("mode") == "stale_data",
+        allow_strong_long=bool(mode.get("allow_strong_long")),
+        market_mode=str(mode.get("mode")),
+    )["counts"]
+    reason = _no_strong_long_reason(front, checklist, health, mode)
+    can_trade = "可作為盤中追蹤依據" if mode.get("allow_intraday_signal") else "不提供即時進場判斷"
+    return (
+        '<section class="decision-center">'
+        '<h2>台股做多當沖追蹤器 v1</h2>'
+        f'<section class="notice">{escape(str(mode.get("message", "")))}</section>'
+        '<div class="summary">'
+        f'{_metric_text("現在模式", str(mode.get("label", "未知")))}'
+        f'{_metric("強烈做多", int(front.get("強烈做多", 0)))}'
+        f'{_metric("做多", int(front.get("做多", 0)))}'
+        f'{_metric("觀察", int(front.get("觀察", 0)))}'
+        f'{_metric("做空", int(front.get("做空", 0)))}'
+        f'{_metric_text("資料可信度", str(health.get("status") or "未知"))}'
+        f'{_metric_text("即時交易依據", can_trade)}'
+        f'{_metric_text("資料日期", str(mode.get("data_date") or "-"))}'
+        '</div>'
+        f'<div class="notice"><strong>主要原因</strong><br>{escape(reason)}</div>'
+        '</section>'
+    )
+
+
+def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dict) -> str:
+    if mode.get("mode") == "stale_data":
+        return "資料過期或缺漏嚴重，僅供參考。"
+    if mode.get("mode") != "intraday":
+        return "目前不是盤中模式，以下資料僅供復盤與下個交易日觀察。"
+    if int(front.get("強烈做多", 0)) > 0:
+        return "已有強烈做多候選，仍需依停損與部位風險控管。"
+    waits = []
+    for key, label in (("wait_volume", "等待量能"), ("wait_vwap", "等待站回 VWAP"), ("wait_breakout", "等待突破"), ("high_risk", "追價風險高")):
+        count = int(checklist.get(key, 0) or 0)
+        if count:
+            waits.append(f"{label} {count} 檔")
+    if health.get("status") not in {None, "", "正常"}:
+        waits.append(f"資料狀態：{health.get('status')}")
+    return "今日沒有強烈做多標的；" + ("、".join(waits) if waits else "主要條件尚未完整確認。")
+
+
+def _front_context(summary: Optional[LongModelSummary]) -> dict:
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics or {}).get("data_health") or {}
+    stale = bool(health.get("is_stale")) or str(health.get("status") or "") in {"過期", "異常", "嚴重缺漏"}
+    intraday = bool(health.get("is_intraday_session", True)) and not stale
+    mode = "intraday" if intraday else ("stale_data" if stale else "closed_review")
+    return {
+        "data_today": bool(health.get("is_today_data", True)),
+        "intraday": intraday,
+        "stale": stale,
+        "allow_strong_long": intraday and not stale,
+        "market_mode": mode,
+    }
+
+
 def _decision_overview(summary: Optional[LongModelSummary]) -> str:
     data = summary.decision_center if summary else {}
     diagnostics = summary.diagnostics if summary else {}
     health = (diagnostics.get("data_health") or {}) if diagnostics else {}
     checklist = summary.recommendation_checklist if summary else {}
     counts = data.get("counts", {}) if data else {}
+    front_context = _front_context(summary)
     front = front_trade_counts(
         list(summary.candidates) if summary else [],
-        data_today=bool(health.get("is_today_data", True)),
-        intraday=bool(health.get("is_intraday_session", True)),
-        stale=bool(health.get("is_stale", False)),
+        **front_context,
     )
     front_counts = front["counts"]
     tendency = data.get("operation_tendency") or "資料不足"
@@ -738,7 +830,7 @@ def _decision_overview(summary: Optional[LongModelSummary]) -> str:
     if health.get("is_stale") or str(health.get("status") or "").startswith("異常"):
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     focus_items = _top_focus_items(summary)
-    focus_html = "".join(_focus_card(item) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
+    focus_html = "".join(_focus_card(item, front_context) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
     return (
         '<section class="decision-center">'
         '<h2>今日決策摘要</h2>'
@@ -775,12 +867,12 @@ def _top_focus_items(summary: Optional[LongModelSummary]) -> list[LongCandidate]
     return rows[:10]
 
 
-def _focus_card(item: LongCandidate) -> str:
+def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> str:
     invalidation = "跌破 VWAP、量能退潮或風險分數升高時失效。"
     if item.entry_status == "high_risk":
         invalidation = "若無法回測降溫，避免追價。"
     conclusion = _display_conclusion_for_candidate(item)
-    front = front_trade_view(item)
+    front = front_trade_view(item, **(front_context or {}))
     bullish_reason = _display_reason_for_candidate(item)
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
@@ -890,8 +982,9 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
             "<p class=\"muted\">目前沒有符合條件的候選股。</p></section>"
         )
     buckets = {"強烈做多": [], "做多": [], "觀察": [], "做空": []}
+    front_context = _front_context(summary)
     for item in summary.candidates:
-        view = front_trade_view(item)
+        view = front_trade_view(item, **front_context)
         buckets.setdefault(view.category, []).append((item, view))
     columns = [
         ("強烈做多", "強烈做多"),
@@ -1064,6 +1157,91 @@ def _position_command_center(summary: Optional[LongModelSummary]) -> str:
         f'{table}'
         '</section>'
     )
+
+
+def _review_mode_sections(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    mode = _dashboard_market_mode(summary, report_time)
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics or {}).get("data_health") or {}
+    missed = (diagnostics or {}).get("missed_rate_report") or (diagnostics or {}).get("missed_stock_analysis") or {}
+    verification = (diagnostics or {}).get("post_market_verification") or {}
+    scorecard = ((diagnostics or {}).get("strategy_scorecard") or {}).get("windows", {}).get("20", {})
+    front = front_trade_counts(
+        list(summary.candidates) if summary else [],
+        data_today=bool(mode.get("is_data_current_for_mode")),
+        intraday=False,
+        stale=mode.get("mode") == "stale_data",
+        allow_strong_long=False,
+        market_mode=str(mode.get("mode")),
+    )["counts"]
+    verification_text = f"{int(verification.get('verified', 0) or 0)}/{int(verification.get('rows', 0) or 0)}"
+    true_missed_rate = float(missed.get("missed_by_pool_rate", missed.get("missed_rate", 0)) or 0)
+    overview = (
+        '<section class="decision-center">'
+        '<h2>上一交易日復盤</h2>'
+        f'<p class="muted">{escape(str(mode.get("review_mode_message", "")))}</p>'
+        '<div class="summary">'
+        f'{_metric_text("資料日期", str(mode.get("data_date", "-")))}'
+        f'{_metric("上一交易日強烈做多", int(front.get("強烈做多", 0)))}'
+        f'{_metric("上一交易日做多", int(front.get("做多", 0)))}'
+        f'{_metric("上一交易日觀察", int(front.get("觀察", 0)))}'
+        f'{_metric("上一交易日做空", int(front.get("做空", 0)))}'
+        f'{_metric_text("資料可信度", str(health.get("status") or "未知"))}'
+        f'{_metric("真漏抓", int(missed.get("missed_by_pool_count", missed.get("missed_count", 0)) or 0))}'
+        f'{_metric("已看到但未推薦", int(missed.get("seen_but_filtered_count", 0) or 0))}'
+        f'{_metric("盤後可惜漏掉", int((missed.get("regret_after_close") or {}).get("count", 0) or 0))}'
+        f'{_metric_text("盤後驗證", verification_text)}'
+        '</div>'
+        '</section>'
+    )
+    watch_rows = []
+    for item in _tomorrow_pool_items(((summary.momentum_scan or {}).get("items", []) if summary else []), limit=10):
+        status, next_step = _tomorrow_pool_status(item)
+        watch_rows.append(
+            '<tr>'
+            f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</a></strong></td>'
+            f'<td>{escape(status)}</td>'
+            f'<td class="notes">{escape(str(item.get("not_selected_reason") or item.get("trade_bias_reason") or "-"))}</td>'
+            f'<td class="notes">{escape(next_step)}</td>'
+            f'<td class="notes">跌破 VWAP、量能退潮、資料過期或風險分數升高。</td>'
+            f'<td>{escape("完整" if not item.get("data_error") else "缺漏")}</td>'
+            f'<td>{escape(str(item.get("reason_code") or "-"))}</td>'
+            '</tr>'
+        )
+    watch_table = (
+        '<section class="decision-center">'
+        '<h2>下個交易日觀察清單</h2>'
+        '<p class="muted">此區從上一交易日資料整理，不是推薦買進；下個交易日仍需等待 VWAP、量能與突破確認。</p>'
+        '<div class="table-wrap"><table><thead><tr><th>股票</th><th>狀態</th><th>觀察原因</th><th>要等的條件</th><th>失效條件</th><th>資料</th><th>reason code</th></tr></thead><tbody>'
+        + ("".join(watch_rows) if watch_rows else '<tr><td colspan="7">目前沒有下個交易日觀察清單。</td></tr>')
+        + '</tbody></table></div></section>'
+    )
+    sample_size = int(scorecard.get("sample_size", 0) or 0)
+    groups = scorecard.get("groups") or {}
+    model_review = (
+        '<section class="decision-center">'
+        '<h2>模型檢討</h2>'
+        '<div class="summary">'
+        f'{_metric("20日樣本", sample_size)}'
+        f'{_metric_text("強烈做多後表現", _review_group_text(groups.get("A")))}'
+        f'{_metric_text("做多後表現", _review_group_text(groups.get("B+")))}'
+        f'{_metric_text("high_risk續漲", _review_group_text(groups.get("high_risk"), "continue_up_rate"))}'
+        f'{_metric_text("avoid後大漲", _review_group_text(groups.get("avoid"), "big_up_rate"))}'
+        f'{_metric_text("真漏抓率", f"{true_missed_rate:.2f}%")}'
+        '</div>'
+        f'<section class="notice">{escape("樣本不足，不建議調整模型。" if sample_size < 20 else "已有初步樣本，但仍需持續驗證後再調整模型。")}</section>'
+        '</section>'
+    )
+    return overview + watch_table + model_review
+
+
+def _review_group_text(group: Optional[dict], key: str = "win_rate") -> str:
+    if not group:
+        return "樣本不足"
+    total = int(group.get("sample_size", group.get("total", 0)) or 0)
+    if total < 20:
+        return f"樣本 {total}，不足"
+    return f"{float(group.get(key, 0) or 0):.2f}%"
 
 
 def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:

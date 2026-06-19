@@ -28,6 +28,7 @@ def front_trade_view(
     intraday: bool = True,
     stale: bool = False,
     allow_strong_long: bool = True,
+    market_mode: str = "intraday",
 ) -> FrontTradeView:
     entry = _string(_get(item, "entry_status"))
     grade = _string(_get(item, "grade"))
@@ -54,6 +55,9 @@ def front_trade_view(
     if not allow_strong_long:
         strong_blockers.append("分層資料過期")
         reason_codes.append("refresh_layer_stale")
+    if market_mode != "intraday":
+        strong_blockers.append("非盤中模式")
+        reason_codes.append("not_intraday_mode")
     if vwap is None:
         strong_blockers.append("缺 VWAP")
         reason_codes.append("missing_vwap")
@@ -114,7 +118,10 @@ def front_trade_view(
             reason_codes=reason_codes or ["short_watch"],
         )
 
-    if entry == "practice_long":
+    if entry == "executable" and market_mode != "intraday":
+        subtitle = "上一交易日強烈做多復盤，不提供即時進場判斷"
+        reason_code = "review_executable"
+    elif entry == "practice_long":
         subtitle = "練習買多，不是正式可執行"
         reason_code = "practice_long"
     elif entry == "wait_volume":
