@@ -6,6 +6,7 @@ from stock_daytrade_system.web import (
     _current_commit_hash,
     _extract_body,
     _extract_style,
+    _notification_signals_payload,
     _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
     latest_tracker_file,
@@ -13,6 +14,7 @@ from stock_daytrade_system.web import (
     render_shell,
     render_tw_advisor_page,
 )
+from stock_daytrade_system.db import connect
 
 
 class WebTests(unittest.TestCase):
@@ -148,11 +150,61 @@ class WebTests(unittest.TestCase):
         html = render_shell("<main>ok</main>", active_file="today.html")
 
         self.assertIn("/api/refresh/status", html)
+        self.assertIn("/api/notification/signals", html)
+        self.assertIn("notify-sound-toggle", html)
+        self.assertIn("notify-desktop-toggle", html)
+        self.assertIn("AudioContext", html)
+        self.assertIn("Notification.requestPermission", html)
         self.assertIn("/refresh_full_market", html)
         self.assertIn("/refresh_watchlist", html)
         self.assertIn("/refresh_positions", html)
         self.assertIn("market_mode_label", html)
         self.assertNotIn('fetch("/refresh"', html)
+
+    def test_notification_signals_payload_returns_triggered_status(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "daytrade.db"
+            with connect(db_path) as conn:
+                conn.execute(
+                    "INSERT INTO symbols (symbol, name, sector, market) VALUES (?, ?, ?, ?)",
+                    ("2330.TW", "台積電", "半導體", "TW"),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO recommendations (
+                      market, date, symbol, first_seen_at, latest_seen_at, grade,
+                      bullish_score, risk_score, entry_status, lifecycle_status,
+                      observed_at, trigger_time, trigger_price, trigger_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "TW",
+                        "2026-06-19",
+                        "2330.TW",
+                        "2026-06-19T09:05:00",
+                        "2026-06-19T09:10:00",
+                        "B+",
+                        72,
+                        35,
+                        "wait_vwap",
+                        "triggered",
+                        "2026-06-19T09:05:00",
+                        "2026-06-19T09:10:00",
+                        100,
+                        "站回 VWAP 後觸發",
+                    ),
+                )
+
+                payload = _notification_signals_payload(conn)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["date"], "2026-06-19")
+        self.assertEqual(payload["signals"][0]["symbol"], "2330.TW")
+        self.assertEqual(payload["signals"][0]["name_zh"], "台積電")
+        self.assertEqual(payload["signals"][0]["status"], "triggered")
 
 
 if __name__ == "__main__":

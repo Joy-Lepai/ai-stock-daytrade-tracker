@@ -239,6 +239,10 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path == "/api/refresh/status":
             self._send_json(self.web_app.refresh_coordinator.status_payload())
             return
+        if path == "/api/notification/signals":
+            with connect(default_db_path(PROJECT_ROOT)) as conn:
+                self._send_json(_notification_signals_payload(conn))
+            return
         if path == "/api/accuracy/summary":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(build_accuracy_dashboard_payload(conn))
@@ -676,6 +680,304 @@ def _current_commit_hash() -> str:
         return "unknown"
 
 
+def _notification_signals_payload(conn) -> dict:
+    latest_date = conn.execute("SELECT MAX(date) AS date FROM recommendations").fetchone()["date"]
+    if not latest_date:
+        return {"ok": True, "date": None, "signals": []}
+    rows = conn.execute(
+        """
+        SELECT
+          r.market,
+          r.date,
+          r.symbol,
+          COALESCE(s.name, us.name_zh, r.symbol) AS name_zh,
+          COALESCE(us.name_en, s.name, r.symbol) AS name_en,
+          r.grade,
+          r.entry_status,
+          r.lifecycle_status,
+          CASE
+            WHEN r.lifecycle_status = 'triggered' THEN 'triggered'
+            ELSE r.entry_status
+          END AS status,
+          r.trigger_time,
+          r.trigger_price,
+          r.trigger_reason,
+          r.latest_seen_at
+        FROM recommendations r
+        LEFT JOIN symbols s ON r.market = 'TW' AND s.symbol = r.symbol
+        LEFT JOIN us_symbols us ON r.market = 'US' AND us.symbol = r.symbol
+        WHERE r.date = ?
+        ORDER BY
+          CASE r.lifecycle_status WHEN 'triggered' THEN 0 ELSE 1 END,
+          CASE r.entry_status WHEN 'executable' THEN 0 WHEN 'practice_long' THEN 1 WHEN 'wait_breakout' THEN 2 WHEN 'wait_vwap' THEN 3 WHEN 'wait_volume' THEN 4 ELSE 5 END,
+          r.symbol
+        LIMIT 300
+        """,
+        (latest_date,),
+    ).fetchall()
+    return {
+        "ok": True,
+        "date": latest_date,
+        "signals": [dict(row) for row in rows],
+    }
+
+
+def notification_controls_html() -> str:
+    return """
+      <div class="notification-controls" aria-label="即時通知設定">
+        <label class="notification-toggle" title="瀏覽器可能需要先點擊頁面後才允許播放提示音。">
+          <input id="notify-sound-toggle" type="checkbox" checked>
+          <span>聲音提示</span>
+        </label>
+        <label class="notification-toggle" title="開啟後會向瀏覽器請求桌面通知權限。">
+          <input id="notify-desktop-toggle" type="checkbox">
+          <span>桌面通知</span>
+        </label>
+        <span id="notify-status" class="notification-status">通知準備中</span>
+      </div>
+    """
+
+
+def notification_module_script() -> str:
+    return r"""
+    (() => {
+      if (window.StockNotificationModule) return;
+
+      const STORAGE_SOUND = "stockNotifySoundEnabled";
+      const STORAGE_DESKTOP = "stockNotifyDesktopEnabled";
+      const TRIGGERED_STATUS = "triggered";
+      const POLL_MS = 30000;
+      const state = {
+        soundEnabled: localStorage.getItem(STORAGE_SOUND) !== "0",
+        desktopEnabled: localStorage.getItem(STORAGE_DESKTOP) === "1",
+        baselineReady: false,
+        statuses: new Map(),
+        audioContext: null,
+        pollTimer: null,
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const text = (value, fallback = "") => value === null || value === undefined || value === "" ? fallback : String(value);
+      const setStatus = (message) => {
+        const node = $("notify-status");
+        if (node) node.textContent = message;
+      };
+      const displayName = (item) => {
+        const symbol = text(item.symbol, "-");
+        const name = text(item.name_zh || item.short_name_zh || item.name_en, "");
+        return name && name !== symbol ? `${symbol}｜${name}` : symbol;
+      };
+      const signalKey = (item) => `${text(item.market, "TW")}:${text(item.symbol)}`;
+      const signalStatus = (item) => text(item.status || item.lifecycle_status || item.entry_status || "unknown");
+
+      function syncControls() {
+        const sound = $("notify-sound-toggle");
+        const desktop = $("notify-desktop-toggle");
+        if (sound) sound.checked = state.soundEnabled;
+        if (desktop) desktop.checked = state.desktopEnabled && notificationPermission() === "granted";
+        if (!("Notification" in window)) {
+          if (desktop) {
+            desktop.checked = false;
+            desktop.disabled = true;
+          }
+          setStatus("此瀏覽器不支援桌面通知");
+        } else if (Notification.permission === "denied") {
+          if (desktop) desktop.checked = false;
+          setStatus("桌面通知已被瀏覽器封鎖");
+        } else {
+          setStatus(state.desktopEnabled ? "即時通知已啟用" : "聲音提示可用");
+        }
+      }
+
+      function notificationPermission() {
+        return "Notification" in window ? Notification.permission : "unsupported";
+      }
+
+      async function ensureAudioContext() {
+        if (!state.soundEnabled) return null;
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtor) {
+          setStatus("此瀏覽器不支援音訊提示");
+          return null;
+        }
+        if (!state.audioContext) state.audioContext = new AudioCtor();
+        if (state.audioContext.state === "suspended") {
+          try {
+            await state.audioContext.resume();
+          } catch (error) {
+            setStatus("音訊尚未解鎖，請先點擊頁面一次");
+            return null;
+          }
+        }
+        return state.audioContext;
+      }
+
+      async function playBeep() {
+        try {
+          const ctx = await ensureAudioContext();
+          if (!ctx) return;
+          const oscillator = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const start = ctx.currentTime;
+          const duration = 0.16;
+          oscillator.type = "triangle";
+          oscillator.frequency.setValueAtTime(880, start);
+          oscillator.frequency.exponentialRampToValueAtTime(1320, start + duration * 0.55);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(0.055, start + 0.018);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+          oscillator.connect(gain);
+          gain.connect(ctx.destination);
+          oscillator.start(start);
+          oscillator.stop(start + duration + 0.02);
+        } catch (error) {
+          setStatus(`音訊提示失敗：${error.message}`);
+        }
+      }
+
+      async function requestDesktopPermission() {
+        if (!("Notification" in window)) {
+          state.desktopEnabled = false;
+          localStorage.setItem(STORAGE_DESKTOP, "0");
+          syncControls();
+          return false;
+        }
+        if (Notification.permission === "granted") {
+          state.desktopEnabled = true;
+          localStorage.setItem(STORAGE_DESKTOP, "1");
+          syncControls();
+          return true;
+        }
+        if (Notification.permission === "denied") {
+          state.desktopEnabled = false;
+          localStorage.setItem(STORAGE_DESKTOP, "0");
+          syncControls();
+          return false;
+        }
+        try {
+          const permission = await Notification.requestPermission();
+          state.desktopEnabled = permission === "granted";
+          localStorage.setItem(STORAGE_DESKTOP, state.desktopEnabled ? "1" : "0");
+          syncControls();
+          return state.desktopEnabled;
+        } catch (error) {
+          state.desktopEnabled = false;
+          localStorage.setItem(STORAGE_DESKTOP, "0");
+          setStatus(`通知權限請求失敗：${error.message}`);
+          syncControls();
+          return false;
+        }
+      }
+
+      function sendDesktopNotification(item) {
+        if (!state.desktopEnabled || notificationPermission() !== "granted") return;
+        try {
+          const label = displayName(item);
+          const notification = new Notification("當沖進場訊號", {
+            body: `${label} 已觸發進場訊號，請注意！`,
+            tag: `stock-trigger-${signalKey(item)}`,
+            renotify: true,
+            silent: true,
+          });
+          notification.onclick = () => {
+            window.focus();
+            if (item.market === "TW" && item.symbol) {
+              window.location.href = `/tw/advisor?symbol=${encodeURIComponent(item.symbol)}`;
+            }
+          };
+        } catch (error) {
+          setStatus(`桌面通知失敗：${error.message}`);
+        }
+      }
+
+      function notifyTriggered(item) {
+        playBeep();
+        sendDesktopNotification(item);
+        setStatus(`${displayName(item)} 已觸發進場訊號`);
+      }
+
+      function observeSignals(items, options = {}) {
+        const list = Array.isArray(items) ? items : [];
+        const suppressInitial = options.suppressInitial !== false;
+        for (const item of list) {
+          if (!item || !item.symbol) continue;
+          const key = signalKey(item);
+          const nextStatus = signalStatus(item);
+          const prevStatus = state.statuses.get(key);
+          state.statuses.set(key, nextStatus);
+          if (
+            state.baselineReady &&
+            prevStatus &&
+            prevStatus !== TRIGGERED_STATUS &&
+            nextStatus === TRIGGERED_STATUS
+          ) {
+            notifyTriggered(item);
+          }
+        }
+        if (!state.baselineReady && suppressInitial) {
+          state.baselineReady = true;
+        }
+      }
+
+      async function pollSignals() {
+        try {
+          const response = await fetch("/api/notification/signals", { cache: "no-store", credentials: "same-origin" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          observeSignals(payload.signals || []);
+        } catch (error) {
+          setStatus(`通知狀態讀取失敗：${error.message}`);
+        }
+      }
+
+      function bindControls() {
+        const sound = $("notify-sound-toggle");
+        const desktop = $("notify-desktop-toggle");
+        if (sound) {
+          sound.addEventListener("change", async () => {
+            state.soundEnabled = Boolean(sound.checked);
+            localStorage.setItem(STORAGE_SOUND, state.soundEnabled ? "1" : "0");
+            if (state.soundEnabled) await ensureAudioContext();
+            syncControls();
+          });
+        }
+        if (desktop) {
+          desktop.addEventListener("change", async () => {
+            if (desktop.checked) {
+              await requestDesktopPermission();
+            } else {
+              state.desktopEnabled = false;
+              localStorage.setItem(STORAGE_DESKTOP, "0");
+              syncControls();
+            }
+          });
+        }
+        document.addEventListener("pointerdown", () => ensureAudioContext(), { once: true, passive: true });
+      }
+
+      function start() {
+        bindControls();
+        syncControls();
+        pollSignals();
+        state.pollTimer = window.setInterval(pollSignals, POLL_MS);
+      }
+
+      window.StockNotificationModule = {
+        observeSignals,
+        pollSignals,
+        playTestBeep: playBeep,
+        requestDesktopPermission,
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start, { once: true });
+      } else {
+        start();
+      }
+    })();
+    """
+
+
 def render_login_page(error: str = "") -> str:
     error_html = f"<div class=\"error\">{_escape(error)}</div>" if error else ""
     return f"""<!doctype html>
@@ -723,6 +1025,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
       <a href="#debug">Debug</a>
     </div>
     <div class="topbar-actions">
+      {notification_controls_html()}
       <span id="us-refresh-status" class="refresh-status">準備更新</span>
       {logout_link}
     </div>
@@ -765,6 +1068,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="us-debug"></tbody></table></div>
   </main>
+  <script>{notification_module_script()}</script>
   <script>{us_dashboard_script()}</script>
 </body>
 </html>"""
@@ -793,6 +1097,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
       <a href="#debug">Debug</a>
     </div>
     <div class="topbar-actions">
+      {notification_controls_html()}
       <span id="paper-refresh-status" class="refresh-status">準備更新</span>
       {logout_link}
     </div>
@@ -882,6 +1187,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="paper-debug"></tbody></table></div>
   </main>
+  <script>{notification_module_script()}</script>
   <script>{paper_dashboard_script()}</script>
 </body>
 </html>"""
@@ -907,7 +1213,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
       <a href="/paper/dashboard">虛擬交易</a>
       <a href="/accuracy">策略成績單</a>
     </div>
-    <div class="topbar-actions">{logout_link}</div>
+    <div class="topbar-actions">{notification_controls_html()}{logout_link}</div>
   </nav>
   <main class="advisor-page">
     <section class="advisor-hero">
@@ -937,6 +1243,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
     </section>
     <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
   </main>
+  <script>{notification_module_script()}</script>
   <script>{tw_advisor_script()}</script>
 </body>
 </html>"""
@@ -963,7 +1270,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
       <a href="/accuracy">策略成績單</a>
       <a href="/api/backtest">回測</a>
     </div>
-    <div class="topbar-actions">{logout_link}</div>
+    <div class="topbar-actions">{notification_controls_html()}{logout_link}</div>
   </nav>
   <main class="paper-page">
     <header class="paper-header">
@@ -993,6 +1300,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <h2>模型調整建議</h2>
     <div class="table-wrap"><table><tbody id="accuracy-suggestions"></tbody></table></div>
   </main>
+  <script>{notification_module_script()}</script>
   <script>{accuracy_dashboard_script()}</script>
 </body>
 </html>"""
@@ -1024,6 +1332,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       <a href="#debug">Debug</a>
     </div>
     <div class="topbar-actions">
+      {notification_controls_html()}
       {file_text}
       <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">準備讀取分層更新狀態</span>
       <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
@@ -1038,6 +1347,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
   </section>
   {content}
+  <script>{notification_module_script()}</script>
   <script>
     (() => {{
       const status = document.getElementById("refresh-status");
@@ -1107,6 +1417,10 @@ def base_css() -> str:
     body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
     .topbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:10px 18px; background:#fff; border-bottom:1px solid var(--line); }
     .topbar-actions { display:flex; align-items:center; gap:10px; color:var(--muted); }
+    .notification-controls { display:flex; align-items:center; gap:8px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:#f8fafc; }
+    .notification-toggle { display:flex; align-items:center; gap:4px; margin:0; font-size:12px; font-weight:650; color:#344054; white-space:nowrap; }
+    .notification-toggle input { width:auto; margin:0; accent-color:var(--accent); }
+    .notification-status { max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--muted); }
     .nav-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .nav-links a { color:var(--muted); text-decoration:none; padding:5px 8px; border-radius:6px; }
     .nav-links a:hover { color:var(--accent); background:#eef4ff; }
@@ -1323,6 +1637,7 @@ def us_dashboard_script() -> str:
         renderSignalCenter((payload.decision_center || {}).signal_center || {});
         renderCandidates(payload.candidates || []);
         renderBPlusTriggers(payload.b_plus_triggers || []);
+        window.StockNotificationModule?.observeSignals(payload.b_plus_triggers || []);
       }
 
       function renderDecisionCenter(data) {
@@ -2025,6 +2340,7 @@ def paper_dashboard_script() -> str:
         safeRender("今日交易", () => renderTrades(asArray(payload.trades)));
         safeRender("跳過紀錄", () => renderSkipped(asArray(payload.skipped_trades).length ? asArray(payload.skipped_trades) : asArray(payload.skipped)));
         safeRender("策略績效", () => renderPerformance(performance));
+        window.StockNotificationModule?.observeSignals(asArray(payload.b_plus_triggers));
         state.renderStatus = renderErrors.length ? "partial" : "success";
         state.renderErrorMessage = renderErrors.join("；");
         renderDebug(asObject(payload.debug), asObject(payload.run), payload);
