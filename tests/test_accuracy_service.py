@@ -124,6 +124,41 @@ class AccuracyServiceTests(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["sample_size"], 1)
         self.assertEqual(payload["rows"][0]["win_rate"], 0)
 
+    def test_paper_trade_review_tags_are_counted_for_loss_distribution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                conn.execute(
+                    """
+                    INSERT INTO paper_accounts (
+                      id, market, currency, initial_cash, cash_balance, equity,
+                      realized_pnl, unrealized_pnl, max_drawdown, created_at, updated_at
+                    )
+                    VALUES ('US-paper', 'US', 'USD', 30000, 30000, 30000, 0, 0, 0,
+                      '2026-01-01T09:00:00', '2026-01-01T09:00:00')
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO paper_trades (
+                      id, account_id, recommendation_id, market, symbol, side, status,
+                      grade, entry_status, lifecycle_status, entry_time, entry_price,
+                      quantity, position_value, stop_loss, target_price, realized_pnl,
+                      realized_pnl_pct, max_adverse_excursion, review_tags, reviewed_at,
+                      created_at, updated_at
+                    )
+                    VALUES ('trade-1', 'US-paper', 'manual-1', 'US', 'NVDA', 'buy',
+                      'closed', 'manual', 'manual', 'manual', '2026-01-01T09:30:00',
+                      100, 1, 100, 98, 104, -2, -2, -1.2,
+                      '["fomo", "hold_loser"]', '2026-01-01T10:00:00',
+                      '2026-01-01T09:30:00', '2026-01-01T10:00:00')
+                    """
+                )
+                payload = build_accuracy_dashboard_payload(conn)
+
+        rows = payload["review_tag_loss_distribution"]["rows"]
+        self.assertEqual(payload["review_tag_loss_distribution"]["sample_size"], 1)
+        self.assertEqual({row["code"]: row["count"] for row in rows}, {"fomo": 1, "hold_loser": 1})
+
 
 if __name__ == "__main__":
     unittest.main()

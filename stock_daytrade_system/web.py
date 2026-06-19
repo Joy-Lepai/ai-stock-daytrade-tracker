@@ -1543,6 +1543,27 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <div class="table-wrap"><table><thead><tr><th>市場</th><th>標的</th><th>訊號</th><th>原因</th><th>時間</th></tr></thead><tbody id="paper-skipped"></tbody></table></div>
     <h2>策略績效</h2>
     <div class="table-wrap" id="paper-performance"></div>
+    <div id="close-review-modal" class="review-modal" hidden role="dialog" aria-modal="true" aria-labelledby="close-review-title">
+      <div class="review-dialog">
+        <div class="review-dialog-head">
+          <div>
+            <h2 id="close-review-title">虛擬平倉覆盤</h2>
+            <p class="muted">平倉前請勾選本次交易檢討標籤，可複選。這些資料會寫入策略成績單。</p>
+          </div>
+          <button type="button" id="close-review-cancel-x" class="ghost-button" aria-label="關閉">×</button>
+        </div>
+        <section id="close-review-summary" class="review-summary"></section>
+        <fieldset class="review-tags">
+          <legend>本次交易檢討標籤</legend>
+          <div id="close-review-tags"></div>
+        </fieldset>
+        <div id="close-review-error" class="manual-status fail" hidden>請至少勾選一個本次交易檢討標籤。</div>
+        <div class="review-actions">
+          <button type="button" id="close-review-cancel">取消</button>
+          <button type="button" id="close-review-confirm" disabled>確認平倉</button>
+        </div>
+      </div>
+    </div>
     <h2 id="debug">Debug</h2>
     <div class="debug-block"><table><tbody id="paper-debug"></tbody></table></div>
   </main>
@@ -1657,6 +1678,8 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <div class="table-wrap" id="accuracy-market"></div>
     <h2>20 / 40 / 60 日策略成績</h2>
     <div class="table-wrap" id="accuracy-scorecard"></div>
+    <h2>心魔分佈（錯誤原因統計）</h2>
+    <section id="accuracy-review-chart" class="review-chart-card"></section>
     <h2>漏抓率報告</h2>
     <section class="summary" id="accuracy-missed"></section>
     <div class="table-wrap" id="accuracy-missed-examples"></div>
@@ -1909,8 +1932,27 @@ def paper_dashboard_css() -> str:
     .num-up { color:#067647; font-weight:700; }
     .num-down { color:#b42318; font-weight:700; }
     .notes { white-space:normal; min-width:180px; color:var(--muted); }
+    .ghost-button { background:#fff; color:#344054; border:1px solid var(--line); }
+    .review-modal[hidden] { display:none; }
+    .review-modal { position:fixed; inset:0; z-index:60; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(15,23,42,.42); }
+    .review-dialog { width:min(560px,100%); max-height:92vh; overflow:auto; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 20px 40px rgba(15,23,42,.22); padding:16px; }
+    .review-dialog-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .review-dialog h2 { margin:0 0 4px; }
+    .review-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; margin:12px 0; }
+    .review-tags { border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+    .review-tags legend { padding:0 6px; font-weight:800; color:#344054; }
+    .review-tags label { display:flex; gap:8px; align-items:flex-start; margin:8px 0; color:#344054; }
+    .review-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+    .review-chart-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .review-chart-layout { display:grid; grid-template-columns:minmax(180px,240px) 1fr; gap:18px; align-items:center; }
+    .review-pie { width:100%; max-width:240px; aspect-ratio:1; transform:rotate(-90deg); }
+    .review-pie circle { fill:none; stroke-width:10; }
+    .review-pie-bg { stroke:#eef2f6; }
+    .review-legend { display:grid; gap:8px; }
+    .review-legend-row { display:grid; grid-template-columns:14px 1fr auto; gap:8px; align-items:center; }
+    .review-dot { width:12px; height:12px; border-radius:999px; }
     @media (max-width:980px) { .manual-form { grid-template-columns:repeat(2,minmax(150px,1fr)); } .manual-reason { grid-column:span 2; } }
-    @media (max-width:760px) { .paper-page { padding-left:14px; padding-right:14px; } .paper-header { flex-direction:column; } .manual-form { grid-template-columns:1fr; } .manual-reason { grid-column:span 1; } .close-controls { min-width:220px; } }
+    @media (max-width:760px) { .paper-page { padding-left:14px; padding-right:14px; } .paper-header { flex-direction:column; } .manual-form { grid-template-columns:1fr; } .manual-reason { grid-column:span 1; } .close-controls { min-width:220px; } .review-chart-layout { grid-template-columns:1fr; } }
     """
 
 
@@ -2666,7 +2708,16 @@ def paper_dashboard_script() -> str:
         lastFetchTime: "",
         renderStatus: "pending",
         renderErrorMessage: "",
+        positionsByTradeId: new Map(),
+        pendingClose: null,
       };
+      const REVIEW_TAGS = [
+        { code: "discipline", label: "紀律執行（完美停損/停利）" },
+        { code: "fomo", label: "FOMO（衝動追高）" },
+        { code: "hold_loser", label: "凹單（未依系統提示停損）" },
+        { code: "revenge_trade", label: "報復性交易（過度頻繁交易）" },
+        { code: "early_exit", label: "提前離場（少賺）" },
+      ];
       const $ = (id) => document.getElementById(id);
       const text = (value) => value === null || value === undefined || value === "" ? "-" : String(value);
       const money = (value) => Number.isFinite(Number(value)) ? Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "-";
@@ -2681,6 +2732,15 @@ def paper_dashboard_script() -> str:
       const row = (label, value) => `<tr><td>${label}</td><td>${value}</td></tr>`;
       const sourceLabel = (value) => value === "manual" ? "手動模擬" : "系統訊號";
       const autoExitLabel = (value) => Number(value) ? "是" : "否";
+      const reviewTagsLabel = (value) => {
+        let parsed = [];
+        if (Array.isArray(value)) parsed = value;
+        else if (value) {
+          try { parsed = JSON.parse(value); } catch (error) { parsed = String(value).split(","); }
+        }
+        const labels = parsed.map((code) => REVIEW_TAGS.find((item) => item.code === String(code).trim())?.label).filter(Boolean);
+        return labels.length ? labels.join("、") : "-";
+      };
       const status = $("paper-refresh-status");
       const formStatus = $("manual-form-status");
 
@@ -2795,6 +2855,7 @@ def paper_dashboard_script() -> str:
       }
 
       function renderPositions(items) {
+        state.positionsByTradeId = new Map(items.map((item) => [String(item.trade_id), item]));
         if (!items.length) {
           $("paper-positions").innerHTML = '<tr><td colspan="13">目前尚無持倉。你可以等待系統訊號觸發，也可以使用上方手動虛擬交易建立一筆模擬交易。</td></tr>';
           return;
@@ -2831,7 +2892,7 @@ def paper_dashboard_script() -> str:
           <td>${escapeHtml(item.entry_time)}<br>${money(item.entry_price)}</td>
           <td>${escapeHtml(item.exit_time)}<br>${money(item.exit_price)}</td>
           <td class="${cls(item.realized_pnl)}">${money(item.realized_pnl)}<br><span class="muted">${pct(item.realized_pnl_pct)}</span></td>
-          <td class="notes">${escapeHtml(item.entry_reason || item.exit_reason || "")}</td>
+          <td class="notes">${escapeHtml(item.entry_reason || item.exit_reason || "")}<br><span class="muted">覆盤：${escapeHtml(reviewTagsLabel(item.review_tags))}</span></td>
         </tr>`).join("");
       }
 
@@ -2967,13 +3028,13 @@ def paper_dashboard_script() -> str:
         }
       }
 
-      async function closeTrade(tradeId, exitPrice) {
+      async function closeTrade(tradeId, exitPrice, reviewTags) {
         setFormStatus("手動平倉中...", true);
         try {
           const response = await fetch("/api/paper/close-trade", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ trade_id: tradeId, exit_price: exitPrice }),
+            body: JSON.stringify({ trade_id: tradeId, exit_price: exitPrice, review_tags: reviewTags }),
           });
           const payload = await response.json();
           if (!response.ok || !payload.ok) throw new Error(payload.message || `HTTP ${response.status}`);
@@ -2982,6 +3043,67 @@ def paper_dashboard_script() -> str:
         } catch (error) {
           setFormStatus(error.message, false);
         }
+      }
+
+      function openCloseReviewModal(tradeId, exitPrice) {
+        const position = state.positionsByTradeId.get(String(tradeId));
+        if (!position) {
+          setFormStatus("找不到可平倉的持倉資料，請重新整理後再試。", false);
+          return;
+        }
+        const resolvedExit = Number(exitPrice) > 0 ? Number(exitPrice) : Number(position.current_price || 0);
+        if (!(resolvedExit > 0)) {
+          setFormStatus("平倉價格必須大於 0", false);
+          return;
+        }
+        state.pendingClose = { tradeId, exitPrice: resolvedExit, position };
+        const quantity = Number(position.quantity || 0);
+        const entry = Number(position.entry_price || 0);
+        const pnl = (resolvedExit - entry) * quantity;
+        const pnlPct = entry > 0 ? (resolvedExit - entry) / entry * 100 : 0;
+        $("close-review-summary").innerHTML = [
+          metric("標的", `${escapeHtml(position.symbol)}｜${escapeHtml(position.name_zh || "")}`),
+          metric("進場價", money(entry)),
+          metric("平倉價", money(resolvedExit)),
+          metric("數量", money(quantity)),
+          metric("預估損益", `<span class="${cls(pnl)}">${money(pnl)}</span>`),
+          metric("預估報酬", `<span class="${cls(pnlPct)}">${pct(pnlPct)}</span>`),
+        ].join("");
+        $("close-review-tags").innerHTML = REVIEW_TAGS.map((item) => `<label>
+          <input type="checkbox" name="close-review-tag" value="${escapeHtml(item.code)}">
+          <span>${escapeHtml(item.label)}</span>
+        </label>`).join("");
+        $("close-review-error").hidden = true;
+        $("close-review-confirm").disabled = true;
+        $("close-review-modal").hidden = false;
+      }
+
+      function closeReviewModal() {
+        state.pendingClose = null;
+        $("close-review-modal").hidden = true;
+        $("close-review-tags").innerHTML = "";
+        $("close-review-error").hidden = true;
+      }
+
+      function selectedReviewTags() {
+        return Array.from(document.querySelectorAll('input[name="close-review-tag"]:checked')).map((item) => item.value);
+      }
+
+      function updateCloseReviewConfirm() {
+        const hasTags = selectedReviewTags().length > 0;
+        $("close-review-confirm").disabled = !hasTags;
+        $("close-review-error").hidden = hasTags;
+      }
+
+      async function submitCloseReview() {
+        const tags = selectedReviewTags();
+        if (!state.pendingClose || !tags.length) {
+          $("close-review-error").hidden = false;
+          return;
+        }
+        const pending = state.pendingClose;
+        closeReviewModal();
+        await closeTrade(pending.tradeId, pending.exitPrice, tags);
       }
 
       $("manual-trade-form").addEventListener("submit", submitManualTrade);
@@ -3007,13 +3129,20 @@ def paper_dashboard_script() -> str:
         const current = event.target.closest(".manual-close-current");
         const specified = event.target.closest(".manual-close-specified");
         if (current) {
-          closeTrade(current.dataset.tradeId, null);
+          openCloseReviewModal(current.dataset.tradeId, null);
           return;
         }
         if (specified) {
           const input = document.querySelector(`.manual-close-price[data-trade-id="${CSS.escape(specified.dataset.tradeId)}"]`);
-          closeTrade(specified.dataset.tradeId, Number(input?.value || 0));
+          openCloseReviewModal(specified.dataset.tradeId, Number(input?.value || 0));
         }
+      });
+      $("close-review-tags").addEventListener("change", updateCloseReviewConfirm);
+      $("close-review-confirm").addEventListener("click", submitCloseReview);
+      $("close-review-cancel").addEventListener("click", closeReviewModal);
+      $("close-review-cancel-x").addEventListener("click", closeReviewModal);
+      $("close-review-modal").addEventListener("click", (event) => {
+        if (event.target.id === "close-review-modal") closeReviewModal();
       });
 
       function tick() {
@@ -3156,6 +3285,7 @@ def accuracy_dashboard_script() -> str:
         $("accuracy-confidence").innerHTML = table(payload.by_confidence || [], "信心等級");
         $("accuracy-market").innerHTML = table(payload.by_market || [], "市場");
         renderScorecard(payload.strategy_scorecard || {});
+        renderReviewChart(payload.review_tag_loss_distribution || {});
         renderMissed(payload.missed_rate_report || {});
         const suggestions = payload.model_suggestions || [];
         $("accuracy-suggestions").innerHTML = suggestions.length
@@ -3201,6 +3331,39 @@ def accuracy_dashboard_script() -> str:
           }
         }
         $("accuracy-scorecard").innerHTML = `<table><thead><tr><th>期間</th><th>類別</th><th>出現次數</th><th>已驗證</th><th>觸發率</th><th>勝率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>停利率</th><th>平均賺賠比</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="11">目前沒有策略成績資料。</td></tr>'}</tbody></table>`;
+      }
+
+      function renderReviewChart(distribution) {
+        const rows = distribution.rows || [];
+        if (!rows.length) {
+          $("accuracy-review-chart").innerHTML = `<p class="muted">${escapeHtml(distribution.message || "目前尚無已覆盤的虧損交易，暫無心魔分佈。")}</p>`;
+          return;
+        }
+        const colors = ["#b42318", "#f97316", "#7c3aed", "#175cd3", "#067647"];
+        let offset = 0;
+        const circles = rows.map((item, index) => {
+          const pctValue = Number(item.pct || 0);
+          const dash = `${pctValue} ${Math.max(0, 100 - pctValue)}`;
+          const html = `<circle r="15.9155" cx="21" cy="21" stroke="${colors[index % colors.length]}" stroke-dasharray="${dash}" stroke-dashoffset="${-offset}"></circle>`;
+          offset += pctValue;
+          return html;
+        }).join("");
+        const legend = rows.map((item, index) => `<div class="review-legend-row">
+          <span class="review-dot" style="background:${colors[index % colors.length]}"></span>
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${item.count} 次｜${number(item.pct)}%</strong>
+        </div>`).join("");
+        $("accuracy-review-chart").innerHTML = `<div class="review-chart-layout">
+          <svg class="review-pie" viewBox="0 0 42 42" aria-label="心魔分佈圓餅圖">
+            <circle class="review-pie-bg" r="15.9155" cx="21" cy="21"></circle>
+            ${circles}
+          </svg>
+          <div>
+            <strong>虧損交易覆盤標籤</strong>
+            <p class="muted">統計使用者在虧損平倉時勾選的檢討標籤，用來觀察最常見的錯誤原因。</p>
+            <div class="review-legend">${legend}</div>
+          </div>
+        </div>`;
       }
 
       function renderMissed(report) {

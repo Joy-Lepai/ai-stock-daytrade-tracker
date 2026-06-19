@@ -10,6 +10,7 @@ from stock_daytrade_system.web import (
     _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
     latest_tracker_file,
+    render_accuracy_page,
     render_paper_dashboard_page,
     render_shell,
     render_tw_advisor_page,
@@ -78,12 +79,24 @@ class WebTests(unittest.TestCase):
         self.assertIn("paper-decision-summary", html)
         self.assertIn("AI 虛擬交易摘要", html)
         self.assertIn("建立虛擬買進", html)
+        self.assertIn("虛擬平倉覆盤", html)
+        self.assertIn("本次交易檢討標籤", html)
+        self.assertIn("FOMO（衝動追高）", html)
+        self.assertIn("review_tags", html)
         self.assertIn("不串接券商", html)
         self.assertIn("目前持倉", html)
         self.assertIn("尚無持倉", html)
         self.assertIn("虛擬交易 API 暫時無法更新", html)
         self.assertNotIn("虛擬交易資料暫時無法更新", html)
         self.assertNotIn("!response.ok || payload.error", html)
+
+    def test_accuracy_page_has_review_tag_pie_chart(self):
+        html = render_accuracy_page()
+
+        self.assertIn("心魔分佈（錯誤原因統計）", html)
+        self.assertIn("accuracy-review-chart", html)
+        self.assertIn("review_tag_loss_distribution", html)
+        self.assertIn("虧損交易覆盤標籤", html)
 
     def test_tw_advisor_page_has_stock_input_and_scan_api(self):
         html = render_tw_advisor_page()

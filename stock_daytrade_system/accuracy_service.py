@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import Counter, defaultdict
 from typing import Iterable
@@ -10,6 +11,15 @@ from stock_daytrade_system.strategy_validation import (
     build_model_observations,
     build_strategy_scorecard,
 )
+
+
+REVIEW_TAG_LABELS = {
+    "discipline": "紀律執行（完美停損/停利）",
+    "fomo": "FOMO（衝動追高）",
+    "hold_loser": "凹單（未依系統提示停損）",
+    "revenge_trade": "報復性交易（過度頻繁交易）",
+    "early_exit": "提前離場（少賺）",
+}
 
 
 def build_accuracy_dashboard_payload(
@@ -33,6 +43,12 @@ def build_accuracy_dashboard_payload(
         "b_plus_lifecycle": _b_plus_lifecycle_stats(conn),
         "strategy_scorecard": strategy_scorecard,
         "missed_rate_report": missed_rate_report,
+        "review_tag_distribution": _paper_review_tag_distribution(conn, losing_only=False),
+        "review_tag_loss_distribution": _paper_review_tag_distribution(conn, losing_only=True),
+        "review_tag_options": [
+            {"code": code, "label": label}
+            for code, label in REVIEW_TAG_LABELS.items()
+        ],
         "model_suggestions": model_suggestions + [item for item in model_observations if item not in model_suggestions],
         "disclaimer": "本系統僅供資料整理、策略追蹤與回測，不構成投資建議，也不保證獲利。",
     }
@@ -206,6 +222,66 @@ def _b_plus_lifecycle_stats(conn: sqlite3.Connection) -> dict:
         "untriggered_ratio": round(untriggered / total * 100, 2) if total else 0.0,
         "by_lifecycle": counts,
     }
+
+
+def _paper_review_tag_distribution(conn: sqlite3.Connection, *, losing_only: bool) -> dict:
+    rows = conn.execute(
+        """
+        SELECT review_tags, realized_pnl
+        FROM paper_trades
+        WHERE status IN ('closed', 'stopped', 'target_hit', 'forced_exit')
+          AND review_tags IS NOT NULL
+          AND review_tags != ''
+        """
+    ).fetchall()
+    counts: Counter[str] = Counter()
+    reviewed_trades = 0
+    for row in rows:
+        if losing_only and _float(row["realized_pnl"]) >= 0:
+            continue
+        tags = _parse_review_tags(row["review_tags"])
+        if not tags:
+            continue
+        reviewed_trades += 1
+        counts.update(tags)
+    total_tags = sum(counts.values())
+    return {
+        "sample_size": reviewed_trades,
+        "total_tags": total_tags,
+        "losing_only": losing_only,
+        "message": (
+            "目前尚無已覆盤的虧損交易，暫無心魔分佈。"
+            if losing_only and not total_tags
+            else "目前尚無已覆盤交易。"
+            if not total_tags
+            else ""
+        ),
+        "rows": [
+            {
+                "code": code,
+                "label": REVIEW_TAG_LABELS[code],
+                "count": counts[code],
+                "pct": round(counts[code] / total_tags * 100, 2) if total_tags else 0.0,
+            }
+            for code in REVIEW_TAG_LABELS
+            if counts[code] > 0
+        ],
+    }
+
+
+def _parse_review_tags(value: str) -> list[str]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        parsed = [part.strip() for part in str(value or "").split(",")]
+    if not isinstance(parsed, list):
+        return []
+    result = []
+    for item in parsed:
+        code = str(item or "").strip()
+        if code in REVIEW_TAG_LABELS and code not in result:
+            result.append(code)
+    return result
 
 
 def _sample_message(sample_size: int, config: ConfidenceConfig) -> str:

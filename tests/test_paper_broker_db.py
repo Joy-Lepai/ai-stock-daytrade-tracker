@@ -304,9 +304,13 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
                     US_NOW,
                 )
                 trade_id = conn.execute("SELECT id FROM paper_trades WHERE source = 'manual'").fetchone()["id"]
-                result = close_manual_trade(conn, {"trade_id": trade_id, "exit_price": 110}, US_NOW)
+                result = close_manual_trade(
+                    conn,
+                    {"trade_id": trade_id, "exit_price": 110, "review_tags": ["discipline", "early_exit"]},
+                    US_NOW,
+                )
                 account = conn.execute("SELECT cash_balance, realized_pnl FROM paper_accounts WHERE id = 'US'").fetchone()
-                trade = conn.execute("SELECT status, exit_reason, realized_pnl, realized_pnl_pct FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+                trade = conn.execute("SELECT status, exit_reason, realized_pnl, realized_pnl_pct, review_tags, reviewed_at FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
                 positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions").fetchone()["total"]
 
         self.assertTrue(result["ok"])
@@ -314,8 +318,29 @@ class PaperBrokerDatabaseTests(unittest.TestCase):
         self.assertEqual((trade["status"], trade["exit_reason"]), ("closed", "manual_close"))
         self.assertEqual(trade["realized_pnl"], 20)
         self.assertEqual(trade["realized_pnl_pct"], 10)
+        self.assertIn("discipline", trade["review_tags"])
+        self.assertIn("early_exit", trade["review_tags"])
+        self.assertIsNotNone(trade["reviewed_at"])
         self.assertEqual(account["cash_balance"], 30_020)
         self.assertEqual(account["realized_pnl"], 20)
+
+    def test_close_manual_trade_requires_review_tags(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "db.sqlite") as conn:
+                create_manual_trade(
+                    conn,
+                    {"market": "US", "symbol": "NVDA", "entry_price": 100, "quantity": 2, "stop_loss": 98, "target_price": 104},
+                    US_NOW,
+                )
+                trade_id = conn.execute("SELECT id FROM paper_trades WHERE source = 'manual'").fetchone()["id"]
+                result = close_manual_trade(conn, {"trade_id": trade_id, "exit_price": 110}, US_NOW)
+                positions = conn.execute("SELECT COUNT(*) AS total FROM paper_positions").fetchone()["total"]
+                trade = conn.execute("SELECT status, exit_reason FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "請至少勾選一個本次交易檢討標籤")
+        self.assertEqual(positions, 1)
+        self.assertEqual((trade["status"], trade["exit_reason"]), ("open", None))
 
     def test_manual_only_trade_does_not_auto_stop(self):
         with tempfile.TemporaryDirectory() as directory:

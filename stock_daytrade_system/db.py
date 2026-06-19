@@ -248,6 +248,8 @@ CREATE TABLE IF NOT EXISTS paper_trades (
   realized_pnl_pct REAL,
   max_favorable_excursion REAL,
   max_adverse_excursion REAL,
+  review_tags TEXT,
+  reviewed_at TEXT,
   skipped_reason TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -1810,6 +1812,8 @@ def _ensure_paper_trade_columns(conn: sqlite3.Connection) -> None:
         "risk_mode": "TEXT NOT NULL DEFAULT 'follow_system'",
         "auto_exit_enabled": "INTEGER NOT NULL DEFAULT 1",
         "auto_exit_reason": "TEXT",
+        "review_tags": "TEXT",
+        "reviewed_at": "TEXT",
     }
     for name, column_type in columns.items():
         if name not in existing:

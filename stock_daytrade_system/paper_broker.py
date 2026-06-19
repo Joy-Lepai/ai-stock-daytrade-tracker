@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,6 +14,13 @@ from stock_daytrade_system.us_symbols import us_symbol_rows
 
 
 PAPER_ENGINE_VERSION = "paper_trading_v1_manual_trade"
+TRADE_REVIEW_TAG_OPTIONS = {
+    "discipline": "紀律執行（完美停損/停利）",
+    "fomo": "FOMO（衝動追高）",
+    "hold_loser": "凹單（未依系統提示停損）",
+    "revenge_trade": "報復性交易（過度頻繁交易）",
+    "early_exit": "提前離場（少賺）",
+}
 
 
 @dataclass(frozen=True)
@@ -118,6 +126,12 @@ def paper_performance(conn: sqlite3.Connection) -> dict:
         "by_source": _group_performance(closed, "source"),
         "by_grade": _group_performance(closed, "grade"),
         "by_entry_status": _group_performance(closed, "entry_status"),
+        "review_tag_distribution": _review_tag_distribution(closed, losing_only=False),
+        "review_tag_loss_distribution": _review_tag_distribution(closed, losing_only=True),
+        "review_tag_options": [
+            {"code": code, "label": label}
+            for code, label in TRADE_REVIEW_TAG_OPTIONS.items()
+        ],
         "grade_a": _group_performance([row for row in closed if row["grade"] == "A"], "grade"),
         "grade_b_plus": _group_performance([row for row in closed if row["grade"] == "B+"], "grade"),
         "grade_b_plus_triggered": _group_performance(
@@ -267,8 +281,11 @@ def close_manual_trade(conn: sqlite3.Connection, payload: dict, now: Optional[da
     captured_at = now or datetime.now(ZoneInfo("Asia/Taipei"))
     trade_id = str(payload.get("trade_id") or "").strip()
     exit_price = _to_float(payload.get("exit_price"))
+    review_tags = _normalize_review_tags(payload.get("review_tags"))
     if not trade_id:
         return {"ok": False, "message": "trade_id 不可空白", "last_close_trade_status": "failed"}
+    if not review_tags:
+        return {"ok": False, "message": "請至少勾選一個本次交易檢討標籤", "last_close_trade_status": "failed"}
     with conn:
         position = conn.execute("SELECT * FROM paper_positions WHERE trade_id = ?", (trade_id,)).fetchone()
         if not position:
@@ -279,6 +296,15 @@ def close_manual_trade(conn: sqlite3.Connection, payload: dict, now: Optional[da
         if exit_price <= 0:
             return {"ok": False, "message": "平倉價格必須大於 0", "last_close_trade_status": "failed"}
         _close_position(conn, position, exit_price, "manual_close", captured_at)
+        timestamp = captured_at.isoformat(timespec="seconds")
+        conn.execute(
+            """
+            UPDATE paper_trades
+            SET review_tags = ?, reviewed_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(review_tags, ensure_ascii=False), timestamp, timestamp, trade_id),
+        )
         _refresh_accounts(conn, captured_at)
         _record_equity_curve(conn, captured_at)
     trade = conn.execute("SELECT * FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
@@ -1040,6 +1066,52 @@ def _group_performance(rows: Iterable[sqlite3.Row], key: str) -> list[dict]:
             }
         )
     return result
+
+
+def _normalize_review_tags(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            parsed = [part.strip() for part in value.split(",")]
+    else:
+        parsed = value
+    if not isinstance(parsed, (list, tuple, set)):
+        return []
+    result: list[str] = []
+    for item in parsed:
+        code = str(item or "").strip()
+        if code in TRADE_REVIEW_TAG_OPTIONS and code not in result:
+            result.append(code)
+    return result
+
+
+def _review_tag_distribution(rows: Iterable[sqlite3.Row], *, losing_only: bool) -> list[dict]:
+    counts: dict[str, int] = {code: 0 for code in TRADE_REVIEW_TAG_OPTIONS}
+    reviewed_trades = 0
+    for row in rows:
+        if losing_only and float(row["realized_pnl"] or 0) >= 0:
+            continue
+        tags = _normalize_review_tags(row["review_tags"] if "review_tags" in row.keys() else None)
+        if not tags:
+            continue
+        reviewed_trades += 1
+        for tag in tags:
+            counts[tag] += 1
+    total_tags = sum(counts.values())
+    return [
+        {
+            "code": code,
+            "label": label,
+            "count": counts[code],
+            "pct": _rate(counts[code], total_tags),
+            "reviewed_trades": reviewed_trades,
+        }
+        for code, label in TRADE_REVIEW_TAG_OPTIONS.items()
+        if counts[code] > 0
+    ]
 
 
 def _rate(count: int, total: int) -> float:
