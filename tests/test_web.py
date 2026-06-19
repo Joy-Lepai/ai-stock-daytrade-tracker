@@ -163,6 +163,9 @@ class WebTests(unittest.TestCase):
         html = render_shell("<main>ok</main>", active_file="today.html")
 
         self.assertIn("/api/refresh/status", html)
+        self.assertIn("/api/system/version", html)
+        self.assertIn("版本驗收", html)
+        self.assertIn("資料新鮮度", html)
         self.assertIn("/api/notification/signals", html)
         self.assertIn("notify-sound-toggle", html)
         self.assertIn("notify-desktop-toggle", html)

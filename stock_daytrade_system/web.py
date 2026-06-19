@@ -37,6 +37,7 @@ from stock_daytrade_system.market_clock import taiwan_market_session, us_market_
 from stock_daytrade_system.paper_broker import close_manual_trade, create_manual_trade, paper_quote
 from stock_daytrade_system.paper_service import build_empty_paper_dashboard, build_paper_dashboard, build_paper_performance
 from stock_daytrade_system.refresh_service import RefreshCoordinator
+from stock_daytrade_system.system_status import build_system_version_payload
 from stock_daytrade_system.tw_scan_service import add_tw_watchlist_symbol, scan_tw_symbol_payload
 from stock_daytrade_system.us_service import build_us_dashboard_payload
 
@@ -239,6 +240,9 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/refresh/status":
             self._send_json(self.web_app.refresh_coordinator.status_payload())
+            return
+        if path == "/api/system/version":
+            self._send_json(build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir))
             return
         if path == "/api/notification/signals":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
@@ -1720,6 +1724,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     </div>
   </nav>
   <section class="refresh-layer-panel" aria-label="分層更新狀態">
+    <div id="system-version-status" class="refresh-layer-status">正在讀取部署驗收狀態...</div>
     <div id="refresh-layer-status" class="refresh-layer-status">正在讀取分層更新狀態...</div>
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
   </section>
@@ -1731,6 +1736,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     (() => {{
       const status = document.getElementById("refresh-status");
       const panel = document.getElementById("refresh-layer-status");
+      const systemPanel = document.getElementById("system-version-status");
       if (!status) return;
       const escapeHtml = (value) => String(value ?? "-")
         .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -1815,8 +1821,32 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (panel) panel.textContent = `狀態 API 讀取失敗：${{error.message}}`;
         }}
       }};
+      const loadSystemVersionStatus = async () => {{
+        if (!systemPanel) return;
+        try {{
+          const response = await fetch("/api/system/version", {{ credentials: "same-origin" }});
+          if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
+          const payload = await response.json();
+          const consistency = payload.consistency || {{}};
+          const runtime = payload.runtime || {{}};
+          const tracker = payload.tracker_html || {{}};
+          const db = payload.db || {{}};
+          const ok = Boolean(consistency.runtime_matches_tracker);
+          const cls = ok ? "health-ok" : "health-warn";
+          const warnings = Array.isArray(consistency.warnings) && consistency.warnings.length
+            ? `<div class="warn-mini">${{escapeHtml(consistency.warnings.join(" "))}}</div>` : "";
+          systemPanel.innerHTML = `
+            <span class="refresh-layer-item"><strong>版本驗收：</strong><span class="${{cls}}">${{ok ? "runtime 與 tracker 一致" : "runtime 與 tracker 不一致"}}</span>｜runtime ${{escapeHtml(runtime.commit || "-")}}｜tracker ${{escapeHtml(tracker.commit || "-")}}｜HTML ${{escapeHtml(tracker.file || "-")}}</span>
+            <span class="refresh-layer-item"><strong>資料新鮮度：</strong>資料日 ${{escapeHtml(db.data_date || "-")}}｜最新資料 ${{escapeHtml(timeText(db.latest_data_at))}}｜全市場 ${{escapeHtml(db.full_market?.symbols || 0)}} 檔｜盤中 ${{escapeHtml(db.intraday?.symbols || 0)}} 檔</span>
+            ${{warnings}}`;
+        }} catch (error) {{
+          systemPanel.textContent = `版本驗收 API 讀取失敗：${{error.message}}`;
+        }}
+      }};
       loadRefreshStatus();
+      loadSystemVersionStatus();
       window.setInterval(loadRefreshStatus, 60000);
+      window.setInterval(loadSystemVersionStatus, 60000);
     }})();
   </script>
 </body>
