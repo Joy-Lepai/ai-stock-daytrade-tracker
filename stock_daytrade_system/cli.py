@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.cmoney import CMoneyClient, CMoneyDataError, merge_cmoney_symbols, rankings_by_symbol
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
+from stock_daytrade_system.app_version import current_commit_info
 from stock_daytrade_system.config import load_config
 from stock_daytrade_system.db import (
     backtest_summary,
@@ -596,21 +597,7 @@ def _current_commit_hash() -> str:
 
 
 def _current_commit_info() -> tuple[str, str]:
-    for name in ("RENDER_GIT_COMMIT", "SOURCE_VERSION"):
-        value = os.getenv(name)
-        if value:
-            return value[:12], name
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
-            cwd=PROJECT_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout.strip(), "git rev-parse HEAD"
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown", "unknown"
+    return current_commit_info(PROJECT_ROOT)
 
 
 if __name__ == "__main__":

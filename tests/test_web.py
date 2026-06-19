@@ -186,6 +186,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("provider_status", html)
         self.assertIn("行情 provider", html)
         self.assertIn("WebSocket", html)
+        self.assertIn("deployment_status", html)
+        self.assertIn("signal_guard", html)
         self.assertNotIn('fetch("/refresh"', html)
 
     def test_notification_signals_payload_returns_triggered_status(self):

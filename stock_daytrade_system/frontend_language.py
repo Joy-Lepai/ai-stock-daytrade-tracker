@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
+from stock_daytrade_system.signal_guard import evaluate_signal_guard
+
 
 FRONTEND_LANGUAGE_VERSION = "frontend_language_v1_long_daytrade_2026-06-19"
 
@@ -40,41 +42,18 @@ def front_trade_view(
     risk_reasons = _list_text(_get(item, "risk_reasons"))
     reasons = _list_text(_get(item, "reasons"))
     confidence_summary = _string(_get(item, "confidence_summary"))
-    reason_codes: list[str] = []
-
-    strong_blockers: list[str] = []
-    if not data_today:
-        strong_blockers.append("資料不是今天")
-        reason_codes.append("not_today")
-    if not intraday:
-        strong_blockers.append("非盤中資料")
-        reason_codes.append("not_intraday")
-    if stale:
-        strong_blockers.append("資料過期")
-        reason_codes.append("stale_data")
-    if not allow_strong_long:
-        strong_blockers.append("分層資料過期")
-        reason_codes.append("refresh_layer_stale")
-    if market_mode != "intraday":
-        strong_blockers.append("非盤中模式")
-        reason_codes.append("not_intraday_mode")
-    if vwap is None:
-        strong_blockers.append("缺 VWAP")
-        reason_codes.append("missing_vwap")
-    if volume_ratio is None:
-        strong_blockers.append("缺量比")
-        reason_codes.append("missing_volume_ratio")
-    if stop_loss is None:
-        strong_blockers.append("缺停損價")
-        reason_codes.append("missing_stop_loss")
-
-    is_true_executable = (
-        entry == "executable"
-        and not strong_blockers
-        and grade != "data_missing"
-        and entry not in {"practice_long", "wait_volume", "wait_vwap", "wait_breakout", "wait_pullback", "high_risk", "avoid", "data_missing"}
+    guard = evaluate_signal_guard(
+        item,
+        data_today=data_today,
+        intraday=intraday,
+        stale=stale,
+        allow_strong_long=allow_strong_long,
+        market_mode=market_mode,
     )
-    if is_true_executable:
+    reason_codes = list(guard.reason_codes)
+    strong_blockers = [_blocker_label(item.code, item.message) for item in guard.blockers]
+
+    if guard.is_executable_allowed:
         return FrontTradeView(
             category="強烈做多",
             subtitle="可執行候選",
@@ -178,6 +157,21 @@ def _long_next_step(entry: str) -> str:
         "wait_pullback": "等待拉回 VWAP 附近不破。",
         "executable": "資料安全規則未完全通過，先不要視為強烈做多。",
     }.get(entry, "等待條件確認，不為了交易而交易。")
+
+
+def _blocker_label(code: str, message: str) -> str:
+    return {
+        "not_today": "資料不是今天",
+        "not_intraday": "非盤中資料",
+        "stale_data": "資料過期",
+        "refresh_layer_stale": "分層資料過期",
+        "not_intraday_mode": "非盤中模式",
+        "market_not_regular": "非台股盤中",
+        "missing_vwap": "缺 VWAP",
+        "missing_volume_ratio": "缺量比",
+        "missing_stop_loss": "缺停損價",
+        "data_missing": "資料缺漏",
+    }.get(code, message.split("，", 1)[0])
 
 
 def _get(item: Any, key: str) -> Any:

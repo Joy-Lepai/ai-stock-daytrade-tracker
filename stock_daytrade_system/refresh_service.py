@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
+from stock_daytrade_system.app_version import deployment_status
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.db import (
@@ -28,6 +29,7 @@ from stock_daytrade_system.paper_broker import run_paper_trading
 from stock_daytrade_system.resilience import health_status_compact, health_status_snapshot
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.sectors import rank_sector_strength
+from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION
 from stock_daytrade_system.strategy_validation import update_tw_scan_result_verification
 
 
@@ -144,6 +146,8 @@ class RefreshCoordinator:
             "data_source_health": source_health,
             "data_source_health_compact": source_health_compact,
             "provider_status": provider_status,
+            "deployment_status": deployment_status(self.project_root),
+            "signal_guard_version": SIGNAL_GUARD_VERSION,
             "data_source_degraded": any(
                 item.get("status") in {"ERROR", "PARTIAL"}
                 for item in source_health.values()

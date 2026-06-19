@@ -17,6 +17,7 @@ from typing import Dict, Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
+from stock_daytrade_system.app_version import current_commit_info
 from stock_daytrade_system.accuracy_service import (
     build_accuracy_dashboard_payload,
     build_accuracy_group_payload,
@@ -663,21 +664,8 @@ def _run_tracker_refresh(report_dir: Path) -> None:
 
 
 def _current_commit_hash() -> str:
-    for key in ("RENDER_GIT_COMMIT", "SOURCE_VERSION"):
-        value = os.environ.get(key)
-        if value:
-            return value[:12]
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
-            cwd=PROJECT_ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        return completed.stdout.strip()
-    except Exception:
-        return "unknown"
+    value, _source = current_commit_info(PROJECT_ROOT)
+    return value
 
 
 def _notification_signals_payload(conn) -> dict:
@@ -1797,6 +1785,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         }}).join("");
         return `<span class="refresh-layer-item"><strong>行情 provider：</strong>active=${{escapeHtml(provider.active_provider || "-")}}｜primary=${{escapeHtml(provider.primary_provider || "-")}}｜fallback=${{escapeHtml(provider.fallback_provider || "-")}}</span>${{providerRows}}`;
       }};
+      const deploymentStatusHtml = (payload) => {{
+        const deploy = payload.deployment_status || {{}};
+        return `<span class="refresh-layer-item"><strong>部署版本：</strong>commit=${{escapeHtml(deploy.commit || "-")}}｜來源=${{escapeHtml(deploy.source || "-")}}｜signal_guard=${{escapeHtml(payload.signal_guard_version || "-")}}</span>`;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1810,6 +1802,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),
+              deploymentStatusHtml(payload),
               providerStatusHtml(payload),
               sourceHealthHtml(payload),
             ].join("");

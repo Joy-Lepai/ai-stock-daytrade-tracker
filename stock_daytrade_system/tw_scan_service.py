@@ -16,6 +16,7 @@ from stock_daytrade_system.market_data_provider import get_market_data_provider_
 from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_signal_guard
 from stock_daytrade_system.position_management import position_action_for_symbol
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
@@ -298,46 +299,37 @@ def _safety_payload(
     stop_loss = _num(candidate.get("stop_loss"), (analysis.get("action_plan") or {}).get("stop_loss"))
     current_price = _num(scan.get("latest_price"), candidate.get("last_price"))
     risk_score = _num(candidate.get("risk_score"), scan.get("risk_score"), default=0.0) or 0.0
-    blocked = []
-    if not data_health.get("is_today_data"):
-        blocked.append({"code": "stale_or_not_today", "message": "資料不是今天，不能產生有效當沖建議。"})
-    if data_health.get("is_stale"):
-        blocked.append({"code": "stale_data", "message": "資料已過期，暫停顯示可執行。"})
-    if data_health.get("is_data_missing"):
-        blocked.append({"code": "data_missing", "message": "核心資料缺漏，不能判斷。"})
-    if clock.session != "regular":
-        blocked.append({"code": "market_not_regular", "message": "目前非台股盤中，不顯示盤中可執行。"})
-    if vwap is None:
-        blocked.append({"code": "missing_vwap", "message": "缺少 VWAP，不能列為可執行。"})
-    if volume_ratio is None:
-        blocked.append({"code": "missing_volume_ratio", "message": "缺少量比，不能列為可執行。"})
-    if stop_loss is None:
-        blocked.append({"code": "missing_stop_loss", "message": "缺少停損價，不能列為可執行。"})
-    if current_price and stop_loss and stop_loss < current_price:
-        stop_distance = (current_price - stop_loss) / current_price * 100
-        if stop_distance > 5:
-            blocked.append({"code": "stop_loss_too_far", "message": f"停損距離約 {stop_distance:.2f}%，風險偏高。"})
-    vwap_distance = None
-    if current_price and vwap:
-        vwap_distance = (current_price - vwap) / vwap * 100
-        if vwap_distance > 3:
-            blocked.append({"code": "too_far_from_vwap", "message": f"距離 VWAP 約 {vwap_distance:.2f}%，追價風險高。"})
-    if (_num(scan.get("change_pct"), candidate.get("change_pct"), default=0.0) or 0.0) >= 9:
-        blocked.append({"code": "near_limit_up", "message": "接近漲停或漲幅過大，追價風險高。"})
-
-    effective_entry = entry_status
-    effective_grade = grade
+    guard_input = {
+        "entry_status": entry_status,
+        "grade": grade,
+        "vwap": vwap,
+        "volume_ratio": volume_ratio,
+        "stop_loss": stop_loss,
+        "last_price": current_price,
+        "change_pct": _num(scan.get("change_pct"), candidate.get("change_pct")),
+    }
+    guard = evaluate_signal_guard(
+        guard_input,
+        data_today=bool(data_health.get("is_today_data")),
+        intraday=bool(data_health.get("is_intraday_data", True)),
+        stale=bool(data_health.get("is_stale")),
+        data_missing=bool(data_health.get("is_data_missing")),
+        allow_strong_long=True,
+        market_mode="intraday" if clock.session == "regular" else "closed",
+        market_session=clock.session,
+        current_price=current_price,
+        change_pct=guard_input["change_pct"],
+    )
+    blocked = [item.to_dict() for item in guard.blockers]
+    effective_entry = guard.effective_entry_status
+    effective_grade = guard.effective_grade
     conclusion_state = _conclusion_state(grade, entry_status)
     if blocked and entry_status in {"executable", "practice_long"}:
-        effective_entry = "high_risk" if any(item["code"] in {"too_far_from_vwap", "stop_loss_too_far", "near_limit_up"} for item in blocked) else "data_missing"
-        effective_grade = "high_risk" if effective_entry == "high_risk" else "data_missing"
         conclusion_state = "避開" if effective_entry == "high_risk" else "資料不足"
     elif data_health.get("is_data_missing"):
-        effective_entry = "data_missing"
-        effective_grade = "data_missing"
         conclusion_state = "資料不足"
 
-    reason_codes = [item["code"] for item in blocked]
+    reason_codes = list(guard.reason_codes)
     if scan.get("reason_code"):
         reason_codes.append(str(scan.get("reason_code")))
     if candidate.get("not_selected_reason"):
@@ -350,11 +342,12 @@ def _safety_payload(
         "original_grade": grade,
         "effective_grade": effective_grade,
         "conclusion_state": conclusion_state,
-        "is_executable_allowed": effective_entry == "executable" and not blocked,
+        "is_executable_allowed": guard.is_executable_allowed,
         "blocked_reasons": blocked,
         "reason_codes": reason_codes,
-        "vwap_distance_pct": round(vwap_distance, 2) if vwap_distance is not None else None,
+        "vwap_distance_pct": guard.vwap_distance_pct,
         "risk_score": round(risk_score, 2),
+        "signal_guard_version": SIGNAL_GUARD_VERSION,
     }
 
 
