@@ -136,6 +136,7 @@ class RefreshCoordinator:
             "last_trading_date": market_mode.last_trading_date,
             "data_date": market_mode.data_date,
             "is_trading_day": market_mode.is_trading_day,
+            "is_holiday": market_mode.is_holiday,
             "is_market_open": market_mode.is_market_open,
             "is_post_close": market_mode.is_post_close,
             "is_weekend": market_mode.is_weekend,

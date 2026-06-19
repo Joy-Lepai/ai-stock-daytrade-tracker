@@ -33,6 +33,7 @@ class RefreshServiceTests(unittest.TestCase):
 
             self.assertEqual(payload["api_status"], "ok")
             self.assertIn("market_mode", payload)
+            self.assertIn("is_holiday", payload)
             self.assertIn("allow_strong_long", payload)
             self.assertIn("layers", payload)
             self.assertIn("provider_status", payload)

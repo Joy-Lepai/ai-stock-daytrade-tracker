@@ -6,8 +6,24 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 
-MARKET_MODE_VERSION = "market_mode_v1_tw_review_2026-06-19"
+MARKET_MODE_VERSION = "market_mode_v2_tw_holiday_review_2026-06-19"
 TW_TZ = ZoneInfo("Asia/Taipei")
+TW_MARKET_HOLIDAYS = {
+    date(2026, 1, 1),
+    date(2026, 2, 16),
+    date(2026, 2, 17),
+    date(2026, 2, 18),
+    date(2026, 2, 19),
+    date(2026, 2, 20),
+    date(2026, 2, 27),
+    date(2026, 4, 3),
+    date(2026, 4, 6),
+    date(2026, 5, 1),
+    date(2026, 6, 19),
+    date(2026, 9, 25),
+    date(2026, 9, 28),
+    date(2026, 10, 9),
+}
 
 
 @dataclass(frozen=True)
@@ -18,6 +34,7 @@ class MarketMode:
     last_trading_date: str
     data_date: str
     is_trading_day: bool
+    is_holiday: bool
     is_market_open: bool
     is_post_close: bool
     is_weekend: bool
@@ -46,7 +63,8 @@ def evaluate_tw_market_mode(
     local_now = _localize(now)
     today = local_now.date()
     is_weekend = local_now.weekday() >= 5
-    is_trading_day = not is_weekend
+    is_holiday = today in TW_MARKET_HOLIDAYS
+    is_trading_day = _is_tw_trading_day(today)
     current = local_now.time()
     is_market_open = is_trading_day and time(9, 0) <= current < time(13, 30)
     is_post_close = is_trading_day and current >= time(13, 30)
@@ -107,6 +125,7 @@ def evaluate_tw_market_mode(
         last_trading_date=last_trading.isoformat(),
         data_date=parsed_data_date.isoformat(),
         is_trading_day=is_trading_day,
+        is_holiday=is_holiday,
         is_market_open=is_market_open,
         is_post_close=is_post_close,
         is_weekend=is_weekend,
@@ -120,14 +139,18 @@ def evaluate_tw_market_mode(
 
 def _last_trading_date(now: datetime) -> date:
     day = now.date()
-    if now.weekday() < 5 and now.time() >= time(13, 30):
+    if _is_tw_trading_day(day) and now.time() >= time(13, 30):
         return day
-    if now.weekday() < 5 and now.time() >= time(9, 0):
+    if _is_tw_trading_day(day) and now.time() >= time(9, 0):
         return day
     day -= timedelta(days=1)
-    while day.weekday() >= 5:
+    while not _is_tw_trading_day(day):
         day -= timedelta(days=1)
     return day
+
+
+def _is_tw_trading_day(value: date) -> bool:
+    return value.weekday() < 5 and value not in TW_MARKET_HOLIDAYS
 
 
 def _localize(value: Optional[datetime]) -> datetime:

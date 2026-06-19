@@ -13,6 +13,7 @@ from stock_daytrade_system.tracker import (
     _data_status_block,
     _entry_status_message,
     _focus_card,
+    _market_mode_panel,
     _recommendation_checklist_table,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
@@ -524,6 +525,33 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("資料狀態", html)
         self.assertIn("失敗標的不納入", html)
+
+    def test_holiday_dashboard_panel_uses_closed_review_copy(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "data_health": {
+                    "status": "過期",
+                    "data_date": "2026-06-18",
+                    "latest_intraday_at": "2026-06-18T13:30:00+08:00",
+                    "is_stale": True,
+                }
+            },
+        )
+
+        html = _market_mode_panel(summary, datetime(2026, 6, 19, 9, 20))
+
+        self.assertIn("休市復盤模式", html)
+        self.assertIn("以下顯示上一交易日資料", html)
+        self.assertIn("休市復盤：使用上一交易日資料", html)
+        self.assertNotIn("資料異常模式", html)
+        self.assertNotIn("資料已過期或缺漏嚴重", html)
 
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(

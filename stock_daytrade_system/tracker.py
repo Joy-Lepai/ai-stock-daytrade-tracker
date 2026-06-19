@@ -543,7 +543,7 @@ def render_tracker_html(
   </header>
   <main>
     {_market_mode_panel(long_summary, report_time)}
-    {_decision_overview(long_summary)}
+    {_decision_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
     {_position_command_center(long_summary)}
@@ -768,6 +768,7 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
     )["counts"]
     reason = _no_strong_long_reason(front, checklist, health, mode)
     can_trade = "可作為盤中追蹤依據" if mode.get("allow_intraday_signal") else "不提供即時進場判斷"
+    confidence = _mode_aware_data_confidence(health, mode)
     return (
         '<section class="decision-center">'
         '<h2>台股做多當沖追蹤器 v1</h2>'
@@ -778,9 +779,14 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric("做多", int(front.get("做多", 0)))}'
         f'{_metric("觀察", int(front.get("觀察", 0)))}'
         f'{_metric("做空", int(front.get("做空", 0)))}'
-        f'{_metric_text("資料可信度", str(health.get("status") or "未知"))}'
+        f'{_metric_text("資料可信度", confidence)}'
         f'{_metric_text("即時交易依據", can_trade)}'
+        f'{_metric_text("market_mode", str(mode.get("mode") or "-"))}'
+        f'{_metric_text("是否交易日", "是" if mode.get("is_trading_day") else "否")}'
+        f'{_metric_text("是否休市日", "是" if mode.get("is_holiday") else "否")}'
+        f'{_metric_text("last_trading_date", str(mode.get("last_trading_date") or "-"))}'
         f'{_metric_text("資料日期", str(mode.get("data_date") or "-"))}'
+        f'{_metric_text("盤中訊號", "允許" if mode.get("allow_intraday_signal") else "禁止")}'
         '</div>'
         f'<div class="notice"><strong>主要原因</strong><br>{escape(reason)}</div>'
         '</section>'
@@ -804,40 +810,58 @@ def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dic
     return "今日沒有強烈做多標的；" + ("、".join(waits) if waits else "主要條件尚未完整確認。")
 
 
-def _front_context(summary: Optional[LongModelSummary]) -> dict:
+def _mode_aware_data_confidence(health: dict, mode: dict) -> str:
+    if mode.get("mode") == "closed_review" and mode.get("is_data_current_for_mode"):
+        status = str(health.get("status") or "").strip()
+        if status and status not in {"正常", "過期"}:
+            return f"上一交易日資料完整度：{status}"
+        return "休市復盤：使用上一交易日資料"
+    if mode.get("mode") == "post_close_review" and mode.get("is_data_current_for_mode"):
+        status = str(health.get("status") or "").strip()
+        return f"盤後復盤：今日資料{status}" if status else "盤後復盤：今日資料"
+    return str(health.get("status") or "未知")
+
+
+def _front_context(summary: Optional[LongModelSummary], market_mode: Optional[dict] = None) -> dict:
     diagnostics = summary.diagnostics if summary else {}
     health = (diagnostics or {}).get("data_health") or {}
-    stale = bool(health.get("is_stale")) or str(health.get("status") or "") in {"過期", "異常", "嚴重缺漏"}
-    intraday = bool(health.get("is_intraday_session", True)) and not stale
-    mode = "intraday" if intraday else ("stale_data" if stale else "closed_review")
+    mode = str((market_mode or {}).get("mode") or "")
+    if mode:
+        stale = mode == "stale_data"
+        intraday = bool((market_mode or {}).get("allow_intraday_signal"))
+    else:
+        stale = bool(health.get("is_stale")) or str(health.get("status") or "") in {"過期", "異常", "嚴重缺漏"}
+        intraday = bool(health.get("is_intraday_session", True)) and not stale
+        mode = "intraday" if intraday else ("stale_data" if stale else "closed_review")
     return {
-        "data_today": bool(health.get("is_today_data", True)),
+        "data_today": bool((market_mode or {}).get("is_data_current_for_mode", health.get("is_today_data", True))),
         "intraday": intraday,
         "stale": stale,
-        "allow_strong_long": intraday and not stale,
+        "allow_strong_long": bool((market_mode or {}).get("allow_strong_long", intraday and not stale)),
         "market_mode": mode,
     }
 
 
-def _decision_overview(summary: Optional[LongModelSummary]) -> str:
+def _decision_overview(summary: Optional[LongModelSummary], report_time: datetime) -> str:
     data = summary.decision_center if summary else {}
     diagnostics = summary.diagnostics if summary else {}
     health = (diagnostics.get("data_health") or {}) if diagnostics else {}
     checklist = summary.recommendation_checklist if summary else {}
     counts = data.get("counts", {}) if data else {}
-    front_context = _front_context(summary)
+    mode = _dashboard_market_mode(summary, report_time)
+    front_context = _front_context(summary, mode)
     front = front_trade_counts(
         list(summary.candidates) if summary else [],
         **front_context,
     )
     front_counts = front["counts"]
     tendency = data.get("operation_tendency") or "資料不足"
-    confidence = health.get("status") or "未知"
+    confidence = _mode_aware_data_confidence(health, mode)
     if front_counts.get("強烈做多", 0) <= 0:
         reminder = "今日沒有強烈做多標的，建議保守觀望；做多與練習買多都必須等待條件確認。"
     else:
         reminder = data.get("action_suggestion") or health.get("recommendation_state") or "已有可執行訊號，仍需先確認停損、停利與部位風險。"
-    if health.get("is_stale") or str(health.get("status") or "").startswith("異常"):
+    if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     focus_items = _top_focus_items(summary)
     focus_html = "".join(_focus_card(item, front_context) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
@@ -1176,6 +1200,7 @@ def _review_mode_sections(summary: Optional[LongModelSummary], report_time: date
     missed = (diagnostics or {}).get("missed_rate_report") or (diagnostics or {}).get("missed_stock_analysis") or {}
     verification = (diagnostics or {}).get("post_market_verification") or {}
     scorecard = ((diagnostics or {}).get("strategy_scorecard") or {}).get("windows", {}).get("20", {})
+    confidence = _mode_aware_data_confidence(health, mode)
     front = front_trade_counts(
         list(summary.candidates) if summary else [],
         data_today=bool(mode.get("is_data_current_for_mode")),
@@ -1196,7 +1221,7 @@ def _review_mode_sections(summary: Optional[LongModelSummary], report_time: date
         f'{_metric("上一交易日做多", int(front.get("做多", 0)))}'
         f'{_metric("上一交易日觀察", int(front.get("觀察", 0)))}'
         f'{_metric("上一交易日做空", int(front.get("做空", 0)))}'
-        f'{_metric_text("資料可信度", str(health.get("status") or "未知"))}'
+        f'{_metric_text("資料可信度", confidence)}'
         f'{_metric("真漏抓", int(missed.get("missed_by_pool_count", missed.get("missed_count", 0)) or 0))}'
         f'{_metric("已看到但未推薦", int(missed.get("seen_but_filtered_count", 0) or 0))}'
         f'{_metric("盤後可惜漏掉", int((missed.get("regret_after_close") or {}).get("count", 0) or 0))}'
