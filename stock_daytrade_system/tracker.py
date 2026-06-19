@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.cmoney import CMoneyRanking
+from stock_daytrade_system.frontend_language import front_trade_counts, front_trade_view
 from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.labels import sector_label, stock_label
 from stock_daytrade_system.long_model import LongModelSummary
@@ -534,6 +535,7 @@ def render_tracker_html(
     {_decision_overview(long_summary)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    {_position_command_center(long_summary)}
     <h2>本週模型觀察</h2>
     {_model_observation_panel(long_summary)}
     <h2>資料健康度</h2>
@@ -720,9 +722,21 @@ def _decision_overview(summary: Optional[LongModelSummary]) -> str:
     health = (diagnostics.get("data_health") or {}) if diagnostics else {}
     checklist = summary.recommendation_checklist if summary else {}
     counts = data.get("counts", {}) if data else {}
+    front = front_trade_counts(
+        list(summary.candidates) if summary else [],
+        data_today=bool(health.get("is_today_data", True)),
+        intraday=bool(health.get("is_intraday_session", True)),
+        stale=bool(health.get("is_stale", False)),
+    )
+    front_counts = front["counts"]
     tendency = data.get("operation_tendency") or "資料不足"
     confidence = health.get("status") or "未知"
-    reminder = data.get("action_suggestion") or health.get("recommendation_state") or "目前資料不足，系統僅能提供有限判斷。"
+    if front_counts.get("強烈做多", 0) <= 0:
+        reminder = "今日沒有強烈做多標的，建議保守觀望；做多與練習買多都必須等待條件確認。"
+    else:
+        reminder = data.get("action_suggestion") or health.get("recommendation_state") or "已有可執行訊號，仍需先確認停損、停利與部位風險。"
+    if health.get("is_stale") or str(health.get("status") or "").startswith("異常"):
+        reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     focus_items = _top_focus_items(summary)
     focus_html = "".join(_focus_card(item) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
     return (
@@ -731,6 +745,10 @@ def _decision_overview(summary: Optional[LongModelSummary]) -> str:
         '<div class="summary">'
         f'{_metric_text("今日市場狀態", str(tendency))}'
         f'{_metric_text("今日資料可信度", str(confidence))}'
+        f'{_metric("強烈做多", int(front_counts.get("強烈做多", 0)))}'
+        f'{_metric("做多", int(front_counts.get("做多", 0)))}'
+        f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
+        f'{_metric("做空", int(front_counts.get("做空", 0)))}'
         f'{_metric("executable", int(counts.get("executable", checklist.get("executable", 0) or 0)))}'
         f'{_metric("A 級", int(counts.get("grade_a", checklist.get("grade_a", 0) or 0)))}'
         f'{_metric("B+", int(counts.get("grade_b_plus", checklist.get("grade_b_plus", 0) or 0)))}'
@@ -762,6 +780,7 @@ def _focus_card(item: LongCandidate) -> str:
     if item.entry_status == "high_risk":
         invalidation = "若無法回測降溫，避免追價。"
     conclusion = _display_conclusion_for_candidate(item)
+    front = front_trade_view(item)
     bullish_reason = _display_reason_for_candidate(item)
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
@@ -769,7 +788,7 @@ def _focus_card(item: LongCandidate) -> str:
     return (
         '<div class="decision-panel">'
         f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a></strong>'
-        f'<div>{escape(display_label)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
+        f'<div>{escape(front.category)}｜{escape(front.subtitle)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}</div>'
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
         f'<p class="muted"><strong>下一步：</strong>{escape(next_step)}</p>'
@@ -865,27 +884,30 @@ def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
 
 
 def _signal_center(summary: Optional[LongModelSummary]) -> str:
-    center = (summary.decision_center or {}).get("signal_center") if summary else None
-    if not center:
+    if summary is None or not summary.candidates:
         return (
             "<section class=\"decision-center\"><h2>訊號中心</h2>"
             "<p class=\"muted\">目前沒有符合條件的候選股。</p></section>"
         )
+    buckets = {"強烈做多": [], "做多": [], "觀察": [], "做空": []}
+    for item in summary.candidates:
+        view = front_trade_view(item)
+        buckets.setdefault(view.category, []).append((item, view))
     columns = [
-        ("executable", "可執行 executable"),
-        ("practice_long", "練習買多 practice_long"),
-        ("b_plus", "B+ 練習觀察"),
-        ("waiting", "等待確認"),
-        ("risk", "風險過高 / 避開"),
+        ("強烈做多", "強烈做多"),
+        ("做多", "做多"),
+        ("觀察", "觀察"),
+        ("做空", "做空"),
     ]
     html = []
     for key, title in columns:
-        cards = "".join(_signal_card(item) for item in center.get(key, []))
-        empty = _signal_center_empty_message(key)
+        items = buckets.get(key, [])
+        cards = "".join(_front_signal_card(item, view) for item, view in items)
+        empty = _front_signal_center_empty_message(key)
         html.append(
             "<div class=\"signal-column\">"
-            f"<h3>{escape(title)}（{len(center.get(key, []))}）</h3>"
-            f"{_signal_center_column_note(key)}"
+            f"<h3>{escape(title)}（{len(items)}）</h3>"
+            f"{_front_signal_center_column_note(key)}"
             f"{cards or empty}"
             "</div>"
         )
@@ -895,6 +917,24 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
         "<div class=\"signal-grid\">"
         + "".join(html)
         + "</div></section>"
+    )
+
+
+def _front_signal_card(item: LongCandidate, view) -> str:
+    metrics = (
+        f"現價 {_fmt(item.last_price)}｜VWAP {_fmt(item.vwap)}｜量比 {_fmt(item.volume_ratio)}x｜"
+        f"停損 {_fmt(item.stop_loss)}｜停利 {_fmt(item.target_price)}"
+    )
+    return (
+        "<div class=\"signal-card\">"
+        f"<div class=\"signal-title\"><a href=\"{_advisor_link(item.symbol)}\">{escape(item.symbol)}｜{escape(item.name)}</a></div>"
+        f"<div class=\"signal-meta\">{escape(view.headline)}</div>"
+        f"<div class=\"signal-meta\">內部狀態：{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{escape(str(getattr(item, 'lifecycle_status', 'observed') or 'observed'))}</div>"
+        f"<div class=\"signal-meta\">{escape(metrics)}</div>"
+        f"<div class=\"signal-meta\">信心：{escape(str(item.confidence_level_label or item.confidence_level or '-'))}</div>"
+        f"<div class=\"signal-meta\">{escape(view.reason)}</div>"
+        f"<div class=\"signal-next\">下一步：{escape(view.next_step)}</div>"
+        "</div>"
     )
 
 
@@ -936,6 +976,94 @@ def _signal_center_column_note(key: str) -> str:
     if key == "practice_long":
         return '<p class="muted">僅供虛擬交易與樣本累積，不是正式可執行訊號。</p>'
     return ""
+
+
+def _front_signal_center_empty_message(key: str) -> str:
+    if key == "強烈做多":
+        return '<p class="muted">今日沒有強烈做多標的。</p>'
+    if key == "做多":
+        return '<p class="muted">目前沒有做多觀察標的。</p>'
+    if key == "做空":
+        return '<p class="muted">目前沒有做空觀察標的。</p>'
+    return '<p class="muted">目前沒有觀察標的。</p>'
+
+
+def _front_signal_center_column_note(key: str) -> str:
+    if key == "強烈做多":
+        return '<p class="muted">只包含真正 executable，且資料安全規則通過的標的。</p>'
+    if key == "做多":
+        return '<p class="muted">包含練習買多與等待確認，不是正式可執行訊號。</p>'
+    if key == "觀察":
+        return '<p class="muted">包含 high_risk、avoid、資料不足與風險觀察。</p>'
+    return ""
+
+
+def _position_command_center(summary: Optional[LongModelSummary]) -> str:
+    data = ((summary.diagnostics or {}).get("position_command_center") if summary else None) or {}
+    positions = data.get("positions") or []
+    overview = data.get("summary") or {}
+    if not positions:
+        return (
+            '<section class="decision-center">'
+            '<h2>我的持倉作戰區</h2>'
+            '<p class="muted">目前沒有台股虛擬持倉。建立虛擬交易後，這裡會顯示續抱、可加碼、減碼、停利或停損建議。</p>'
+            '</section>'
+        )
+    invested_amount = float(overview.get("invested_amount", 0) or 0)
+    unrealized_pnl = float(overview.get("unrealized_pnl", 0) or 0)
+    unrealized_pnl_pct = float(overview.get("unrealized_pnl_pct", 0) or 0)
+    if_all_stop_loss = float(overview.get("if_all_stop_loss", 0) or 0)
+    if_all_take_profit = float(overview.get("if_all_take_profit", 0) or 0)
+    metrics = (
+        '<div class="summary">'
+        f'{_metric("持倉檔數", int(overview.get("positions_count", 0) or 0))}'
+        f'{_metric_text("投入本金", _money(invested_amount))}'
+        f'{_metric_text("未實現損益", f"{unrealized_pnl:+.2f}")}'
+        f'{_metric_text("今日損益率", f"{unrealized_pnl_pct:+.2f}%")}'
+        f'{_metric_text("全數停損情境", f"{if_all_stop_loss:+.2f}")}'
+        f'{_metric_text("全數停利情境", f"{if_all_take_profit:+.2f}")}'
+        f'{_metric_text("可否再加碼", "可" if overview.get("can_add_any") else "不可")}'
+        f'{_metric_text("總風險", "偏高" if overview.get("total_risk_high") else "可控")}'
+        '</div>'
+    )
+    rows = []
+    for item in positions:
+        forbidden = item.get("add_forbidden_reasons") or []
+        rows.append(
+            '<tr>'
+            f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name_zh", "")))}</a></strong><br><span class="muted">{escape(str(item.get("reason_code", "")))}</span></td>'
+            f'<td><strong>{escape(str(item.get("action", "-")))}</strong></td>'
+            f'<td>{_fmt(item.get("cost_price"))}</td>'
+            f'<td>{_fmt(item.get("current_price"))}</td>'
+            f'<td>{_fmt(item.get("quantity"))}</td>'
+            f'<td>{float(item.get("unrealized_pnl", 0) or 0):+.2f}<br><span class="muted">{float(item.get("unrealized_pnl_pct", 0) or 0):+.2f}%</span></td>'
+            f'<td>{_fmt(item.get("vwap"))}</td>'
+            f'<td>{_fmt(item.get("volume_ratio"))}x</td>'
+            f'<td>{_fmt(item.get("stop_loss"))}</td>'
+            f'<td>{_fmt(item.get("target_price"))}</td>'
+            f'<td class="notes">{escape(str(item.get("next_step", "-")))}</td>'
+            f'<td class="notes">{escape(str(item.get("invalidation", "-")))}</td>'
+            f'<td class="notes">{escape("；".join(forbidden) if forbidden else "允許加碼，但仍需控制部位。")}</td>'
+            '</tr>'
+        )
+    table = (
+        '<div class="table-wrap"><table class="sortable"><thead><tr>'
+        '<th data-sort="text">股票</th><th data-sort="text">持倉動作</th><th data-sort="number">成本</th>'
+        '<th data-sort="number">現價</th><th data-sort="number">數量</th><th data-sort="number">未實現損益</th>'
+        '<th data-sort="number">VWAP</th><th data-sort="number">量比</th><th data-sort="number">停損</th>'
+        '<th data-sort="number">停利</th><th>下一步</th><th>失效條件</th><th>不可加碼原因</th>'
+        '</tr></thead><tbody>'
+        + ''.join(rows)
+        + '</tbody></table></div>'
+    )
+    return (
+        '<section class="decision-center">'
+        '<h2>我的持倉作戰區</h2>'
+        f'{metrics}'
+        f'<section class="notice">{escape(str(overview.get("total_risk_message", "")))}</section>'
+        f'{table}'
+        '</section>'
+    )
 
 
 def _momentum_scan_table(summary: Optional[LongModelSummary]) -> str:

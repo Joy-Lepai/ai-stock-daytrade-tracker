@@ -27,6 +27,7 @@ from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.paper_trading import update_paper_trades
 from stock_daytrade_system.performance import record_signal_performance
+from stock_daytrade_system.position_management import build_position_command_center
 from stock_daytrade_system.report import render_opening_report, render_report
 from stock_daytrade_system.scoring import CandidateScore, score_market_bias, score_symbol
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
@@ -471,6 +472,7 @@ def run_tracker(
         diagnostics["strategy_scorecard"] = strategy_scorecard
         diagnostics["missed_rate_report"] = missed_rate_report
         diagnostics["model_observations"] = model_observations
+        diagnostics["position_command_center"] = build_position_command_center(conn, market="TW")
         long_summary = build_long_model_summary(
             long_candidates,
             market_indicators,

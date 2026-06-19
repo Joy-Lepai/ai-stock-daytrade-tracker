@@ -1659,6 +1659,8 @@ def tw_advisor_script() -> str:
         const history = payload.historical_validation || {};
         const sourceRanking = payload.source_ranking || {};
         const analysis = payload.advisor_analysis || {};
+        const frontTrade = payload.front_trade || {};
+        const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
         const sector = payload.sector || scan.sector || "";
@@ -1680,10 +1682,47 @@ def tw_advisor_script() -> str:
         const plan = analysis.action_plan || {};
         const effectiveEntry = safety.effective_entry_status || candidate.entry_status || scan.entry_status || "data_missing";
         const effectiveGrade = safety.effective_grade || candidate.grade || scan.ai_grade || "data_missing";
-        const conclusionState = safety.conclusion_state || statusZh(effectiveEntry);
-        const conclusion = conclusionState === "資料不足"
+        const conclusionState = positionAction ? positionAction.action : (frontTrade.category || safety.conclusion_state || statusZh(effectiveEntry));
+        const conclusion = positionAction
+          ? `目前已有持倉，持倉動作：${positionAction.action}。${positionAction.next_step || ""}`
+          : frontTrade.headline
+          ? frontTrade.headline
+          : conclusionState === "資料不足"
           ? "資料不足，不能產生有效當沖建議。"
           : `目前為 ${effectiveGrade} 級${conclusionState}，${analysis.next_step || statusText || "請等待條件確認。"}`
+        const positionCard = positionAction ? `
+          <article class="advisor-card position-action-card">
+            <h3>我的持倉作戰卡</h3>
+            <div class="advisor-grid">
+              ${metric("持倉動作", escapeHtml(positionAction.action))}
+              ${metric("成本價", escapeHtml(number(positionAction.cost_price)))}
+              ${metric("現價", escapeHtml(number(positionAction.current_price)))}
+              ${metric("數量", escapeHtml(number(positionAction.quantity)))}
+              ${metric("未實現損益", `<span class="${Number(positionAction.unrealized_pnl) >= 0 ? "num-up" : "num-down"}">${escapeHtml(number(positionAction.unrealized_pnl))}</span>`)}
+              ${metric("未實現損益率", pct(positionAction.unrealized_pnl_pct))}
+              ${metric("VWAP", escapeHtml(number(positionAction.vwap)))}
+              ${metric("停損價", escapeHtml(number(positionAction.stop_loss)))}
+              ${metric("停利價", escapeHtml(number(positionAction.target_price)))}
+              ${metric("移動停損", escapeHtml(number(positionAction.trailing_stop)))}
+              ${metric("可否加碼", escapeHtml(positionAction.can_add ? "可" : "不可"))}
+              ${metric("reason code", escapeHtml(positionAction.reason_code))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>下一步</h3>
+                <p>${escapeHtml(positionAction.next_step || "-")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>失效條件</h3>
+                <p>${escapeHtml(positionAction.invalidation || "-")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>不可加碼原因</h3>
+                ${list(positionAction.add_forbidden_reasons || [])}
+              </section>
+            </div>
+          </article>
+        ` : "";
         const longReasons = reasonGroups.long_reasons || candidate.reasons || scan.source_reasons || [];
         const riskReasons = reasonGroups.risk_reasons || candidate.risk_reasons || scan.risk_reasons || [candidate.not_selected_reason || scan.not_selected_reason || "目前無額外風險提醒。"];
         const notExecutableReasons = reasonGroups.not_executable_reasons || [];
@@ -1703,8 +1742,8 @@ def tw_advisor_script() -> str:
             </div>
             <div class="advisor-decision">
               <strong>結論：${escapeHtml(conclusion)}</strong>
-              <span>${escapeHtml(analysis.action_summary || statusText || dataHealth.advice || "")}</span>
-              ${renderReasonCodes(safety.reason_codes)}
+              <span>${escapeHtml(positionAction ? positionAction.invalidation : (frontTrade.reason || analysis.action_summary || statusText || dataHealth.advice || ""))}</span>
+              ${renderReasonCodes(positionAction ? [positionAction.reason_code] : (frontTrade.reason_codes || safety.reason_codes))}
             </div>
             <div class="advisor-grid">
               ${metric("目前結論", escapeHtml(conclusionState))}
@@ -1717,6 +1756,7 @@ def tw_advisor_script() -> str:
               ${metric("可用於當沖判斷", escapeHtml(dataHealth.can_use_for_daytrade && safety.is_executable_allowed ? "是" : "否"))}
             </div>
           </article>
+          ${positionCard}
 
           <article class="advisor-card">
             <h3>資料可信度</h3>

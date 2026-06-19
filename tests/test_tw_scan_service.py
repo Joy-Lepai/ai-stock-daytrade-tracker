@@ -54,6 +54,30 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertEqual(payload["effective_entry_status"], "data_missing")
         self.assertIn("market_not_regular", payload["reason_codes"])
 
+    def test_practice_long_is_not_executable_allowed(self):
+        payload = _safety_payload(
+            {
+                "entry_status": "practice_long",
+                "grade": "B+",
+                "vwap": 100,
+                "volume_ratio": 0.9,
+                "stop_loss": 99,
+                "last_price": 101,
+                "risk_score": 30,
+            },
+            {"vwap": 100, "volume_ratio": 0.9, "latest_price": 101, "change_pct": 1.5},
+            {
+                "is_today_data": True,
+                "is_stale": False,
+                "is_data_missing": False,
+            },
+            {"action_plan": {"stop_loss": 99}},
+            datetime(2026, 6, 18, 9, 30, tzinfo=ZoneInfo("Asia/Taipei")),
+        )
+
+        self.assertFalse(payload["is_executable_allowed"])
+        self.assertEqual(payload["effective_entry_status"], "practice_long")
+
 
 if __name__ == "__main__":
     unittest.main()

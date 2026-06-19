@@ -10,11 +10,13 @@ from zoneinfo import ZoneInfo
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.data import YahooChartClient
 from stock_daytrade_system.db import connect, default_db_path
+from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.position_management import position_action_for_symbol
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
@@ -80,6 +82,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     with connect(db_path) as conn:
         history_payload = _historical_validation_payload(conn, item.symbol)
         source_payload = _source_ranking_payload(conn, item.symbol)
+        position_payload = position_action_for_symbol(conn, item.symbol, market="TW")
     safety_payload = _safety_payload(
         candidate_payload,
         scan_item.to_dict(),
@@ -87,6 +90,12 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         analysis_payload,
         captured_at,
     )
+    front_trade_payload = front_trade_view(
+        candidate_payload or scan_item.to_dict(),
+        data_today=bool(data_health.get("is_today_data")),
+        intraday=bool(data_health.get("is_intraday_data")),
+        stale=bool(data_health.get("is_stale")),
+    ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_item.to_dict(), display_payload, analysis_payload)
     reason_payload = _reason_payload(candidate_payload, scan_item.to_dict(), data_health, safety_payload)
     errors = {}
@@ -114,6 +123,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "display": display_payload,
         "data_health": data_health,
         "safety": safety_payload,
+        "front_trade": front_trade_payload,
+        "position_action": position_payload,
         "key_metrics": key_metrics_payload,
         "reason_groups": reason_payload,
         "historical_validation": history_payload,
@@ -337,7 +348,7 @@ def _safety_payload(
         "original_grade": grade,
         "effective_grade": effective_grade,
         "conclusion_state": conclusion_state,
-        "is_executable_allowed": effective_entry in {"executable", "practice_long"} and not blocked,
+        "is_executable_allowed": effective_entry == "executable" and not blocked,
         "blocked_reasons": blocked,
         "reason_codes": reason_codes,
         "vwap_distance_pct": round(vwap_distance, 2) if vwap_distance is not None else None,
