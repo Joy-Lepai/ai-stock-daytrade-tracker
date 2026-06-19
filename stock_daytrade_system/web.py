@@ -1720,6 +1720,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       <form method="post" action="/refresh_full_market" title="更新 TWSE + TPEX 全市場異動候選池。"><button type="submit">更新全市場</button></form>
       <form method="post" action="/refresh_watchlist" title="只更新 A/B+/B、等待條件、手動加入與今日重點觀察股。"><button type="submit">更新重點觀察</button></form>
       <form method="post" action="/refresh_positions" title="只更新 B+ 觸發、虛擬交易持倉與停損停利狀態。"><button type="submit">更新持倉/觸發</button></form>
+      <form method="post" action="/refresh_post_close_validation" title="只更新盤後驗證與策略成績單基礎資料。"><button type="submit">更新盤後驗證</button></form>
       {logout_link}
     </div>
   </nav>
@@ -1808,6 +1809,8 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),
+              layerHtml(layers.post_close_validation),
+              layerHtml(layers.manual_full_refresh),
               deploymentStatusHtml(payload),
               providerStatusHtml(payload),
               sourceHealthHtml(payload),

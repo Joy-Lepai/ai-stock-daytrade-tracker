@@ -57,6 +57,25 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["data_source_health_compact"]["c_money"], "ERROR")
         self.assertTrue(payload["data_source_degraded"])
 
+    def test_manual_full_refresh_marks_dependent_layers_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)):
+                pass
+            coordinator = RefreshCoordinator(project, reports)
+
+            coordinator._mark_full_tracker_dependent_layers("manual_full_refresh", 120)
+            payload = coordinator.status_payload()
+            layers = payload["layers"]
+
+        self.assertEqual(layers["full_market"]["status"], "success")
+        self.assertEqual(layers["full_market"]["symbols_count"], 120)
+        self.assertEqual(layers["watchlist"]["status"], "success")
+        self.assertEqual(layers["watchlist"]["symbols_count"], 120)
+        self.assertEqual(layers["positions"]["status"], "success")
+        self.assertEqual(layers["positions"]["symbols_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -187,6 +187,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("/refresh_full_market", html)
         self.assertIn("/refresh_watchlist", html)
         self.assertIn("/refresh_positions", html)
+        self.assertIn("/refresh_post_close_validation", html)
+        self.assertIn("盤後驗證", html)
         self.assertIn("market_mode_label", html)
         self.assertIn("provider_status", html)
         self.assertIn("行情 provider", html)

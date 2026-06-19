@@ -214,9 +214,7 @@ class RefreshCoordinator:
             timeout=self.tracker_timeout_seconds,
         )
         symbols_count = _latest_snapshot_count(default_db_path(self.project_root))
-        if layer in {"full_market", "manual_full_refresh"}:
-            self._mark_implied_layer_success("watchlist", symbols_count)
-            self._mark_implied_layer_success("positions", 0)
+        self._mark_full_tracker_dependent_layers(layer, symbols_count)
         return symbols_count, "完整 tracker 已刷新。"
 
     def _run_watchlist_refresh(self, started_at: datetime) -> tuple[int, str]:
@@ -293,6 +291,13 @@ class RefreshCoordinator:
             symbols_count=symbols_count,
             error="updated_by_full_refresh",
         )
+
+    def _mark_full_tracker_dependent_layers(self, layer: str, symbols_count: int) -> None:
+        if layer == "manual_full_refresh":
+            self._mark_implied_layer_success("full_market", symbols_count)
+        if layer in {"full_market", "manual_full_refresh"}:
+            self._mark_implied_layer_success("watchlist", symbols_count)
+            self._mark_implied_layer_success("positions", 0)
 
     def _write_state(
         self,
