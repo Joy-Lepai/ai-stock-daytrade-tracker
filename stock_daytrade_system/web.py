@@ -2329,6 +2329,15 @@ def tw_advisor_script() -> str:
         high_risk: "避開",
         avoid: "避開",
         data_missing: "資料不足",
+        ok: "成功",
+        partial: "部分具備",
+        missing: "缺少",
+        confirmed: "確認",
+        divergence: "背離",
+        strong: "偏強",
+        neutral: "中性",
+        weak: "偏弱",
+        unknown: "未知",
       }[entry] || entry || "-");
       const displayTradeBias = (item) => {
         const entry = item?.entry_status || "";
@@ -2550,6 +2559,39 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderPrecisionContextCard = (precision) => {
+        precision = precision || {};
+        const available = Array.isArray(precision.available_data) ? precision.available_data : [];
+        const missing = Array.isArray(precision.missing_data) ? precision.missing_data : [];
+        const nextData = Array.isArray(precision.next_data_to_add) ? precision.next_data_to_add : [];
+        return `
+          <article class="advisor-card">
+            <h3>精準當沖資料檢查</h3>
+            <p><strong>${escapeHtml(precision.precision_label || "資料不足")}</strong></p>
+            <p class="muted">${escapeHtml(precision.summary || "目前資料不足，不能作為精準當沖依據。")}</p>
+            <div class="advisor-grid">
+              ${metric("精準度分數", escapeHtml(number(precision.readiness_score)))}
+              ${metric("可作精準當沖", escapeHtml(yesNo(precision.can_use_for_precise_daytrade)))}
+              ${metric("逐筆成交 Tick", escapeHtml(statusZh(precision.tick_data_status)))}
+              ${metric("五檔委買委賣", escapeHtml(statusZh(precision.orderbook_status)))}
+              ${metric("即時新聞題材", escapeHtml(statusZh(precision.news_status)))}
+              ${metric("盤中 K 線", escapeHtml(statusZh(precision.intraday_k_status)))}
+              ${metric("VWAP 品質", escapeHtml(statusZh(precision.vwap_quality)))}
+              ${metric("量能分布", escapeHtml(statusZh(precision.volume_profile_status)))}
+              ${metric("量能加速", precision.volume_acceleration_ratio === null || precision.volume_acceleration_ratio === undefined ? "-" : `${escapeHtml(number(precision.volume_acceleration_ratio))}x`)}
+              ${metric("價漲量增", escapeHtml(yesNo(precision.price_up_volume_up)))}
+              ${metric("價漲量縮", escapeHtml(yesNo(precision.price_up_volume_down)))}
+              ${metric("VWAP 守穩", escapeHtml(yesNo(precision.vwap_hold_ok)))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel"><h3>目前已具備</h3>${list(available.length ? available : ["尚無足夠資料"])}</section>
+              <section class="advisor-panel"><h3>仍缺資料</h3>${list(missing.length ? missing : ["無明顯缺口"])}</section>
+              <section class="advisor-panel"><h3>下一步可補</h3>${list(nextData.length ? nextData : ["暫無"])}</section>
+            </div>
+            <p class="warn-inline">缺少逐筆成交與五檔委買委賣時，系統不會把訊號視為高精準即時進場依據。</p>
+          </article>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -2568,6 +2610,7 @@ def tw_advisor_script() -> str:
         const sourceRanking = payload.source_ranking || {};
         const analysis = payload.advisor_analysis || {};
         const frontTrade = payload.front_trade || {};
+        const precision = payload.precision_context || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -2689,6 +2732,8 @@ def tw_advisor_script() -> str:
             </div>
             ${blockedMessages.length ? `<div class="warn-inline">${list(blockedMessages)}</div>` : ""}
           </article>
+
+          ${renderPrecisionContextCard(precision)}
 
           <article class="advisor-card">
             <h3>關鍵指標</h3>

@@ -20,6 +20,7 @@ from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_signal_guard
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.position_management import position_action_for_symbol
+from stock_daytrade_system.precision_context import build_precision_context
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
@@ -88,6 +89,11 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         analysis_payload,
     )
+    precision_payload = build_precision_context(
+        candidate=candidate_payload,
+        intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+        data_health=data_health,
+    ).to_dict()
     with connect(db_path) as conn:
         if display_payload.get("current_price") is not None and not data_health.get("uses_last_known"):
             upsert_last_known_price(
@@ -150,6 +156,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "historical_validation": history_payload,
         "source_ranking": source_payload,
         "advisor_analysis": analysis_payload,
+        "precision_context": precision_payload,
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
