@@ -19,6 +19,7 @@ from stock_daytrade_system.db import (
     upsert_last_known_price,
 )
 from stock_daytrade_system.entry_confirmation import build_entry_confirmation
+from stock_daytrade_system.entry_radar_summary import build_entry_radar_summary
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.fugle_market_data import FugleMarketDataClient
 from stock_daytrade_system.intraday import analyze_opening_confirmation
@@ -184,6 +185,14 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         uses_last_known=bool(data_health.get("uses_last_known") or data_health.get("uses_cache")),
         is_delayed=bool(data_health.get("is_delayed")),
     ).to_dict()
+    entry_radar_summary = build_entry_radar_summary(
+        candidate=candidate_payload or scan_payload,
+        data_health=data_health,
+        entry_confirmation=entry_confirmation_payload,
+        safety=safety_payload,
+        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        intraday=clock.session == "regular",
+    ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
     reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
     errors = {}
@@ -223,6 +232,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "advisor_analysis": analysis_payload,
         "precision_context": precision_payload,
         "entry_confirmation": entry_confirmation_payload,
+        "entry_radar_summary": entry_radar_summary,
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,

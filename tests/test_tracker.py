@@ -513,6 +513,67 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn('data-position-entry="101"', html)
         self.assertIn('data-position-stop="98"', html)
 
+    def test_focus_card_shows_entry_radar_blocker_and_next_trigger(self):
+        item = LongCandidate(
+            symbol="2886.TW",
+            name="兆豐金",
+            sector="finance",
+            last_price=40,
+            change_pct=0.8,
+            volume=1_000_000,
+            turnover=40_000_000,
+            avg_volume_20=900_000,
+            daily_volume_ratio=1.1,
+            intraday_volume=500_000,
+            volume_ratio=0.72,
+            vwap=39.8,
+            above_vwap=True,
+            previous_high=40.5,
+            high_5d=41,
+            high_10d=42,
+            break_prev_high=False,
+            break_5d_high=False,
+            break_10d_high=False,
+            upper_shadow_pct=0.1,
+            institutional_buy_million=None,
+            margin_balance=None,
+            short_balance=None,
+            daytrade_ratio=None,
+            sector_strength=1,
+            news_topics=[],
+            market_state="偏多",
+            bullish_score=68,
+            risk_score=35,
+            grade="B",
+            entry_status="wait_volume",
+            original_entry_status="wait_volume",
+            adjusted_entry_status="wait_volume",
+            confidence_score=62,
+            confidence_level="medium",
+            confidence_level_label="中等信心",
+            conflicts_count=0,
+            conflicts=[],
+            conflict_summary="",
+            confidence_summary="資料完整度尚可。",
+            confidence_adjustment_reason="",
+            trade_bias="long",
+            trade_bias_label="做多",
+            trade_bias_reason="",
+            trigger_price=40.5,
+            stop_loss=39,
+            target_price=42,
+            opening_range_high=40.2,
+            opening_range_low=39.2,
+            reasons=["站上 VWAP"],
+            risk_reasons=[],
+        )
+
+        html = _focus_card(item, {"market_mode": "intraday", "intraday": True})
+
+        self.assertIn("最大卡關", html)
+        self.assertIn("量比 0.72x", html)
+        self.assertIn("量比放大到 1.0x", html)
+
     def test_trend_continuation_panel_displays_watch_items(self):
         item = LongCandidate(
             symbol="2330.TW",

@@ -2546,6 +2546,39 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderEntryRadarSummaryCard = (summary) => {
+        summary = summary || {};
+        const reasons = Array.isArray(summary.reason_rank) ? summary.reason_rank : [];
+        const reasonRows = reasons.slice(0, 5).map((item) => `
+          <li>
+            <strong>${escapeHtml(item.confirmation_only ? "確認資料" : "核心條件")}｜${escapeHtml(item.code || "-")}</strong>
+            <span class="muted">${escapeHtml(item.message || "")}</span>
+          </li>
+        `).join("");
+        return `
+          <article class="advisor-card entry-radar-summary-card">
+            <h3>進場雷達</h3>
+            <p><strong>${escapeHtml(summary.entry_state || "等待確認")}</strong></p>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>目前進場狀態</h3>
+                <p>${escapeHtml(summary.entry_state || "等待確認")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>最大卡關原因</h3>
+                <p>${escapeHtml(summary.blocker_summary || "等待 VWAP、量能、突破或風控確認。")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>下一個觸發條件</h3>
+                <p>${escapeHtml(summary.next_trigger || "等待條件確認。")}</p>
+              </section>
+            </div>
+            ${summary.confirmation_note ? `<p class="warn-inline">${escapeHtml(summary.confirmation_note)}</p>` : ""}
+            <ul class="decision-list">${reasonRows || "<li>目前沒有明顯卡關原因，仍需依停損與部位控管執行。</li>"}</ul>
+            <p class="warn-inline">此雷達只整理原因與下一步，不會調整 A / B+ / B 條件，也不會因缺逐筆或缺五檔資料直接降級。</p>
+          </article>
+        `;
+      };
       const renderInstitutionalCard = (candidate) => {
         const chip = candidate?.institutional_context || {};
         return `
@@ -3006,6 +3039,7 @@ def tw_advisor_script() -> str:
         const frontTrade = payload.front_trade || {};
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
+        const entryRadarSummary = payload.entry_radar_summary || {};
         const fugleQuote = payload.fugle_quote || {};
         const fugleTrades = payload.fugle_trades || {};
         const fugleCandles = payload.fugle_candles || {};
@@ -3109,6 +3143,7 @@ def tw_advisor_script() -> str:
             </div>
           </article>
           ${positionCard}
+          ${renderEntryRadarSummaryCard(entryRadarSummary)}
           ${renderStrongLongDecisionCard(payload)}
 
           <article class="advisor-card">
