@@ -2336,6 +2336,9 @@ def tw_advisor_script() -> str:
         ok: "成功",
         partial: "部分具備",
         missing: "缺少",
+        snapshot: "快照",
+        top_of_book: "最佳一檔",
+        not_streaming: "尚未串流",
         confirmed: "確認",
         divergence: "背離",
         strong: "偏強",
@@ -2563,6 +2566,37 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderShioajiQuoteCard = (quote) => {
+        quote = quote || {};
+        const warnings = Array.isArray(quote.warnings) ? quote.warnings : [];
+        const enabledText = quote.enabled ? "已啟用" : "尚未啟用";
+        const configuredText = quote.configured ? "已設定" : "尚未設定";
+        return `
+          <article class="advisor-card">
+            <h3>Shioaji 即時報價 / 盤口確認</h3>
+            <p><strong>${escapeHtml(quote.status_label || "尚未啟用")}</strong></p>
+            <p class="muted">此區只讀行情，不串接真實下單。Shioaji 可補強逐筆成交與五檔委買委賣，但本版 MVP 先支援 snapshot / top-of-book 顯示。</p>
+            <div class="advisor-grid">
+              ${metric("啟用狀態", escapeHtml(enabledText))}
+              ${metric("憑證狀態", escapeHtml(configuredText))}
+              ${metric("資料來源", escapeHtml(quote.source || "Shioaji"))}
+              ${metric("報價狀態", escapeHtml(quote.status || "disabled"))}
+              ${metric("成交價", escapeHtml(number(quote.price)))}
+              ${metric("均價", escapeHtml(number(quote.average_price)))}
+              ${metric("成交量", escapeHtml(number(quote.total_volume ?? quote.volume, 0)))}
+              ${metric("最佳委買", quote.bid_price === null || quote.bid_price === undefined ? "-" : `${escapeHtml(number(quote.bid_price))} / ${escapeHtml(number(quote.bid_volume, 0))}`)}
+              ${metric("最佳委賣", quote.ask_price === null || quote.ask_price === undefined ? "-" : `${escapeHtml(number(quote.ask_price))} / ${escapeHtml(number(quote.ask_volume, 0))}`)}
+              ${metric("買賣盤差", quote.orderbook_imbalance === null || quote.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(quote.orderbook_imbalance))}%`)}
+              ${metric("逐筆成交 Tick", escapeHtml(statusZh(quote.tick_status)))}
+              ${metric("五檔委買委賣串流", escapeHtml(statusZh(quote.five_level_status)))}
+              ${metric("報價時間", escapeHtml(quote.quote_time || quote.fetched_at || "-"))}
+            </div>
+            ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
+            ${quote.error ? `<p class="warn-inline">${escapeHtml(quote.error)}</p>` : ""}
+            <p class="muted">安全規則：Shioaji 報價只作進場確認背景，不會直接產生強烈做多，也不會自動下單。</p>
+          </article>
+        `;
+      };
       const renderPrecisionContextCard = (precision) => {
         precision = precision || {};
         const available = Array.isArray(precision.available_data) ? precision.available_data : [];
@@ -2701,6 +2735,7 @@ def tw_advisor_script() -> str:
         const analysis = payload.advisor_analysis || {};
         const frontTrade = payload.front_trade || {};
         const precision = payload.precision_context || {};
+        const shioajiQuote = payload.shioaji_quote || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -2815,6 +2850,8 @@ def tw_advisor_script() -> str:
               ${metric("Yahoo 5分K", escapeHtml(dataHealth.yahoo_intraday_5m_success ? "成功" : "失敗"))}
               ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}
               ${metric("TWSE / TPEX", escapeHtml(dataHealth.twse_tpex_quote_success ? "成功" : "失敗"))}
+              ${metric("Shioaji 報價", escapeHtml(dataHealth.shioaji_status_label || "尚未啟用"))}
+              ${metric("Shioaji 五檔", escapeHtml(statusZh(dataHealth.shioaji_five_level_status || "not_streaming")))}
               ${metric("使用 cache", escapeHtml(yesNo(dataHealth.uses_cache)))}
               ${metric("data_missing", escapeHtml(yesNo(dataHealth.is_data_missing)))}
               ${metric("市場時段", escapeHtml(`${safety.market_session || "-"}｜${safety.market_status_text || "-"}`))}
@@ -2824,6 +2861,7 @@ def tw_advisor_script() -> str:
           </article>
 
           ${renderEntryChecklistCard(payload)}
+          ${renderShioajiQuoteCard(shioajiQuote)}
           ${renderPrecisionContextCard(precision)}
 
           <article class="advisor-card">

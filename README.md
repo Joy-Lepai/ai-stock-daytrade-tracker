@@ -161,6 +161,34 @@ python3 -m py_compile stock_daytrade_system/*.py
 - 若要多人使用，下一步應改成資料庫與多帳號權限。
 - 若要更即時，建議串券商報價 API，而不是只靠 Yahoo chart endpoint。
 
+### Shioaji 永豐金報價接入（選用）
+
+本系統可選擇接入 Shioaji 作為台股即時報價背景資料，用來補強個股頁的盤口確認。第一版只讀行情，不下單、不送委託、不需要把交易功能打開。
+
+建議 Render 環境變數：
+
+```text
+SHIOAJI_ENABLED=1
+SHIOAJI_API_KEY=你的 Shioaji API Key
+SHIOAJI_SECRET_KEY=你的 Shioaji Secret Key
+SHIOAJI_TIMEOUT_SECONDS=3
+```
+
+若不想在 Web Service 內直接安裝 / 登入 Shioaji，也可以自行架一個內部 quote bridge，並設定：
+
+```text
+SHIOAJI_ENABLED=1
+SHIOAJI_HTTP_BASE_URL=https://你的內部報價服務
+```
+
+目前 MVP 行為：
+
+- `/tw/advisor` 會顯示「Shioaji 即時報價 / 盤口確認」卡片。
+- 沒有設定憑證時，網站會顯示「尚未啟用 / 尚未設定憑證」，不會讓 dashboard 壞掉。
+- 若 Shioaji 可取得報價，個股頁會優先顯示 Shioaji snapshot 價格。
+- 第一版顯示 snapshot / top-of-book，不把它當完整五檔串流。
+- Shioaji 報價只作背景確認，不會直接產生強烈做多，也不會自動下單。
+
 ## 建議排程
 
 公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：

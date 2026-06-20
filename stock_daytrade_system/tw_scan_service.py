@@ -21,6 +21,7 @@ from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_si
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.position_management import position_action_for_symbol
 from stock_daytrade_system.precision_context import build_precision_context
+from stock_daytrade_system.shioaji_quote import ShioajiQuoteClient
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
@@ -73,11 +74,13 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     db_path = default_db_path(project_root)
     with connect(db_path) as conn:
         last_known_row = last_known_price_row(conn, "TW", item.symbol)
+    shioaji_quote = ShioajiQuoteClient().fetch_snapshot(item.symbol)
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
     scan_payload = _scan_payload_with_last_known(scan_item.to_dict(), last_known_row)
-    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row)
-    data_health = _data_health_payload(captured_at, display_payload, daily_errors, intraday_errors, quote_intraday_errors, item.symbol)
+    shioaji_payload = shioaji_quote.to_dict()
+    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, shioaji_payload)
+    data_health = _data_health_payload(captured_at, display_payload, daily_errors, intraday_errors, quote_intraday_errors, item.symbol, shioaji_payload)
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
         scan=scan_payload,
@@ -145,6 +148,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "market_notes": list(market_bias.notes),
         "scan": scan_payload,
         "candidate": candidate_payload,
+        "shioaji_quote": shioaji_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "data_health": data_health,
@@ -160,7 +164,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
-        "data_source": f"TWSE MIS + {provider_status.get('active_provider', 'yahoo')} market data provider",
+        "data_source": f"Shioaji optional + TWSE MIS + {provider_status.get('active_provider', 'yahoo')} market data provider",
         "provider_status": provider_status,
         "official_institutional": {
             "version": official_institutional.version,
@@ -262,13 +266,20 @@ def _scan_payload_with_last_known(scan_data: dict, last_known_row) -> dict:
     return payload
 
 
-def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None) -> dict:
+def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None, shioaji_quote: Optional[dict] = None) -> dict:
     scan_data = dict(scan_item or {})
     candidate_data = _candidate_payload(candidate) or {}
-    current_price = realtime_quote.get("price")
-    change_pct = realtime_quote.get("change_pct")
-    source = realtime_quote.get("source") if current_price is not None else "Yahoo Finance intraday chart"
-    quote_time = realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
+    shioaji_quote = shioaji_quote or {}
+    current_price = shioaji_quote.get("price") if shioaji_quote.get("price") is not None else realtime_quote.get("price")
+    change_pct = shioaji_quote.get("change_pct") if shioaji_quote.get("change_pct") is not None else realtime_quote.get("change_pct")
+    source = (
+        shioaji_quote.get("source")
+        if shioaji_quote.get("price") is not None
+        else realtime_quote.get("source")
+        if realtime_quote.get("price") is not None
+        else "Yahoo Finance intraday chart"
+    )
+    quote_time = shioaji_quote.get("quote_time") or realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
     if current_price is None:
         current_price = scan_data.get("latest_price")
     if current_price is None:
@@ -304,7 +315,9 @@ def _data_health_payload(
     intraday_errors: dict,
     quote_intraday_errors: dict,
     symbol: str,
+    shioaji_quote: Optional[dict] = None,
 ) -> dict:
+    shioaji_quote = shioaji_quote or {}
     quote_time = str(display.get("quote_time") or "")
     quote_dt = _parse_quote_time(quote_time)
     age_minutes = None
@@ -362,6 +375,13 @@ def _data_health_payload(
         "yahoo_intraday_5m_success": symbol not in intraday_errors,
         "yahoo_intraday_1m_success": symbol not in quote_intraday_errors,
         "twse_tpex_quote_success": status != "異常",
+        "shioaji_enabled": bool(shioaji_quote.get("enabled")),
+        "shioaji_configured": bool(shioaji_quote.get("configured")),
+        "shioaji_status": shioaji_quote.get("status") or "disabled",
+        "shioaji_status_label": shioaji_quote.get("status_label") or "尚未啟用",
+        "shioaji_quote_success": bool(shioaji_quote.get("price") is not None),
+        "shioaji_bidask_status": shioaji_quote.get("bidask_status") or "missing",
+        "shioaji_five_level_status": shioaji_quote.get("five_level_status") or "not_streaming",
         "uses_cache": freshness.uses_last_known,
         "is_data_missing": has_error,
         "can_use_for_daytrade": status == "正常" and freshness.state == "live",
