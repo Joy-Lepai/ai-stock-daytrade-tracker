@@ -60,6 +60,40 @@ class FrontendLanguageTests(unittest.TestCase):
         self.assertIn("資料過期", view.subtitle)
         self.assertFalse(view.is_strong_long_allowed)
 
+    def test_cached_price_status_blocks_strong_long_without_type_error(self):
+        view = front_trade_view(
+            {
+                "grade": "A",
+                "entry_status": "executable",
+                "vwap": 100,
+                "volume_ratio": 1.5,
+                "stop_loss": 99,
+            },
+            price_status_label="cached",
+            uses_last_known=True,
+        )
+
+        self.assertNotEqual(view.category, "強烈做多")
+        self.assertFalse(view.is_strong_long_allowed)
+        self.assertIn("refresh_layer_stale", view.reason_codes)
+
+    def test_delayed_price_status_blocks_strong_long_without_type_error(self):
+        view = front_trade_view(
+            {
+                "grade": "A",
+                "entry_status": "executable",
+                "vwap": 100,
+                "volume_ratio": 1.5,
+                "stop_loss": 99,
+            },
+            price_status_label="delayed",
+            is_delayed=True,
+        )
+
+        self.assertNotEqual(view.category, "強烈做多")
+        self.assertFalse(view.is_strong_long_allowed)
+        self.assertIn("stale_data", view.reason_codes)
+
 
 if __name__ == "__main__":
     unittest.main()

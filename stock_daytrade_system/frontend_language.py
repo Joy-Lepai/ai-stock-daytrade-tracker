@@ -29,8 +29,12 @@ def front_trade_view(
     data_today: bool = True,
     intraday: bool = True,
     stale: bool = False,
+    data_missing: bool = False,
     allow_strong_long: bool = True,
     market_mode: str = "intraday",
+    price_status_label: str = "",
+    uses_last_known: bool = False,
+    is_delayed: bool = False,
 ) -> FrontTradeView:
     entry = _string(_get(item, "entry_status"))
     grade = _string(_get(item, "grade"))
@@ -42,12 +46,23 @@ def front_trade_view(
     risk_reasons = _list_text(_get(item, "risk_reasons"))
     reasons = _list_text(_get(item, "reasons"))
     confidence_summary = _string(_get(item, "confidence_summary"))
+    price_status = price_status_label.strip().lower()
+    fallback_or_delayed = (
+        uses_last_known
+        or is_delayed
+        or price_status in {"cached", "delayed", "missing", "使用上一筆", "資料延遲", "資料不足"}
+    )
+    missing_or_unusable = data_missing or price_status in {"missing", "資料不足"}
+    safe_allow_strong_long = allow_strong_long and not fallback_or_delayed and not missing_or_unusable
+    safe_stale = stale or is_delayed or price_status in {"delayed", "資料延遲"}
+
     guard = evaluate_signal_guard(
         item,
         data_today=data_today,
         intraday=intraday,
-        stale=stale,
-        allow_strong_long=allow_strong_long,
+        stale=safe_stale,
+        data_missing=missing_or_unusable,
+        allow_strong_long=safe_allow_strong_long,
         market_mode=market_mode,
     )
     reason_codes = list(guard.reason_codes)
