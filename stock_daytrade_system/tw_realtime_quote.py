@@ -6,7 +6,7 @@ import time
 import urllib.parse
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Optional
 
 from stock_daytrade_system.resilience import record_source_health, retry_sync
@@ -23,6 +23,21 @@ class TwRealtimeQuote:
     source: str = "TWSE MIS"
     status: str = "ok"
     error: str = ""
+    bid_levels: list[dict] = field(default_factory=list)
+    ask_levels: list[dict] = field(default_factory=list)
+    bid_total_volume: Optional[float] = None
+    ask_total_volume: Optional[float] = None
+    bid_price: Optional[float] = None
+    bid_volume: Optional[float] = None
+    ask_price: Optional[float] = None
+    ask_volume: Optional[float] = None
+    five_level_status: str = "missing"
+    five_level_status_label: str = "五檔資料不足"
+    orderbook_imbalance: Optional[float] = None
+    limit_up: Optional[float] = None
+    limit_down: Optional[float] = None
+    is_limit_up_locked: bool = False
+    is_limit_down_locked: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -129,6 +144,14 @@ def parse_twse_quote_row(symbol: str, row: dict) -> TwRealtimeQuote:
     date = str(row.get("d") or "")
     time_text = str(row.get("t") or "")
     quote_time = _quote_time(date, time_text)
+    bid_levels = _levels(row.get("b"), row.get("g"))
+    ask_levels = _levels(row.get("a"), row.get("f"))
+    bid_total = _sum_volume(bid_levels)
+    ask_total = _sum_volume(ask_levels)
+    imbalance = _orderbook_imbalance(bid_total, ask_total)
+    limit_up = _float(row.get("u"))
+    limit_down = _float(row.get("w"))
+    status, status_label = _five_level_status(bid_levels, ask_levels, price, limit_up, limit_down)
     return TwRealtimeQuote(
         symbol=_normalize_symbol(symbol),
         name=str(row.get("n") or symbol),
@@ -138,6 +161,21 @@ def parse_twse_quote_row(symbol: str, row: dict) -> TwRealtimeQuote:
         quote_time=quote_time,
         status="ok" if price is not None else "partial",
         error="" if price is not None else "current price unavailable",
+        bid_levels=bid_levels,
+        ask_levels=ask_levels,
+        bid_total_volume=bid_total,
+        ask_total_volume=ask_total,
+        bid_price=bid_levels[0]["price"] if bid_levels else None,
+        bid_volume=bid_levels[0]["volume"] if bid_levels else None,
+        ask_price=ask_levels[0]["price"] if ask_levels else None,
+        ask_volume=ask_levels[0]["volume"] if ask_levels else None,
+        five_level_status=status,
+        five_level_status_label=status_label,
+        orderbook_imbalance=imbalance,
+        limit_up=round(limit_up, 2) if limit_up is not None else None,
+        limit_down=round(limit_down, 2) if limit_down is not None else None,
+        is_limit_up_locked=bool(price is not None and limit_up is not None and price >= limit_up and not ask_levels and bid_levels),
+        is_limit_down_locked=bool(price is not None and limit_down is not None and price <= limit_down and not bid_levels and ask_levels),
     )
 
 
@@ -164,6 +202,54 @@ def _float(value) -> Optional[float]:
         return float(text)
     except (TypeError, ValueError):
         return None
+
+
+def _levels(price_text, volume_text) -> list[dict]:
+    prices = [_float(item) for item in str(price_text or "").split("_")]
+    volumes = [_float(item) for item in str(volume_text or "").split("_")]
+    rows = []
+    for index, price in enumerate(prices):
+        if price is None:
+            continue
+        volume = volumes[index] if index < len(volumes) else None
+        rows.append({"level": index + 1, "price": round(price, 2), "volume": volume})
+    return rows[:5]
+
+
+def _sum_volume(levels: list[dict]) -> Optional[float]:
+    if not levels:
+        return None
+    total = sum(float(item.get("volume") or 0) for item in levels)
+    return round(total, 2)
+
+
+def _orderbook_imbalance(bid_total: Optional[float], ask_total: Optional[float]) -> Optional[float]:
+    bid = float(bid_total or 0)
+    ask = float(ask_total or 0)
+    total = bid + ask
+    if total <= 0:
+        return None
+    return round((bid - ask) / total * 100, 2)
+
+
+def _five_level_status(
+    bid_levels: list[dict],
+    ask_levels: list[dict],
+    price: Optional[float],
+    limit_up: Optional[float],
+    limit_down: Optional[float],
+) -> tuple[str, str]:
+    if bid_levels and ask_levels:
+        return "available", "公開五檔可用"
+    if bid_levels and price is not None and limit_up is not None and price >= limit_up:
+        return "limit_up_bid_only", "漲停鎖住，僅見買盤"
+    if ask_levels and price is not None and limit_down is not None and price <= limit_down:
+        return "limit_down_ask_only", "跌停鎖住，僅見賣盤"
+    if bid_levels:
+        return "bid_only", "僅有委買盤"
+    if ask_levels:
+        return "ask_only", "僅有委賣盤"
+    return "missing", "五檔資料不足"
 
 
 def _quote_time(date: str, time_text: str) -> str:

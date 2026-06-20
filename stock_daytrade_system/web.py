@@ -2339,6 +2339,11 @@ def tw_advisor_script() -> str:
         snapshot: "快照",
         top_of_book: "最佳一檔",
         not_streaming: "尚未串流",
+        available: "可用",
+        limit_up_bid_only: "漲停買盤",
+        limit_down_ask_only: "跌停賣盤",
+        bid_only: "僅委買",
+        ask_only: "僅委賣",
         confirmed: "確認",
         divergence: "背離",
         strong: "偏強",
@@ -2597,6 +2602,57 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderTwseOrderbookCard = (quote) => {
+        quote = quote || {};
+        const bids = Array.isArray(quote.bid_levels) ? quote.bid_levels : [];
+        const asks = Array.isArray(quote.ask_levels) ? quote.ask_levels : [];
+        const maxRows = Math.max(bids.length, asks.length, 5);
+        const rows = Array.from({ length: maxRows }, (_, index) => {
+          const bid = bids[index] || {};
+          const ask = asks[index] || {};
+          return `
+            <tr>
+              <td>${index + 1}</td>
+              <td class="num-up">${bid.price === undefined || bid.price === null ? "-" : escapeHtml(number(bid.price))}</td>
+              <td>${bid.volume === undefined || bid.volume === null ? "-" : escapeHtml(number(bid.volume, 0))}</td>
+              <td class="num-down">${ask.price === undefined || ask.price === null ? "-" : escapeHtml(number(ask.price))}</td>
+              <td>${ask.volume === undefined || ask.volume === null ? "-" : escapeHtml(number(ask.volume, 0))}</td>
+            </tr>
+          `;
+        }).join("");
+        const warning = quote.is_limit_up_locked
+          ? "目前接近或處於漲停鎖住狀態，賣盤可能為空；這代表追價風險升高，不代表可以直接追高。"
+          : quote.is_limit_down_locked
+          ? "目前接近或處於跌停鎖住狀態，買盤可能為空；不適合作為做多依據。"
+          : "公開五檔只作盤口確認背景，不會直接產生強烈做多。";
+        return `
+          <article class="advisor-card">
+            <h3>TWSE MIS 公開五檔委買委賣</h3>
+            <p><strong>${escapeHtml(quote.five_level_status_label || "五檔資料不足")}</strong></p>
+            <p class="muted">此區使用 TWSE MIS 公開行情欄位，免券商帳號；資料可能延遲或受交易所端點限制，僅作盤口背景。</p>
+            <div class="advisor-grid">
+              ${metric("資料來源", escapeHtml(quote.source || "TWSE MIS"))}
+              ${metric("五檔狀態", escapeHtml(statusZh(quote.five_level_status)))}
+              ${metric("成交價", escapeHtml(number(quote.price)))}
+              ${metric("最佳委買", quote.bid_price === null || quote.bid_price === undefined ? "-" : `${escapeHtml(number(quote.bid_price))} / ${escapeHtml(number(quote.bid_volume, 0))}`)}
+              ${metric("最佳委賣", quote.ask_price === null || quote.ask_price === undefined ? "-" : `${escapeHtml(number(quote.ask_price))} / ${escapeHtml(number(quote.ask_volume, 0))}`)}
+              ${metric("買賣盤差", quote.orderbook_imbalance === null || quote.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(quote.orderbook_imbalance))}%`)}
+              ${metric("委買總量", escapeHtml(number(quote.bid_total_volume, 0)))}
+              ${metric("委賣總量", escapeHtml(number(quote.ask_total_volume, 0)))}
+              ${metric("漲停價", escapeHtml(number(quote.limit_up)))}
+              ${metric("跌停價", escapeHtml(number(quote.limit_down)))}
+              ${metric("報價時間", escapeHtml(quote.quote_time || "-"))}
+            </div>
+            <div class="orderbook-table">
+              <table>
+                <thead><tr><th>檔</th><th>委買價</th><th>委買量</th><th>委賣價</th><th>委賣量</th></tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+            <p class="warn-inline">${escapeHtml(warning)}</p>
+          </article>
+        `;
+      };
       const renderPrecisionContextCard = (precision) => {
         precision = precision || {};
         const available = Array.isArray(precision.available_data) ? precision.available_data : [];
@@ -2850,6 +2906,7 @@ def tw_advisor_script() -> str:
               ${metric("Yahoo 5分K", escapeHtml(dataHealth.yahoo_intraday_5m_success ? "成功" : "失敗"))}
               ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}
               ${metric("TWSE / TPEX", escapeHtml(dataHealth.twse_tpex_quote_success ? "成功" : "失敗"))}
+              ${metric("公開五檔", escapeHtml(dataHealth.twse_mis_five_level_status_label || "五檔資料不足"))}
               ${metric("Shioaji 報價", escapeHtml(dataHealth.shioaji_status_label || "尚未啟用"))}
               ${metric("Shioaji 五檔", escapeHtml(statusZh(dataHealth.shioaji_five_level_status || "not_streaming")))}
               ${metric("使用 cache", escapeHtml(yesNo(dataHealth.uses_cache)))}
@@ -2861,6 +2918,7 @@ def tw_advisor_script() -> str:
           </article>
 
           ${renderEntryChecklistCard(payload)}
+          ${renderTwseOrderbookCard(payload.realtime_quote || {})}
           ${renderShioajiQuoteCard(shioajiQuote)}
           ${renderPrecisionContextCard(precision)}
 
@@ -3562,6 +3620,10 @@ def tw_advisor_css() -> str:
     .advisor-panel li { margin:4px 0; }
     .advisor-history-table { overflow:auto; }
     .advisor-history-table table { min-width:980px; }
+    .orderbook-table { margin-top:12px; overflow:auto; }
+    .orderbook-table table { min-width:520px; }
+    .orderbook-table th, .orderbook-table td { text-align:right; }
+    .orderbook-table th:first-child, .orderbook-table td:first-child { text-align:center; width:48px; color:var(--muted); }
     .warn-inline { margin-top:10px; padding:10px 12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; color:#7c2d12; }
     .debug-card summary { cursor:pointer; font-weight:800; }
     .plan-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:8px; }

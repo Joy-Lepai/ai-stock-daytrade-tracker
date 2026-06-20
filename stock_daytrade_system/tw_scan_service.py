@@ -80,7 +80,16 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     scan_payload = _scan_payload_with_last_known(scan_item.to_dict(), last_known_row)
     shioaji_payload = shioaji_quote.to_dict()
     display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, shioaji_payload)
-    data_health = _data_health_payload(captured_at, display_payload, daily_errors, intraday_errors, quote_intraday_errors, item.symbol, shioaji_payload)
+    data_health = _data_health_payload(
+        captured_at,
+        display_payload,
+        daily_errors,
+        intraday_errors,
+        quote_intraday_errors,
+        item.symbol,
+        shioaji_payload,
+        realtime_payload,
+    )
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
         scan=scan_payload,
@@ -316,8 +325,10 @@ def _data_health_payload(
     quote_intraday_errors: dict,
     symbol: str,
     shioaji_quote: Optional[dict] = None,
+    realtime_quote: Optional[dict] = None,
 ) -> dict:
     shioaji_quote = shioaji_quote or {}
+    realtime_quote = realtime_quote or {}
     quote_time = str(display.get("quote_time") or "")
     quote_dt = _parse_quote_time(quote_time)
     age_minutes = None
@@ -375,6 +386,13 @@ def _data_health_payload(
         "yahoo_intraday_5m_success": symbol not in intraday_errors,
         "yahoo_intraday_1m_success": symbol not in quote_intraday_errors,
         "twse_tpex_quote_success": status != "異常",
+        "twse_mis_five_level_status": realtime_quote.get("five_level_status") or "missing",
+        "twse_mis_five_level_status_label": realtime_quote.get("five_level_status_label") or "五檔資料不足",
+        "twse_mis_orderbook_imbalance": realtime_quote.get("orderbook_imbalance"),
+        "twse_mis_bid_total_volume": realtime_quote.get("bid_total_volume"),
+        "twse_mis_ask_total_volume": realtime_quote.get("ask_total_volume"),
+        "twse_mis_is_limit_up_locked": bool(realtime_quote.get("is_limit_up_locked")),
+        "twse_mis_is_limit_down_locked": bool(realtime_quote.get("is_limit_down_locked")),
         "shioaji_enabled": bool(shioaji_quote.get("enabled")),
         "shioaji_configured": bool(shioaji_quote.get("configured")),
         "shioaji_status": shioaji_quote.get("status") or "disabled",

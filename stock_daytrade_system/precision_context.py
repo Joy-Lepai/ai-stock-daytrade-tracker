@@ -85,7 +85,19 @@ def build_precision_context(
     else:
         missing.append("族群同步背景")
 
-    missing.extend(["逐筆成交 Tick", "五檔委買委賣", "即時新聞題材"])
+    orderbook_status = str(data_health.get("twse_mis_five_level_status") or "missing")
+    has_public_orderbook = orderbook_status in {
+        "available",
+        "limit_up_bid_only",
+        "limit_down_ask_only",
+        "bid_only",
+        "ask_only",
+    }
+    if has_public_orderbook:
+        available.append("公開五檔委買委賣")
+    else:
+        missing.append("五檔委買委賣")
+    missing.extend(["逐筆成交 Tick", "即時新聞題材"])
     score = 0.0
     score += 18 if data_live else 0
     score += 16 if has_intraday else 0
@@ -96,6 +108,7 @@ def build_precision_context(
     score += 8 if price_up_volume_up else 0
     score += 6 if institutional_status in {"ok", "partial"} else 0
     score += 6 if sector_status == "strong" else 0
+    score += 4 if has_public_orderbook else 0
     score = min(score, 100.0)
     precision_level, precision_label = _precision_level(score, data_live)
     # Without tick/orderbook feeds we intentionally cap this to observation.
@@ -108,7 +121,7 @@ def build_precision_context(
         readiness_score=round(score, 2),
         can_use_for_precise_daytrade=can_precise,
         tick_data_status="missing",
-        orderbook_status="missing",
+        orderbook_status="partial" if has_public_orderbook else "missing",
         news_status="missing",
         intraday_k_status="ok" if has_intraday else "missing",
         vwap_quality="ok" if has_vwap and vwap_hold_ok else ("partial" if has_vwap else "missing"),
@@ -124,7 +137,7 @@ def build_precision_context(
         missing_data=missing,
         available_data=available,
         summary=_summary(precision_label, data_live, missing),
-        next_data_to_add=["券商即時 Tick API", "五檔委買委賣 API", "即時新聞 / 題材來源"],
+        next_data_to_add=["券商即時 Tick API", "更穩定的五檔串流 API", "即時新聞 / 題材來源"],
     )
 
 
