@@ -135,11 +135,18 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         analysis_payload,
         captured_at,
     )
+    clock = taiwan_market_session(captured_at)
     front_trade_payload = front_trade_view(
         candidate_payload or scan_payload,
         data_today=bool(data_health.get("is_today_data")),
         intraday=bool(data_health.get("is_intraday_data")),
         stale=bool(data_health.get("is_stale")),
+        data_missing=bool(data_health.get("is_data_missing")),
+        allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
+        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
+        uses_last_known=bool(data_health.get("uses_last_known") or data_health.get("uses_cache")),
+        is_delayed=bool(data_health.get("is_delayed")),
     ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
     reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)

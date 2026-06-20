@@ -2831,6 +2831,69 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderStrongLongDecisionCard = (payload) => {
+        payload = payload || {};
+        const frontTrade = payload.front_trade || {};
+        const candidate = payload.candidate || {};
+        const scan = payload.scan || {};
+        const dataHealth = payload.data_health || {};
+        const safety = payload.safety || {};
+        const category = frontTrade.category || "觀察";
+        const subtitle = frontTrade.subtitle || "等待確認";
+        const isStrongCandidate = category === "強烈做多";
+        const isExecutable = Boolean(safety.is_executable_allowed);
+        const statusLabel = isExecutable
+          ? "可執行：已通過觸發與安全條件"
+          : isStrongCandidate
+          ? "強烈做多候選：值得盯盤，但尚未等於進場"
+          : "尚未達強烈做多：等待條件補齊";
+        const blockedMessages = (safety.blocked_reasons || [])
+          .map((item) => item.message || item.code || String(item))
+          .filter(Boolean);
+        const notes = [];
+        if (dataHealth.can_show_strong_long === false) {
+          notes.push(dataHealth.advice || "資料狀態未達即時強烈做多條件。");
+        }
+        if (isStrongCandidate && !isExecutable) {
+          notes.push("目前屬於強烈做多候選，仍需等待突破、量能、VWAP、停損距離或資料即時性確認。");
+        }
+        if (!isStrongCandidate) {
+          notes.push(frontTrade.reason || "等待 VWAP、量能、突破、風控或資料條件確認。");
+        }
+        const reasonCodes = frontTrade.reason_codes || safety.reason_codes || [];
+        return `
+          <article class="advisor-card strong-long-card">
+            <h3>強烈做多 / 可執行判斷</h3>
+            <p><strong>${escapeHtml(statusLabel)}</strong></p>
+            <p class="muted">${escapeHtml(frontTrade.reason || "等待條件確認。")}</p>
+            <div class="advisor-grid">
+              ${metric("前台分類", escapeHtml(category))}
+              ${metric("狀態說明", escapeHtml(subtitle))}
+              ${metric("強烈做多候選", escapeHtml(yesNo(isStrongCandidate)))}
+              ${metric("可執行 executable", escapeHtml(yesNo(isExecutable)))}
+              ${metric("entry_status", escapeHtml(candidate.entry_status || scan.entry_status || "-"))}
+              ${metric("effective entry", escapeHtml(safety.effective_entry_status || "-"))}
+              ${metric("資料允許強烈做多", escapeHtml(yesNo(dataHealth.can_show_strong_long)))}
+              ${metric("price_status", escapeHtml(dataHealth.price_status || dataHealth.quote_state || "-"))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>下一步</h3>
+                <p>${escapeHtml(frontTrade.next_step || "等待條件確認。")}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>尚不可視為可執行原因</h3>
+                ${list(blockedMessages.length ? blockedMessages : notes)}
+              </section>
+              <section class="advisor-panel">
+                <h3>reason code</h3>
+                ${list(reasonCodes.length ? reasonCodes : ["no_reason_code"])}
+              </section>
+            </div>
+            <p class="warn-inline">強烈做多代表盤中條件高度符合、值得立即盯盤；可執行才代表已觸發進場條件並通過資料與風控安全檢查。</p>
+          </article>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -2952,6 +3015,7 @@ def tw_advisor_script() -> str:
             </div>
           </article>
           ${positionCard}
+          ${renderStrongLongDecisionCard(payload)}
 
           <article class="advisor-card">
             <h3>資料可信度</h3>
