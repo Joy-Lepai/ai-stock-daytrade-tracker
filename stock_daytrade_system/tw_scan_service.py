@@ -18,6 +18,7 @@ from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_signal_guard
+from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.position_management import position_action_for_symbol
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
@@ -43,6 +44,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         [item.symbol], range_="1d", interval="1m"
     )
     market_bias = score_market_bias(daily_data, config.market.benchmark, config.market.taiwan_futures)
+    official_institutional = fetch_official_institutional_contexts(project_root, now=captured_at)
     opening = analyze_opening_confirmation(
         item,
         intraday_data.get(item.symbol, []),
@@ -57,6 +59,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         [],
         market_bias,
         {},
+        official_institutional.contexts,
         captured_at=captured_at,
     )
     model = candidates[0] if candidates else None
@@ -152,6 +155,13 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "warnings": warnings,
         "data_source": f"TWSE MIS + {provider_status.get('active_provider', 'yahoo')} market data provider",
         "provider_status": provider_status,
+        "official_institutional": {
+            "version": official_institutional.version,
+            "symbols_count": official_institutional.symbols_count,
+            "records_count": official_institutional.records_count,
+            "latest_dates": official_institutional.latest_dates,
+            "source_status": official_institutional.source_status,
+        },
         "db_path": str(db_path),
     }
 

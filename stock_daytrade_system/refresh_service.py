@@ -26,6 +26,7 @@ from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
+from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.paper_broker import run_paper_trading
 from stock_daytrade_system.resilience import health_status_compact, health_status_snapshot
 from stock_daytrade_system.scoring import score_market_bias
@@ -250,6 +251,7 @@ class RefreshCoordinator:
         market_bias = score_market_bias(daily_data, config.market.benchmark, config.market.taiwan_futures)
         benchmark_bars = daily_data.get(config.market.benchmark, [])
         sector_strengths = rank_sector_strength(symbols, daily_data, benchmark_bars)
+        official_institutional = fetch_official_institutional_contexts(self.project_root, now=started_at)
         opening_signals = [
             signal
             for item in symbols
@@ -271,6 +273,7 @@ class RefreshCoordinator:
             sector_strengths,
             market_bias,
             {},
+            official_institutional.contexts,
             captured_at=started_at,
         )
         with connect(default_db_path(self.project_root)) as conn:

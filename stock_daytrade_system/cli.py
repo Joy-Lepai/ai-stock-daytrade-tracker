@@ -29,6 +29,7 @@ from stock_daytrade_system.market_data_provider import (
     PROVIDER_VERSION,
     get_market_data_provider_manager,
 )
+from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.paper_trading import update_paper_trades
 from stock_daytrade_system.performance import record_signal_performance
 from stock_daytrade_system.position_management import build_position_command_center
@@ -257,6 +258,8 @@ def run_tracker(
     except CMoneyDataError as exc:
         cmoney_errors["CMoney 法人買超排行"] = str(exc)
     cmoney_ranking_map = rankings_by_symbol(cmoney_rankings)
+    official_institutional = fetch_official_institutional_contexts(PROJECT_ROOT)
+    official_institutional_contexts = official_institutional.contexts
     auto_universe = merge_cmoney_symbols(config.auto_universe, cmoney_rankings)
     base_watch_items = _dedupe_watch_symbols(auto_universe + config.manual_symbols)
     now = datetime.now(ZoneInfo(config.market.timezone))
@@ -363,6 +366,7 @@ def run_tracker(
             sector_strengths,
             market_bias,
             cmoney_ranking_map,
+            official_institutional_contexts,
             captured_at=now,
         )
         original_pool_symbols = {item.symbol for item in build_momentum_universe(base_watch_items)}
@@ -439,6 +443,11 @@ def run_tracker(
             "market_data_provider_active": provider_status.get("active_provider", "-"),
             "market_data_provider_primary": provider_status.get("primary_provider", "-"),
             "market_data_provider_fallback": provider_status.get("fallback_provider", "-"),
+            "official_institutional_version": official_institutional.version,
+            "official_institutional_symbols": official_institutional.symbols_count,
+            "official_institutional_records": official_institutional.records_count,
+            "official_institutional_twse_date": official_institutional.latest_dates.get("twse", ""),
+            "official_institutional_tpex_date": official_institutional.latest_dates.get("tpex", ""),
             "post_market_verification_rows": int(post_market_verification.get("rows", 0)),
             "post_market_verification_verified": int(post_market_verification.get("verified", 0)),
             "post_market_verification_missing_intraday": int(post_market_verification.get("missing_intraday", 0)),
@@ -510,6 +519,16 @@ def run_tracker(
         data_status.append("CMoney 法人買超排行擷取失敗；法人排行已排除在評分加分外。")
     else:
         data_status.append(f"CMoney 法人買超排行擷取成功 {len(cmoney_rankings)} 筆；僅作現有 MVP 輔助排序。")
+    official_status = official_institutional.source_status
+    data_status.append(
+        "TWSE/TPEX 官方三大法人買賣超背景資料："
+        f"涵蓋 {official_institutional.symbols_count} 檔，"
+        f"TWSE 日期 {official_institutional.latest_dates.get('twse') or '-'}，"
+        f"TPEX 日期 {official_institutional.latest_dates.get('tpex') or '-'}；"
+        "僅作籌碼背景，不直接產生強烈做多。"
+    )
+    if official_status.get("used_cache"):
+        data_status.append("官方三大法人資料部分使用 cache；籌碼背景可供觀察，但不作即時進場依據。")
     full_source = full_market_result.source_status
     if full_market_result.summary.get("source_ok"):
         if full_source.get("twse_ok"):

@@ -128,11 +128,13 @@ def build_long_candidates(
     sector_strengths: Iterable[SectorStrength],
     market_bias: MarketBias,
     institutional_rankings: Optional[dict] = None,
+    institutional_contexts: Optional[dict] = None,
     captured_at: Optional[datetime] = None,
 ) -> List[LongCandidate]:
     opening_map = {item.symbol: item for item in opening_signals}
     sector_map = {item.sector: item for item in sector_strengths}
     ranking_map = institutional_rankings or {}
+    context_map = institutional_contexts or {}
     candidates: List[LongCandidate] = []
     for symbol in symbols:
         bars = daily_data.get(symbol.symbol, [])
@@ -146,6 +148,7 @@ def build_long_candidates(
             sector_map.get(symbol.sector),
             market_bias,
             ranking_map.get(symbol.symbol),
+            context_map.get(symbol.symbol),
             captured_at,
         )
         if item is not None:
@@ -197,6 +200,7 @@ def _build_candidate(
     sector: Optional[SectorStrength],
     market_bias: MarketBias,
     ranking,
+    institutional_context_payload,
     captured_at: Optional[datetime],
 ) -> Optional[LongCandidate]:
     last = bars[-1]
@@ -228,7 +232,7 @@ def _build_candidate(
     upper_shadow_pct = _upper_shadow_pct(last)
     vwap_distance_pct = _vwap_distance_pct(last_price, vwap)
     institutional_buy = ranking.total_buy_million if ranking else None
-    institutional_context = evaluate_institutional_context(ranking).to_dict()
+    institutional_context = _institutional_context_payload(institutional_context_payload, ranking)
     sector_context = evaluate_sector_context(sector).to_dict()
 
     bullish_score, reasons = _bullish_score(
@@ -436,6 +440,15 @@ def _build_candidate(
         institutional_context=institutional_context,
         sector_context=sector_context,
     )
+
+
+def _institutional_context_payload(payload, ranking) -> dict:
+    if payload:
+        if hasattr(payload, "to_dict"):
+            return payload.to_dict()
+        if isinstance(payload, dict):
+            return dict(payload)
+    return evaluate_institutional_context(ranking).to_dict()
 
 
 def _bullish_score(

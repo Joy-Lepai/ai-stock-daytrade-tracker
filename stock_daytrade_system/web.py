@@ -2509,9 +2509,9 @@ def tw_advisor_script() -> str:
             <p><strong>${escapeHtml(chip.institutional_label || "籌碼資料不足")}</strong></p>
             <p class="muted">${escapeHtml(chip.institutional_reason || "目前沒有可用籌碼資料；籌碼只作背景，不作為強烈做多依據。")}</p>
             <div class="advisor-grid">
-              ${metric("外資昨日", escapeHtml(number(chip.foreign_buy_sell)))}
-              ${metric("投信昨日", escapeHtml(number(chip.investment_trust_buy_sell)))}
-              ${metric("自營商昨日", escapeHtml(number(chip.dealer_buy_sell)))}
+              ${metric("外資近一日", escapeHtml(number(chip.foreign_buy_sell)))}
+              ${metric("投信近一日", escapeHtml(number(chip.investment_trust_buy_sell)))}
+              ${metric("自營商近一日", escapeHtml(number(chip.dealer_buy_sell)))}
               ${metric("三大法人合計", escapeHtml(number(chip.institutional_total_buy_sell)))}
               ${metric("外資近3日", chip.foreign_3d_sum === null || chip.foreign_3d_sum === undefined ? "資料不足" : escapeHtml(number(chip.foreign_3d_sum)))}
               ${metric("外資近5日", chip.foreign_5d_sum === null || chip.foreign_5d_sum === undefined ? "資料不足" : escapeHtml(number(chip.foreign_5d_sum)))}
@@ -2519,6 +2519,7 @@ def tw_advisor_script() -> str:
               ${metric("投信近5日", chip.investment_trust_5d_sum === null || chip.investment_trust_5d_sum === undefined ? "資料不足" : escapeHtml(number(chip.investment_trust_5d_sum)))}
               ${metric("資料日期", escapeHtml(chip.institutional_data_date || "-"))}
               ${metric("資料狀態", escapeHtml(chip.institutional_data_status || "missing"))}
+              ${metric("單位", escapeHtml(chip.unit || "依來源"))}
             </div>
             <p class="warn-inline">法人買超不能取代 VWAP、量比、突破與風控；即使籌碼偏多，也不會直接產生強烈做多。</p>
           </article>

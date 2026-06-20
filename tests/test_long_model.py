@@ -76,6 +76,36 @@ class LongModelTests(unittest.TestCase):
         self.assertIn("institutional_label", candidates[0].institutional_context)
         self.assertIn("sector_status_label", candidates[0].sector_context)
 
+    def test_official_institutional_context_is_background_not_score_reason(self):
+        bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
+        bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
+        intraday = [intraday_bar(index, 104 + index * 0.2, volume=180_000) for index in range(8)]
+
+        candidates = build_long_candidates(
+            [WatchSymbol("2330.TW", "台積電", "semiconductor")],
+            {"2330.TW": bars},
+            {"2330.TW": intraday},
+            [],
+            [],
+            MarketBias(score=3, direction="偏多", notes=[]),
+            institutional_contexts={
+                "2330.TW": {
+                    "institutional_label": "籌碼偏多",
+                    "institutional_reason": "官方三大法人合計買超；僅作背景。",
+                    "foreign_buy_sell": 1000,
+                    "investment_trust_buy_sell": 500,
+                    "dealer_buy_sell": 100,
+                    "institutional_total_buy_sell": 1600,
+                    "institutional_data_status": "ok",
+                    "source": "TWSE T86 official",
+                    "can_upgrade_signal": False,
+                }
+            },
+        )
+
+        self.assertEqual(candidates[0].institutional_context["institutional_label"], "籌碼偏多")
+        self.assertNotIn("法人買超", candidates[0].reasons)
+
     def test_pre_open_time_policy_does_not_mark_candidate_executable(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]
         bars.append(daily_bar(30, 105, high=106, low=101, volume=2_000_000))
