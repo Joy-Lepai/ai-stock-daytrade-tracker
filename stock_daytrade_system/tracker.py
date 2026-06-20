@@ -1087,6 +1087,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     configured_text = "API Key 已設定" if pool.get("configured") else "API Key 未設定"
     radar_status_text = _fugle_radar_status_label(str(pool.get("entry_radar_status") or "waiting"))
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
+    acceptance_html = _fugle_acceptance_checklist(pool, rows)
     if not rows:
         return (
             '<section class="decision-center">'
@@ -1101,6 +1102,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'{_metric("已選標的", 0)}'
             '</div>'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
+            f'{acceptance_html}'
             '</section>'
         )
     body = "".join(
@@ -1139,11 +1141,49 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("實際 API 呼叫", int(pool.get("actual_api_calls", 0) or 0))}'
         '</div>'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
+        f'{acceptance_html}'
         '<div class="table-wrap"><table><thead><tr>'
         '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _fugle_acceptance_checklist(pool: dict, rows: list[dict]) -> str:
+    max_symbols = int(pool.get("max_symbols", 5) or 5)
+    selected_symbols = {str(item.get("symbol") or "") for item in rows}
+    pinned_symbols = [str(item) for item in (pool.get("pinned_symbols") or []) if str(item)]
+    actual_calls = int(pool.get("actual_api_calls", 0) or 0)
+    expected_limit = max_symbols * 3
+    items = [
+        f"追蹤池 {len(rows)} / {max_symbols} 檔，{'未超過' if len(rows) <= max_symbols else '已超過'} Fugle 基本用戶 5 檔設計。",
+        f"本次實際 API 呼叫 {actual_calls} 次，{'未超過' if actual_calls <= expected_limit else '已超過'} Quote / Trades / Candles 預估上限 {expected_limit} 次。",
+    ]
+    if pinned_symbols:
+        missing = [symbol for symbol in pinned_symbols if symbol not in selected_symbols]
+        items.append(
+            "指定追蹤已入池：" + "、".join(symbol for symbol in pinned_symbols if symbol in selected_symbols)
+            if not missing
+            else "指定追蹤尚未入池：" + "、".join(missing)
+        )
+    guarded = [
+        str(item.get("symbol") or "")
+        for item in rows
+        if str(item.get("entry_status") or "") in {"high_risk", "avoid", "data_missing"}
+        and not item.get("entry_confirmation_can_consider")
+    ]
+    if guarded:
+        items.append("風險防線正常：" + "、".join(guarded[:5]) + " 仍僅供觀察，不作進場確認。")
+    elif rows:
+        items.append("目前沒有 high_risk / avoid 被誤列為進場確認。")
+    return (
+        '<section class="notice">'
+        '<strong>盤中驗收重點：</strong>'
+        '<ul>'
+        + "".join(f"<li>{escape(item)}</li>" for item in items)
+        + "</ul>"
         '</section>'
     )
 
