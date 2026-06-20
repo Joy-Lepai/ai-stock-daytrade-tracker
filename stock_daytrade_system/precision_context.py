@@ -85,10 +85,16 @@ def build_precision_context(
     else:
         missing.append("族群同步背景")
 
-    orderbook_status = str(data_health.get("twse_mis_five_level_status") or "missing")
+    orderbook_status = str(
+        data_health.get("fugle_quote_five_level_status")
+        or data_health.get("twse_mis_five_level_status")
+        or "missing"
+    )
     fugle_status = str(data_health.get("fugle_status") or "disabled")
     fugle_count = int(data_health.get("fugle_trades_count") or 0)
+    fugle_candles_count = int(data_health.get("fugle_candles_count") or 0)
     has_fugle_trades = fugle_status == "ok" and fugle_count > 0
+    has_fugle_candles = fugle_candles_count > 0
     has_public_orderbook = orderbook_status in {
         "available",
         "limit_up_bid_only",
@@ -104,6 +110,8 @@ def build_precision_context(
         available.append("Fugle 逐筆成交")
     else:
         missing.append("逐筆成交 Tick")
+    if has_fugle_candles:
+        available.append("Fugle 1分K")
     missing.append("即時新聞題材")
     score = 0.0
     score += 18 if data_live else 0

@@ -8,6 +8,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol, load_config
+from stock_daytrade_system.data import Bar
 from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.db import (
     connect,
@@ -82,12 +83,20 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     db_path = default_db_path(project_root)
     with connect(db_path) as conn:
         last_known_row = last_known_price_row(conn, "TW", item.symbol)
-    fugle_trades = FugleMarketDataClient().fetch_trades(item.symbol)
+    fugle_client = FugleMarketDataClient()
+    fugle_quote = fugle_client.fetch_quote(item.symbol)
+    fugle_trades = fugle_client.fetch_trades(item.symbol)
+    fugle_candles = fugle_client.fetch_candles(item.symbol, timeframe="1")
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
+    fugle_quote_payload = fugle_quote.to_dict()
     scan_payload = _scan_payload_with_last_known(scan_item.to_dict(), last_known_row)
     fugle_payload = fugle_trades.to_dict()
-    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, fugle_payload)
+    fugle_candles_payload = fugle_candles.to_dict()
+    effective_intraday_bars = _bars_from_fugle_candles(fugle_candles_payload) or (
+        quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, [])
+    )
+    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, fugle_quote_payload)
     data_health = _data_health_payload(
         captured_at,
         display_payload,
@@ -97,6 +106,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         item.symbol,
         realtime_payload,
         fugle_payload,
+        fugle_quote_payload,
+        fugle_candles_payload,
     )
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
@@ -105,19 +116,20 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         display=display_payload,
         market_status=market_bias.direction,
     ).to_dict()
-    chart_payload = _intraday_chart_payload(
-        quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
-        analysis_payload,
-    )
+    chart_payload = _intraday_chart_payload(effective_intraday_bars, analysis_payload)
     precision_payload = build_precision_context(
         candidate=candidate_payload,
-        intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+        intraday_bars=effective_intraday_bars,
         data_health=data_health,
     ).to_dict()
-    radar_quote_payload = _radar_quote_payload(realtime_payload, {}, fugle_payload)
+    radar_quote_payload = _radar_quote_payload(
+        _fugle_quote_as_realtime(fugle_quote_payload, realtime_payload),
+        {},
+        fugle_payload,
+    )
     entry_confirmation_payload = build_entry_confirmation(
         candidate=candidate_payload,
-        intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+        intraday_bars=effective_intraday_bars,
         data_health=data_health,
         realtime_quote=radar_quote_payload,
         orderbook_history=[],
@@ -128,12 +140,12 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
             market="TW",
             symbol=item.symbol,
             captured_at=captured_at,
-            quote=realtime_payload,
+            quote=radar_quote_payload,
         )
         orderbook_history = recent_tw_orderbook_snapshots(conn, market="TW", symbol=item.symbol, limit=5)
         entry_confirmation_payload = build_entry_confirmation(
             candidate=candidate_payload,
-            intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+            intraday_bars=effective_intraday_bars,
             data_health=data_health,
             realtime_quote=radar_quote_payload,
             orderbook_history=orderbook_history,
@@ -195,7 +207,9 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "market_notes": list(market_bias.notes),
         "scan": scan_payload,
         "candidate": candidate_payload,
+        "fugle_quote": fugle_quote_payload,
         "fugle_trades": fugle_payload,
+        "fugle_candles": fugle_candles_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "data_health": data_health,
@@ -212,7 +226,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
-        "data_source": f"Fugle REST Trades MVP + TWSE MIS public orderbook + {provider_status.get('active_provider', 'yahoo')} market data provider",
+        "data_source": f"Fugle Quote/Trades/Candles MVP + TWSE MIS fallback + {provider_status.get('active_provider', 'yahoo')} market data provider",
         "provider_status": provider_status,
         "official_institutional": {
             "version": official_institutional.version,
@@ -263,6 +277,49 @@ def _radar_quote_payload(realtime_payload: dict, secondary_tick_payload: Optiona
             payload["tick_type"] = source_payload.get("tick_type")
             payload["large_trade_source"] = source_payload.get("source")
             break
+    return payload
+
+
+def _fugle_quote_as_realtime(fugle_quote: dict, fallback: Optional[dict] = None) -> dict:
+    fallback = dict(fallback or {})
+    fugle_quote = fugle_quote or {}
+    price = fugle_quote.get("price")
+    if price is None:
+        return fallback
+    payload = dict(fallback)
+    payload.update(
+        {
+            "price": price,
+            "previous_close": fugle_quote.get("previous_close") or fallback.get("previous_close"),
+            "change_pct": fugle_quote.get("change_pct") if fugle_quote.get("change_pct") is not None else fallback.get("change_pct"),
+            "quote_time": fugle_quote.get("quote_time") or fugle_quote.get("last_updated") or fallback.get("quote_time"),
+            "source": fugle_quote.get("source") or "Fugle REST Quote",
+            "bid_levels": fugle_quote.get("bid_levels") or fallback.get("bid_levels") or [],
+            "ask_levels": fugle_quote.get("ask_levels") or fallback.get("ask_levels") or [],
+            "bid_total_volume": fugle_quote.get("bid_total_volume"),
+            "ask_total_volume": fugle_quote.get("ask_total_volume"),
+            "bid_price": fugle_quote.get("bid_price"),
+            "bid_volume": fugle_quote.get("bid_volume"),
+            "ask_price": fugle_quote.get("ask_price"),
+            "ask_volume": fugle_quote.get("ask_volume"),
+            "orderbook_imbalance": fugle_quote.get("orderbook_imbalance"),
+            "five_level_status": fugle_quote.get("five_level_status") or "missing",
+            "five_level_status_label": fugle_quote.get("five_level_status_label") or "Fugle 五檔資料不足",
+            "is_limit_up_locked": bool(fugle_quote.get("is_limit_up_bid") or fugle_quote.get("is_limit_up_price")),
+            "is_limit_down_locked": bool(fugle_quote.get("is_limit_down_ask") or fugle_quote.get("is_limit_down_price")),
+            "is_limit_up_bid": bool(fugle_quote.get("is_limit_up_bid")),
+            "is_limit_down_ask": bool(fugle_quote.get("is_limit_down_ask")),
+            "last_tick_volume": fugle_quote.get("last_trade_size") or fugle_quote.get("last_size"),
+            "tick_type": fugle_quote.get("last_trade_side") or "unknown",
+            "last_trade_side": fugle_quote.get("last_trade_side") or "unknown",
+            "last_trade_summary": fugle_quote.get("last_trade_summary") or "",
+            "total_trade_value": fugle_quote.get("total_trade_value"),
+            "total_trade_volume": fugle_quote.get("total_trade_volume"),
+            "total_trade_volume_at_bid": fugle_quote.get("total_trade_volume_at_bid"),
+            "total_trade_volume_at_ask": fugle_quote.get("total_trade_volume_at_ask"),
+            "intraday_flow_ratio": fugle_quote.get("intraday_flow_ratio"),
+        }
+    )
     return payload
 
 
@@ -331,24 +388,24 @@ def _scan_payload_with_last_known(scan_data: dict, last_known_row) -> dict:
     return payload
 
 
-def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None, fugle_trades: Optional[dict] = None) -> dict:
+def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None, fugle_quote: Optional[dict] = None) -> dict:
     scan_data = dict(scan_item or {})
     candidate_data = _candidate_payload(candidate) or {}
-    fugle_trades = fugle_trades or {}
+    fugle_quote = fugle_quote or {}
     current_price = (
-        fugle_trades.get("latest_price")
-        if fugle_trades.get("latest_price") is not None
+        fugle_quote.get("price")
+        if fugle_quote.get("price") is not None
         else realtime_quote.get("price")
     )
-    change_pct = realtime_quote.get("change_pct")
+    change_pct = fugle_quote.get("change_pct") if fugle_quote.get("change_pct") is not None else realtime_quote.get("change_pct")
     source = (
-        fugle_trades.get("source")
-        if fugle_trades.get("latest_price") is not None
+        fugle_quote.get("source")
+        if fugle_quote.get("price") is not None
         else realtime_quote.get("source")
         if realtime_quote.get("price") is not None
         else "Yahoo Finance intraday chart"
     )
-    quote_time = fugle_trades.get("latest_time") or realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
+    quote_time = fugle_quote.get("quote_time") or fugle_quote.get("last_updated") or realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
     if current_price is None:
         current_price = scan_data.get("latest_price")
     if current_price is None:
@@ -386,9 +443,13 @@ def _data_health_payload(
     symbol: str,
     realtime_quote: Optional[dict] = None,
     fugle_trades: Optional[dict] = None,
+    fugle_quote: Optional[dict] = None,
+    fugle_candles: Optional[dict] = None,
 ) -> dict:
     realtime_quote = realtime_quote or {}
     fugle_trades = fugle_trades or {}
+    fugle_quote = fugle_quote or {}
+    fugle_candles = fugle_candles or {}
     quote_time = str(display.get("quote_time") or "")
     quote_dt = _parse_quote_time(quote_time)
     age_minutes = None
@@ -461,6 +522,16 @@ def _data_health_payload(
         "fugle_trades_count": fugle_trades.get("trades_count") or 0,
         "fugle_large_trade_status": fugle_trades.get("large_trade_status") or "missing",
         "fugle_large_trade_summary": fugle_trades.get("large_trade_summary") or "",
+        "fugle_quote_status": fugle_quote.get("status") or "disabled",
+        "fugle_quote_status_label": fugle_quote.get("status_label") or "尚未啟用",
+        "fugle_quote_success": bool(fugle_quote.get("price") is not None),
+        "fugle_quote_last_updated": fugle_quote.get("last_updated") or fugle_quote.get("quote_time") or "",
+        "fugle_quote_five_level_status": fugle_quote.get("five_level_status") or "missing",
+        "fugle_quote_five_level_status_label": fugle_quote.get("five_level_status_label") or "五檔資料不足",
+        "fugle_candles_status": fugle_candles.get("status") or "disabled",
+        "fugle_candles_status_label": fugle_candles.get("status_label") or "尚未啟用",
+        "fugle_candles_success": bool(fugle_candles.get("candles_count")),
+        "fugle_candles_count": fugle_candles.get("candles_count") or 0,
         "uses_cache": freshness.uses_last_known,
         "is_data_missing": has_error,
         "can_use_for_daytrade": status == "正常" and freshness.state == "live",
@@ -804,6 +875,35 @@ def _parse_quote_time(value: str) -> Optional[datetime]:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Taipei"))
     return parsed.astimezone(ZoneInfo("Asia/Taipei"))
+
+
+def _bars_from_fugle_candles(payload: Optional[dict]) -> list[Bar]:
+    rows = (payload or {}).get("candles")
+    if not isinstance(rows, list):
+        return []
+    bars: list[Bar] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        timestamp = _parse_quote_time(str(row.get("timestamp") or ""))
+        open_price = _num(row.get("open"))
+        high_price = _num(row.get("high"))
+        low_price = _num(row.get("low"))
+        close_price = _num(row.get("close"))
+        volume = _num(row.get("volume"), default=0.0)
+        if timestamp is None or None in {open_price, high_price, low_price, close_price}:
+            continue
+        bars.append(
+            Bar(
+                timestamp=timestamp,
+                open=float(open_price),
+                high=float(high_price),
+                low=float(low_price),
+                close=float(close_price),
+                volume=float(volume or 0.0),
+            )
+        )
+    return bars
 
 
 def _intraday_chart_payload(bars, analysis_payload: dict) -> dict:

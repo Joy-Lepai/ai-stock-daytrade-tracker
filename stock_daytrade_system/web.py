@@ -2630,6 +2630,72 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderFugleQuoteCard = (quote) => {
+        quote = quote || {};
+        const warnings = Array.isArray(quote.warnings) ? quote.warnings : [];
+        const enabledText = quote.enabled ? "已啟用" : "尚未啟用";
+        const configuredText = quote.configured ? "已設定" : "尚未設定";
+        return `
+          <article class="advisor-card">
+            <h3>Fugle 即時行情 / 五檔力道</h3>
+            <p><strong>${escapeHtml(quote.status_label || "尚未啟用")}</strong></p>
+            <p class="muted">此區使用富果 Quote API，優先用於重點標的的最新價、五檔委買委賣、成交量流向與漲跌停狀態確認；不作全市場掃描，也不會下單。</p>
+            <div class="advisor-grid">
+              ${metric("啟用狀態", escapeHtml(enabledText))}
+              ${metric("API Key", escapeHtml(configuredText))}
+              ${metric("資料來源", escapeHtml(quote.source || "Fugle REST Quote"))}
+              ${metric("狀態", escapeHtml(quote.status || "disabled"))}
+              ${metric("最新價", escapeHtml(number(quote.price)))}
+              ${metric("漲跌幅", pct(quote.change_pct))}
+              ${metric("昨收 / 參考價", escapeHtml(number(quote.previous_close)))}
+              ${metric("均價", escapeHtml(number(quote.avg_price)))}
+              ${metric("最新成交量", escapeHtml(number(quote.last_size, 0)))}
+              ${metric("報價時間", escapeHtml(quote.quote_time || quote.last_updated || "-"))}
+              ${metric("五檔狀態", escapeHtml(quote.five_level_status_label || "五檔資料不足"))}
+              ${metric("最佳委買", quote.bid_price === null || quote.bid_price === undefined ? "-" : `${escapeHtml(number(quote.bid_price))} / ${escapeHtml(number(quote.bid_volume, 0))}`)}
+              ${metric("最佳委賣", quote.ask_price === null || quote.ask_price === undefined ? "-" : `${escapeHtml(number(quote.ask_price))} / ${escapeHtml(number(quote.ask_volume, 0))}`)}
+              ${metric("買賣盤差", quote.orderbook_imbalance === null || quote.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(quote.orderbook_imbalance))}%`)}
+              ${metric("委買總量", escapeHtml(number(quote.bid_total_volume, 0)))}
+              ${metric("委賣總量", escapeHtml(number(quote.ask_total_volume, 0)))}
+              ${metric("內外盤力道", quote.intraday_flow_ratio === null || quote.intraday_flow_ratio === undefined ? "-" : `${escapeHtml(number(quote.intraday_flow_ratio))}%`)}
+              ${metric("總成交量", escapeHtml(number(quote.total_trade_volume, 0)))}
+              ${metric("總成交金額", escapeHtml(compactMoney(quote.total_trade_value)))}
+              ${metric("主動買量", escapeHtml(number(quote.total_trade_volume_at_ask, 0)))}
+              ${metric("主動賣量", escapeHtml(number(quote.total_trade_volume_at_bid, 0)))}
+              ${metric("最後成交方向", escapeHtml(statusZh(quote.last_trade_side || "unknown")))}
+            </div>
+            <p class="muted">${escapeHtml(quote.last_trade_summary || "最新成交方向不足。")}</p>
+            ${(quote.is_limit_up_price || quote.is_limit_up_bid) ? `<p class="warn-inline">接近或處於漲停相關狀態，追價風險升高，不可直接視為強烈做多。</p>` : ""}
+            ${(quote.is_limit_down_price || quote.is_limit_down_ask) ? `<p class="warn-inline">接近或處於跌停相關狀態，不適合作為做多依據。</p>` : ""}
+            ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
+            ${quote.error ? `<p class="warn-inline">${escapeHtml(quote.error)}</p>` : ""}
+            <p class="warn-inline">Fugle Quote 只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+          </article>
+        `;
+      };
+      const renderFugleCandlesCard = (candles) => {
+        candles = candles || {};
+        const warnings = Array.isArray(candles.warnings) ? candles.warnings : [];
+        return `
+          <article class="advisor-card">
+            <h3>Fugle 1分K / 均價確認</h3>
+            <p><strong>${escapeHtml(candles.status_label || "尚未啟用")}</strong></p>
+            <p class="muted">此區使用富果 Candles API，作為重點標的分時走勢、價格連續墊高、VWAP / 均價與量能延續確認的輔助來源。</p>
+            <div class="advisor-grid">
+              ${metric("資料來源", escapeHtml(candles.source || "Fugle REST Candles"))}
+              ${metric("狀態", escapeHtml(candles.status || "disabled"))}
+              ${metric("週期", escapeHtml(`${candles.timeframe || "1"} 分K`))}
+              ${metric("K線筆數", escapeHtml(candles.candles_count ?? 0))}
+              ${metric("最新收盤", escapeHtml(number(candles.latest_close)))}
+              ${metric("最新均價", escapeHtml(number(candles.latest_average)))}
+              ${metric("最新時間", escapeHtml(candles.latest_time || "-"))}
+            </div>
+            ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
+            ${candles.error ? `<p class="warn-inline">${escapeHtml(candles.error)}</p>` : ""}
+            <p class="warn-inline">Fugle 1分K 只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+          </article>
+        `;
+      };
       const renderTwseOrderbookCard = (quote) => {
         quote = quote || {};
         const bids = Array.isArray(quote.bid_levels) ? quote.bid_levels : [];
@@ -2940,7 +3006,9 @@ def tw_advisor_script() -> str:
         const frontTrade = payload.front_trade || {};
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
+        const fugleQuote = payload.fugle_quote || {};
         const fugleTrades = payload.fugle_trades || {};
+        const fugleCandles = payload.fugle_candles || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -3057,6 +3125,10 @@ def tw_advisor_script() -> str:
               ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}
               ${metric("TWSE / TPEX", escapeHtml(dataHealth.twse_tpex_quote_success ? "成功" : "失敗"))}
               ${metric("公開五檔", escapeHtml(dataHealth.twse_mis_five_level_status_label || "五檔資料不足"))}
+              ${metric("Fugle Quote", escapeHtml(dataHealth.fugle_quote_status_label || "尚未啟用"))}
+              ${metric("Fugle 五檔", escapeHtml(dataHealth.fugle_quote_five_level_status_label || "五檔資料不足"))}
+              ${metric("Fugle 1分K", escapeHtml(dataHealth.fugle_candles_status_label || "尚未啟用"))}
+              ${metric("Fugle 1分K 筆數", escapeHtml(dataHealth.fugle_candles_count ?? 0))}
               ${metric("Fugle 逐筆成交", escapeHtml(dataHealth.fugle_status_label || "尚未啟用"))}
               ${metric("Fugle 逐筆筆數", escapeHtml(dataHealth.fugle_trades_count ?? 0))}
               ${metric("Fugle 大單", escapeHtml(statusZh(dataHealth.fugle_large_trade_status || "missing")))}
@@ -3070,6 +3142,8 @@ def tw_advisor_script() -> str:
 
           ${renderEntryChecklistCard(payload)}
           ${renderEntryConfirmationCard(entryConfirmation)}
+          ${renderFugleQuoteCard(fugleQuote)}
+          ${renderFugleCandlesCard(fugleCandles)}
           ${renderFugleTradesCard(fugleTrades)}
           ${renderTwseOrderbookCard(payload.realtime_quote || {})}
           ${renderPrecisionContextCard(precision)}

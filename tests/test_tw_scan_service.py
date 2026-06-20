@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.tw_scan_service import (
+    _bars_from_fugle_candles,
     _data_health_payload,
+    _fugle_quote_as_realtime,
     _intraday_chart_payload,
     _radar_quote_payload,
     _safety_payload,
@@ -136,6 +138,46 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertEqual(payload["last_tick_volume"], 500)
         self.assertEqual(payload["large_trade_source"], "Fugle REST Trades")
 
+    def test_fugle_quote_can_power_realtime_orderbook(self):
+        payload = _fugle_quote_as_realtime(
+            {
+                "price": 101,
+                "change_pct": 1.2,
+                "quote_time": "2026-06-18T09:39:00+08:00",
+                "source": "Fugle REST Quote",
+                "bid_levels": [{"price": 100.5, "volume": 100}],
+                "ask_levels": [{"price": 101, "volume": 50}],
+                "bid_total_volume": 100,
+                "ask_total_volume": 50,
+                "bid_price": 100.5,
+                "ask_price": 101,
+                "orderbook_imbalance": 33.33,
+                "five_level_status": "available",
+                "five_level_status_label": "Fugle 五檔可用",
+                "last_trade_size": 300,
+                "last_trade_side": "buy_sweep",
+            },
+            {"price": 99, "source": "TWSE MIS"},
+        )
+
+        self.assertEqual(payload["price"], 101)
+        self.assertEqual(payload["source"], "Fugle REST Quote")
+        self.assertEqual(payload["five_level_status"], "available")
+        self.assertEqual(payload["last_tick_volume"], 300)
+
+    def test_fugle_candles_convert_to_bars(self):
+        bars = _bars_from_fugle_candles(
+            {
+                "candles": [
+                    {"timestamp": "2026-06-18T09:00:00+08:00", "open": 100, "high": 101, "low": 99, "close": 100.5, "volume": 1000},
+                    {"timestamp": "2026-06-18T09:01:00+08:00", "open": 100.5, "high": 102, "low": 100, "close": 101.5, "volume": 1500},
+                ]
+            }
+        )
+
+        self.assertEqual(len(bars), 2)
+        self.assertEqual(bars[-1].close, 101.5)
+
     def test_data_health_reports_fugle_mvp_status(self):
         captured_at = datetime(2026, 6, 18, 9, 40, tzinfo=ZoneInfo("Asia/Taipei"))
         payload = _data_health_payload(
@@ -158,11 +200,26 @@ class TWScanServiceTests(unittest.TestCase):
                 "large_trade_status": "buy_sweep",
                 "large_trade_summary": "疑似大單敲進。",
             },
+            fugle_quote={
+                "status": "ok",
+                "status_label": "已接入 Fugle Quote",
+                "price": 100,
+                "five_level_status": "available",
+                "five_level_status_label": "Fugle 五檔可用",
+            },
+            fugle_candles={
+                "status": "ok",
+                "status_label": "已接入 Fugle 1分K",
+                "candles_count": 30,
+            },
         )
 
         self.assertEqual(payload["fugle_status"], "ok")
         self.assertEqual(payload["fugle_trades_count"], 30)
         self.assertEqual(payload["fugle_large_trade_status"], "buy_sweep")
+        self.assertEqual(payload["fugle_quote_status"], "ok")
+        self.assertEqual(payload["fugle_quote_five_level_status"], "available")
+        self.assertEqual(payload["fugle_candles_count"], 30)
         self.assertNotIn("shioaji_status", payload)
 
 
