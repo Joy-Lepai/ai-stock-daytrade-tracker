@@ -1106,13 +1106,15 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</a></strong><br><span class="muted">{escape(str(item.get("tracking_purpose", "")))}</span></td>'
         f'<td>{escape(str(item.get("grade", "-")))}</td>'
         f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
-        f'<td>{escape(str(item.get("trigger_readiness", "-")))}</td>'
         f'<td>{_fmt(item.get("last_price"))}</td>'
         f'<td>{_fmt(item.get("vwap"))}</td>'
         f'<td>{_fmt(item.get("volume_ratio"))}x</td>'
-        f'<td>{_fmt(item.get("trigger_price"))}</td>'
-        f'<td>{_fmt(item.get("stop_loss"))}</td>'
-        f'<td>{_fmt(item.get("priority_score"))}</td>'
+        f'<td>{_fmt(item.get("orderbook_imbalance"))}%<br><span class="muted">買{_fmt_int(item.get("bid_total_volume"))} / 賣{_fmt_int(item.get("ask_total_volume"))}</span></td>'
+        f'<td>{escape(_trend_label(str(item.get("bid_volume_trend", ""))))}<br><span class="muted">{escape(str(item.get("bid_volume_trend_summary") or "委買快照不足"))}</span></td>'
+        f'<td>{escape(_trend_label(str(item.get("ask_volume_trend", ""))))}<br><span class="muted">{escape(str(item.get("ask_volume_trend_summary") or "委賣快照不足"))}</span></td>'
+        f'<td>{escape(_large_trade_label(str(item.get("large_trade_status", ""))))}<br><span class="muted">{escape(str(item.get("large_trade_summary") or "缺逐筆成交資料"))}</span></td>'
+        f'<td>{escape(_price_tick_label(str(item.get("price_tick_trend", ""))))}<br><span class="muted">{escape(str(item.get("price_tick_summary") or "最新價快照不足"))}</span></td>'
+        f'<td class="notes"><strong>{escape(str(item.get("entry_confirmation_status_label") or "等待確認"))}</strong><br>{escape(str(item.get("entry_confirmation_summary") or "等待 Fugle 更新進場雷達。"))}<br><span class="muted">下一步：{escape(str(item.get("entry_confirmation_next_step") or "等待下一次重點追蹤刷新。"))}</span></td>'
         f'<td>{escape("可" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
         f'<td class="notes">{escape(str(item.get("priority_reason", "")))}</td>'
         '</tr>'
@@ -1129,15 +1131,49 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
         f'{_metric("已選標的", int(pool.get("selected_count", len(rows)) or len(rows)))}'
         f'{_metric("其餘候選", int(pool.get("excluded_count", 0) or 0))}'
+        f'{_metric("雷達成功", int(pool.get("confirmation_success_count", 0) or 0))}'
+        f'{_metric("雷達不足", int(pool.get("confirmation_failed_count", 0) or 0))}'
         '</div>'
         f'<p class="muted">{escape(str(pool.get("message") or ""))}</p>'
         '<div class="table-wrap"><table><thead><tr>'
-        '<th>股票</th><th>分級</th><th>狀態</th><th>B+ readiness</th><th>現價</th><th>VWAP</th><th>量比</th><th>觸發價</th><th>停損</th><th>順位分</th><th>進場確認</th><th>入選原因</th>'
+        '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
         '</section>'
     )
+
+
+def _trend_label(status: str) -> str:
+    return {
+        "improving": "改善",
+        "stable": "持平",
+        "deteriorating": "轉弱",
+        "missing": "資料不足",
+    }.get(status or "missing", "資料不足")
+
+
+def _large_trade_label(status: str) -> str:
+    return {
+        "buy_sweep": "大單敲進",
+        "large_buy": "大單敲進",
+        "inflow": "大單流入",
+        "sell_sweep": "大單敲出",
+        "large_sell": "大單敲出",
+        "outflow": "大單流出",
+        "neutral": "未見大單",
+        "unknown": "方向不明",
+        "missing": "缺逐筆",
+    }.get(status or "missing", "缺逐筆")
+
+
+def _price_tick_label(status: str) -> str:
+    return {
+        "rising": "連續墊高",
+        "stable": "未轉弱",
+        "weak": "轉弱",
+        "missing": "資料不足",
+    }.get(status or "missing", "資料不足")
 
 
 def _entry_radar_scorecard_panel(summary: Optional[LongModelSummary]) -> str:

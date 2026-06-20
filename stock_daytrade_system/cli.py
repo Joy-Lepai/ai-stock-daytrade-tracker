@@ -21,7 +21,8 @@ from stock_daytrade_system.db import (
     update_backtests,
 )
 from stock_daytrade_system.decision_center import build_decision_center, paper_activity_stats
-from stock_daytrade_system.fugle_market_data import FugleMarketDataConfig
+from stock_daytrade_system.fugle_entry_radar import enrich_fugle_priority_pool
+from stock_daytrade_system.fugle_market_data import FugleMarketDataClient, FugleMarketDataConfig
 from stock_daytrade_system.fugle_priority_pool import build_fugle_priority_pool
 from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confirmation
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
@@ -400,6 +401,12 @@ def run_tracker(
             pinned_symbols=config.fugle_priority_symbols,
             enabled=fugle_config.enabled,
             configured=fugle_config.configured,
+        )
+        fugle_priority_pool = enrich_fugle_priority_pool(
+            fugle_priority_pool,
+            client=FugleMarketDataClient(fugle_config),
+            conn=conn,
+            captured_at=now,
         )
         visible_long_candidates = [
             item for item in long_candidates
