@@ -299,6 +299,7 @@ def render_tracker_html(
     statuses = list(data_status)
     checklist = long_summary.recommendation_checklist if long_summary else {}
     mode_payload = _dashboard_market_mode(long_summary, report_time)
+    strong_funnel = ((long_summary.diagnostics or {}).get("strong_long_funnel") if long_summary else None) or {}
     header_front = front_trade_counts(
         list(long_summary.candidates) if long_summary else [],
         data_today=bool(mode_payload.get("is_data_current_for_mode", True)),
@@ -307,6 +308,8 @@ def render_tracker_html(
         allow_strong_long=bool(mode_payload.get("allow_strong_long", True)),
         market_mode=str(mode_payload.get("mode", "intraday")),
     )["counts"]
+    header_strong_long = int(strong_funnel.get("strong_long_candidate_count", header_front.get("強烈做多", 0)) or 0)
+    header_executable = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
 
     html = f"""<!doctype html>
 <html lang="zh-Hant">
@@ -532,7 +535,8 @@ def render_tracker_html(
     <h1>股票當沖追蹤器</h1>
     <div class="meta">產生時間：{escape(report_time.strftime('%Y-%m-%d %H:%M:%S'))} ｜ 市場背景：{escape(market_bias.direction)}（{market_bias.score:+.2f}）</div>
     <div class="summary">
-      {_metric('強烈做多', int(header_front.get('強烈做多', 0)))}
+      {_metric('強烈做多', header_strong_long)}
+      {_metric('其中可執行', header_executable)}
       {_metric('做多', int(header_front.get('做多', 0)))}
       {_metric('觀察', int(header_front.get('觀察', 0)))}
       {_metric('做空', int(header_front.get('做空', 0)))}
@@ -560,6 +564,8 @@ def render_tracker_html(
     {_missed_stock_diagnostic_table(long_summary)}
     <h2>模型條件診斷</h2>
     {_model_diagnostic_panel(long_summary)}
+    <h2>強烈做多漏斗</h2>
+    {_strong_long_funnel_panel(long_summary)}
     <h2>做多判斷時間框架診斷</h2>
     {_timeframe_gap_report_panel(long_summary)}
     <h2>明日續強候選股</h2>
@@ -862,12 +868,18 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         **front_context,
     )
     front_counts = front["counts"]
+    strong_funnel = (diagnostics or {}).get("strong_long_funnel") or {}
+    strong_long_count = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈做多", 0)) or 0)
+    executable_count = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
     tendency = data.get("operation_tendency") or "資料不足"
     confidence = _mode_aware_data_confidence(health, mode)
-    if front_counts.get("強烈做多", 0) <= 0:
-        reminder = "今日沒有強烈做多標的，建議保守觀望；做多與練習買多都必須等待條件確認。"
+    if strong_long_count <= 0:
+        reminder = f"今日沒有強烈做多標的，主要原因：{_strong_long_blocker_summary(strong_funnel)}。建議保守觀望；做多與練習買多都必須等待條件確認。"
     else:
-        reminder = data.get("action_suggestion") or health.get("recommendation_state") or "已有可執行訊號，仍需先確認停損、停利與部位風險。"
+        reminder = (
+            f"目前有 {strong_long_count} 檔強烈做多候選，其中 {executable_count} 檔已達可執行條件；"
+            "強烈做多代表值得立即盯盤，可執行才代表進場條件更完整。"
+        )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     focus_items = _top_focus_items(summary)
@@ -880,7 +892,8 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         '<div class="summary">'
         f'{_metric_text("今日市場狀態", str(tendency))}'
         f'{_metric_text("今日資料可信度", str(confidence))}'
-        f'{_metric("強烈做多", int(front_counts.get("強烈做多", 0)))}'
+        f'{_metric("強烈做多", strong_long_count)}'
+        f'{_metric("其中可執行", executable_count)}'
         f'{_metric("做多", int(front_counts.get("做多", 0)))}'
         f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
         f'{_metric("做空", int(front_counts.get("做空", 0)))}'
@@ -2094,11 +2107,72 @@ def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:
         f'<div class="decision-panel"><strong>B 級條件</strong><ul class="decision-list">{condition_list("b")}</ul></div>'
         f'<div class="decision-panel"><strong>C / D 排除條件</strong><ul class="decision-list">{condition_list("c_d_exclusion")}</ul></div>'
         f'<div class="decision-panel"><strong>entry_status 條件</strong><ul class="decision-list">{condition_list("entry_status")}</ul></div>'
+        f'<div class="decision-panel"><strong>強烈做多候選條件</strong><ul class="decision-list">{condition_list("strong_long_candidate")}</ul></div>'
+        f'<div class="decision-panel"><strong>可執行 executable 條件</strong><ul class="decision-list">{condition_list("executable")}</ul></div>'
         f'<div class="decision-panel"><strong>目前主要診斷</strong><ul class="decision-list">{cause_items}</ul></div>'
         '</div>'
         f'<section class="notice">回測診斷：{escape(str(backtest.get("message", "目前樣本不足時不硬算勝率。")))}'
         f'<ul>{required}</ul></section>'
         '</section>'
+    )
+
+
+def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
+    funnel = ((summary.diagnostics or {}).get("strong_long_funnel") if summary else None) or {}
+    if not funnel:
+        return '<section class="notice">目前沒有強烈做多漏斗資料。</section>'
+    top_blockers = funnel.get("top_blockers") or []
+    blocker_text = "、".join(
+        f"{item.get('reason')} {int(item.get('count', 0))} 檔"
+        for item in top_blockers[:5]
+    ) or "暫無主要卡關原因"
+    rows = [
+        ("全市場普通股總數", funnel.get("total_market_count")),
+        ("今日異動候選數", funnel.get("momentum_candidate_count")),
+        ("進入模型評分數", funnel.get("model_candidates_count")),
+        ("資料 live 數", funnel.get("live_count")),
+        ("站上 VWAP 數", funnel.get("above_vwap_count")),
+        ("量比 >= 0.8 數", funnel.get("volume_ratio_gte_0_8_count")),
+        ("量比 >= 1.0 數", funnel.get("volume_ratio_gte_1_0_count")),
+        ("突破昨高數", funnel.get("break_prev_high_count")),
+        ("多方分數 >= 65 數", funnel.get("bullish_score_gte_65_count")),
+        ("多方分數 >= 70 數", funnel.get("bullish_score_gte_70_count")),
+        ("多方分數 >= 75 數", funnel.get("bullish_score_gte_75_count")),
+        ("風險分數 <= 55 數", funnel.get("risk_score_lte_55_count")),
+        ("風險分數 <= 40 數", funnel.get("risk_score_lte_40_count")),
+        ("信心分數 >= 55 數", funnel.get("confidence_score_gte_55_count")),
+        ("信心分數 >= 60 數", funnel.get("confidence_score_gte_60_count")),
+        ("被 high_risk 擋下", funnel.get("blocked_high_risk_count")),
+        ("被 wait_volume 擋下", funnel.get("blocked_wait_volume_count")),
+        ("被 wait_vwap 擋下", funnel.get("blocked_wait_vwap_count")),
+        ("被 wait_breakout 擋下", funnel.get("blocked_wait_breakout_count")),
+        ("最後進入強烈做多", funnel.get("strong_long_candidate_count")),
+        ("最後進入 executable", funnel.get("executable_count")),
+    ]
+    metrics = "".join(_metric(str(label), int(value or 0)) for label, value in rows)
+    blocker_rows = "".join(
+        f"<tr><td>{escape(str(item.get('reason', '-')))}</td><td>{int(item.get('count', 0) or 0)}</td></tr>"
+        for item in top_blockers
+    ) or '<tr><td colspan="2">目前沒有卡關資料。</td></tr>'
+    return (
+        '<section class="decision-center">'
+        '<section class="notice">強烈做多候選不等於可執行；可執行仍需通過更嚴格的觸發、風控與資料安全規則。</section>'
+        f'<div class="summary">{metrics}</div>'
+        f'<p class="muted"><strong>主要卡關原因：</strong>{escape(blocker_text)}</p>'
+        '<div class="table-wrap"><table><thead><tr><th>卡關原因</th><th>檔數</th></tr></thead><tbody>'
+        f'{blocker_rows}'
+        '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _strong_long_blocker_summary(funnel: dict) -> str:
+    blockers = funnel.get("top_blockers") or []
+    if not blockers:
+        return "尚未累積足夠漏斗資料"
+    return "、".join(
+        f"{item.get('reason')} {int(item.get('count', 0) or 0)} 檔"
+        for item in blockers[:3]
     )
 
 

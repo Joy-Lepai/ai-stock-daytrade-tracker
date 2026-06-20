@@ -4,9 +4,10 @@ from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from stock_daytrade_system.signal_guard import evaluate_signal_guard
+from stock_daytrade_system.strong_long import evaluate_strong_long_candidate
 
 
-FRONTEND_LANGUAGE_VERSION = "frontend_language_v1_long_daytrade_2026-06-19"
+FRONTEND_LANGUAGE_VERSION = "frontend_language_v2_strong_long_candidate_2026-06-21"
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,32 @@ def front_trade_view(
             next_step="先確認停損距離與部位大小，再用虛擬交易或既定風控追蹤。",
             is_strong_long_allowed=True,
             reason_codes=reason_codes or ["executable"],
+        )
+
+    strong_candidate = evaluate_strong_long_candidate(
+        item,
+        data_today=data_today,
+        intraday=intraday,
+        stale=safe_stale,
+        data_missing=missing_or_unusable,
+        allow_strong_long=safe_allow_strong_long,
+        market_mode=market_mode,
+        price_status_label=price_status_label,
+        uses_last_known=uses_last_known,
+        is_delayed=is_delayed,
+    )
+    if strong_candidate.is_candidate:
+        candidate_codes = reason_codes or ["strong_long_candidate"]
+        if "not_executable_yet" not in candidate_codes:
+            candidate_codes.append("not_executable_yet")
+        return FrontTradeView(
+            category="強烈做多",
+            subtitle=strong_candidate.subtitle,
+            headline=f"強烈做多｜{strong_candidate.subtitle}",
+            reason=strong_candidate.reason,
+            next_step=strong_candidate.next_step,
+            is_strong_long_allowed=True,
+            reason_codes=candidate_codes,
         )
 
     if entry in {"high_risk"}:

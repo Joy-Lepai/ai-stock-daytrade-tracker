@@ -111,6 +111,25 @@ def model_conditions() -> dict:
             "high_risk：風險分數偏高或已出現追價衝突",
             "avoid：條件不足、跌破 VWAP 或大盤偏弱",
         ],
+        "strong_long_candidate": [
+            "market_mode = intraday，且資料 live、今天資料、非 cached / delayed / missing",
+            "有 VWAP、有量比、有停損價，且股價站上 VWAP",
+            "volume_ratio >= 1.0",
+            "bullish_score >= 75",
+            "risk_score <= 55",
+            "confidence_score >= 60",
+            "突破昨高，或距離突破價 <= 0.5%",
+            "停損距離合理，且距離 VWAP 不過遠",
+            "不可 high_risk / avoid / data_missing，且不可有明顯長上影或假突破風險",
+            "強烈做多代表值得立即盯盤，不等於已經可以買。",
+        ],
+        "executable": [
+            "executable 仍維持更嚴格：必須已觸發進場條件。",
+            "停損停利合理，風險明確可控。",
+            "不得是 wait_volume / wait_vwap / wait_breakout / practice_long。",
+            "不得有重大 indicator_conflicts。",
+            "cached / delayed / missing / 非盤中模式都不可顯示為可執行。",
+        ],
     }
 
 

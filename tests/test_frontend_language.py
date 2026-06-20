@@ -34,6 +34,31 @@ class FrontendLanguageTests(unittest.TestCase):
         self.assertIn("練習買多", view.subtitle)
         self.assertFalse(view.is_strong_long_allowed)
 
+    def test_wait_breakout_can_be_strong_long_candidate_without_executable(self):
+        view = front_trade_view(
+            {
+                "grade": "B+",
+                "entry_status": "wait_breakout",
+                "last_price": 99.7,
+                "vwap": 99,
+                "volume_ratio": 1.2,
+                "above_vwap": True,
+                "previous_high": 100,
+                "trigger_price": 100,
+                "bullish_score": 78,
+                "risk_score": 45,
+                "confidence_score": 65,
+                "stop_loss": 97.5,
+                "upper_shadow_pct": 1.0,
+                "conflicts": [],
+            }
+        )
+
+        self.assertEqual(view.category, "強烈做多")
+        self.assertIn("等待突破", view.subtitle)
+        self.assertTrue(view.is_strong_long_allowed)
+        self.assertIn("not_executable_yet", view.reason_codes)
+
     def test_high_risk_is_observation_not_long(self):
         view = front_trade_view(
             {

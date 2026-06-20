@@ -37,6 +37,7 @@ from stock_daytrade_system.report import render_opening_report, render_report
 from stock_daytrade_system.scoring import CandidateScore, score_market_bias, score_symbol
 from stock_daytrade_system.sectors import rank_opening_sector_strength, rank_sector_strength
 from stock_daytrade_system.session_policy import SESSION_POLICY_VERSION
+from stock_daytrade_system.strong_long import build_strong_long_funnel
 from stock_daytrade_system.strategy_validation import (
     STRATEGY_VALIDATION_VERSION,
     build_missed_rate_report,
@@ -485,6 +486,25 @@ def run_tracker(
                 full_market_scan=full_market_result.to_dict(),
                 candidates=long_candidates,
             )
+        )
+        data_health = diagnostics.get("data_health") or {}
+        strong_long_context = {
+            "data_today": bool(data_health.get("is_today_data")),
+            "intraday": clock.session == "regular",
+            "stale": bool(data_health.get("is_stale")),
+            "data_missing": str(data_health.get("status") or "") in {"異常", "嚴重缺漏"},
+            "allow_strong_long": bool(clock.session == "regular" and data_health.get("live_count", 0)),
+            "market_mode": "intraday" if clock.session == "regular" else "closed_review",
+            "price_status_label": str(data_health.get("live_state") or data_health.get("live_state_label") or ""),
+            "uses_last_known": bool(data_health.get("uses_last_known")),
+            "is_delayed": bool(data_health.get("is_delayed")),
+        }
+        diagnostics["strong_long_funnel"] = build_strong_long_funnel(
+            long_candidates,
+            total_market_count=int(full_market_result.summary.get("pool_symbols", 0) or len(all_watch_items)),
+            momentum_candidate_count=int(full_market_result.summary.get("candidate_symbols", 0) or momentum_scan.summary.total),
+            live_count=int(data_health.get("live_count", 0) or 0),
+            context=strong_long_context,
         )
         diagnostics["post_market_verification"] = post_market_verification
         diagnostics["strategy_scorecard"] = strategy_scorecard
