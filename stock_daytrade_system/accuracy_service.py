@@ -32,10 +32,12 @@ def build_accuracy_dashboard_payload(
     missed_rate_report = build_missed_rate_report(conn)
     model_suggestions = _model_suggestions(samples, config)
     model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
+    data_completeness = _scorecard_data_completeness(samples, strategy_scorecard, missed_rate_report, config)
     return {
         "api_status": "ok",
         "title": "策略成績單",
         "summary": summary,
+        "data_completeness": data_completeness,
         "by_status": _group_samples(samples, "entry_status", config),
         "by_grade": _group_samples(samples, "grade", config),
         "by_market": _group_samples(samples, "market", config),
@@ -212,6 +214,54 @@ def _model_suggestions(samples: list[dict], config: ConfidenceConfig) -> list[st
     weak = [item for item in grouped if item["sample_size"] >= config.min_sample_size and item["win_rate"] < 45]
     suggestions = [f"{item['group']} 勝率偏低，建議檢查進場條件或提高信心門檻。" for item in weak[:3]]
     return suggestions or ["目前沒有明顯需要調整的模型條件，持續累積樣本。"]
+
+
+def _scorecard_data_completeness(
+    samples: list[dict],
+    strategy_scorecard: dict,
+    missed_rate_report: dict,
+    config: ConfidenceConfig,
+) -> dict:
+    windows = (strategy_scorecard or {}).get("windows") or {}
+    available_windows = sorted(str(key) for key, value in windows.items() if value)
+    missed_rows = (missed_rate_report or {}).get("rows") or []
+    has_missed_diagnostic = bool(missed_rate_report) and (
+        bool((missed_rate_report or {}).get("definition"))
+        or bool((missed_rate_report or {}).get("missed_by_pool"))
+        or bool(missed_rows)
+    )
+    missing = []
+    if not samples:
+        missing.append("尚無 backtest / paper trade 成交樣本")
+    if "20" not in available_windows:
+        missing.append("尚無 20 日策略成績窗口")
+    if "40" not in available_windows:
+        missing.append("尚無 40 日策略成績窗口")
+    if "60" not in available_windows:
+        missing.append("尚無 60 日策略成績窗口")
+    if not has_missed_diagnostic:
+        missing.append("漏抓率診斷樣本不足")
+    missing.extend(["逐筆成交 Tick 尚未接入", "五檔委買委賣尚未接入"])
+    sample_size = len(samples)
+    ready_for_model_tuning = sample_size >= config.min_sample_size and not any(
+        item.startswith("尚無 20 日") for item in missing
+    )
+    return {
+        "sample_size": sample_size,
+        "available_windows": available_windows,
+        "has_20_day_window": "20" in available_windows,
+        "has_40_day_window": "40" in available_windows,
+        "has_60_day_window": "60" in available_windows,
+        "has_missed_diagnostic": has_missed_diagnostic,
+        "ready_for_model_tuning": ready_for_model_tuning,
+        "can_compare_precision_inputs": False,
+        "missing_items": missing,
+        "message": (
+            "資料完整度尚不足，暫不建議調整模型。"
+            if not ready_for_model_tuning
+            else "已具備初步樣本，可用於觀察模型是否需要調整，但仍不可自動改參數。"
+        ),
+    }
 
 
 def _b_plus_lifecycle_stats(conn: sqlite3.Connection) -> dict:

@@ -544,6 +544,7 @@ def render_tracker_html(
   <main>
     {_market_mode_panel(long_summary, report_time)}
     {_decision_overview(long_summary, report_time)}
+    {_precision_gap_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
     {_trend_continuation_panel(long_summary, report_time)}
@@ -895,6 +896,77 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
         '<h3>今日重點觀察股</h3>'
         f'<div class="signal-grid">{focus_html}</div>'
+        '</section>'
+    )
+
+
+def _precision_gap_overview(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    mode = _dashboard_market_mode(summary, report_time)
+    candidates = list(summary.candidates) if summary else []
+    total = len(candidates)
+    has_vwap = sum(1 for item in candidates if item.vwap is not None)
+    has_volume_ratio = sum(1 for item in candidates if item.volume_ratio is not None)
+    has_stop_loss = sum(1 for item in candidates if item.stop_loss is not None)
+    has_target_price = sum(1 for item in candidates if item.target_price is not None)
+    intraday_ready = 0
+    vwap_hold = 0
+    trend_structure = 0
+    volume_continuation = 0
+    institutional_context = 0
+    sector_context = 0
+    for item in candidates:
+        intraday = ((getattr(item, "timeframe_diagnostics", {}) or {}).get("intraday_window") or {})
+        if intraday:
+            intraday_ready += 1
+        if intraday.get("vwap_stay_ok") or intraday.get("vwap_hold_ok") or intraday.get("vwap_above_minutes"):
+            vwap_hold += 1
+        if intraday.get("higher_high") and intraday.get("higher_low"):
+            trend_structure += 1
+        if intraday.get("volume_continuation") or intraday.get("price_up_volume_up"):
+            volume_continuation += 1
+        inst = getattr(item, "institutional_context", {}) or {}
+        if inst.get("institutional_data_status") in {"ok", "partial"} or inst.get("status") in {"ok", "partial"}:
+            institutional_context += 1
+        sector = getattr(item, "sector_context", {}) or {}
+        if sector.get("sector_status") not in {None, "", "unknown"} or sector.get("sector_status_label"):
+            sector_context += 1
+    missing_tick = total
+    missing_orderbook = total
+    missing_live_news = total
+    can_precise_intraday = (
+        bool(mode.get("allow_intraday_signal"))
+        and total > 0
+        and missing_tick == 0
+        and missing_orderbook == 0
+    )
+    if can_precise_intraday:
+        message = "核心即時資料完整，可進一步檢查個股進場條件。"
+    elif mode.get("mode") != "intraday":
+        message = "目前不是盤中模式；此區僅用來檢查資料缺口，不提供即時進場判斷。"
+    else:
+        message = "尚未接入逐筆成交與五檔委買委賣，因此即使模型偏多，也不視為高精準即時進場訊號。"
+    return (
+        '<section class="decision-center">'
+        '<h2>精準資料缺口總覽</h2>'
+        f'<section class="notice">{escape(message)}</section>'
+        '<div class="summary">'
+        f'{_metric("追蹤標的", total)}'
+        f'{_metric("有 VWAP", has_vwap)}'
+        f'{_metric("有量比", has_volume_ratio)}'
+        f'{_metric("有停損價", has_stop_loss)}'
+        f'{_metric("有停利價", has_target_price)}'
+        f'{_metric("有盤中K線診斷", intraday_ready)}'
+        f'{_metric("VWAP守穩可判讀", vwap_hold)}'
+        f'{_metric("趨勢結構可判讀", trend_structure)}'
+        f'{_metric("量能延續可判讀", volume_continuation)}'
+        f'{_metric("三大法人背景", institutional_context)}'
+        f'{_metric("族群背景", sector_context)}'
+        f'{_metric("缺逐筆 Tick", missing_tick)}'
+        f'{_metric("缺五檔委買委賣", missing_orderbook)}'
+        f'{_metric("缺即時新聞題材", missing_live_news)}'
+        f'{_metric_text("高精準即時進場", "允許" if can_precise_intraday else "不允許")}'
+        '</div>'
+        '<p class="muted">此區只說明資料完整度與缺口，不會調整 A / B+ / B 條件，也不會增加推薦數量。</p>'
         '</section>'
     )
 

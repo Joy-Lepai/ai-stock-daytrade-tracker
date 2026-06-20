@@ -591,11 +591,13 @@ def _tracker_html_needs_refresh(html: str) -> bool:
         "上一交易日復盤",
         "下個交易日觀察清單",
         "模型檢討",
+        "精準資料缺口總覽",
         "資料健康度",
         "台股全市場異動掃描池",
         "漏抓股票診斷",
         "模型條件診斷",
         "B+ 觸發條件追蹤",
+        "進場前檢查表",
         "B+可練習觀察數量",
     )
     if any(marker not in html for marker in required_markers):
@@ -1660,6 +1662,8 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <section id="accuracy-error" class="warn" hidden>策略成績單 API 暫時無法更新。</section>
     <h2>整體摘要</h2>
     <section class="summary" id="accuracy-summary"></section>
+    <h2>資料完整度</h2>
+    <section id="accuracy-data-completeness" class="review-chart-card"></section>
     <h2>依進場狀態</h2>
     <div class="table-wrap" id="accuracy-status"></div>
     <h2>依分級</h2>
@@ -2592,6 +2596,92 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderEntryChecklistCard = (payload) => {
+        payload = payload || {};
+        const candidate = payload.candidate || {};
+        const dataHealth = payload.data_health || {};
+        const safety = payload.safety || {};
+        const keyMetrics = payload.key_metrics || {};
+        const precision = payload.precision_context || {};
+        const entryPrice = Number(candidate.trigger_price || keyMetrics.intraday_high || keyMetrics.current_price || candidate.last_price || 0);
+        const stopLoss = Number(keyMetrics.stop_loss || candidate.stop_loss || 0);
+        const stopDistancePct = entryPrice > 0 && stopLoss > 0 ? ((entryPrice - stopLoss) / entryPrice) * 100 : null;
+        const volumeRatio = Number(keyMetrics.volume_ratio ?? candidate.volume_ratio ?? 0);
+        const riskScore = Number(keyMetrics.risk_score ?? candidate.risk_score ?? 999);
+        const distanceToVwap = Number(keyMetrics.distance_to_vwap_pct ?? candidate.distance_to_vwap_pct ?? 999);
+        const hasTick = precision.tick_data_status === "ok";
+        const hasOrderbook = precision.orderbook_status === "ok";
+        const checks = [
+          {
+            label: "資料即時",
+            ok: Boolean(dataHealth.is_live && dataHealth.can_use_for_daytrade && !dataHealth.uses_cache),
+            detail: dataHealth.is_live ? "可作盤中判斷" : (dataHealth.advice || "資料非即時，僅供觀察"),
+            hard: true,
+          },
+          {
+            label: "站上 VWAP",
+            ok: Boolean(candidate.above_vwap || keyMetrics.above_vwap),
+            detail: keyMetrics.vwap ? `VWAP ${number(keyMetrics.vwap)}` : "缺 VWAP 不可執行",
+            hard: true,
+          },
+          {
+            label: "量能確認",
+            ok: volumeRatio >= 1,
+            detail: volumeRatio ? `量比 ${number(volumeRatio)}x` : "缺量比",
+            hard: true,
+          },
+          {
+            label: "突破或觸發",
+            ok: Boolean(keyMetrics.break_prev_high || candidate.break_prev_high || candidate.entry_status === "executable"),
+            detail: keyMetrics.break_prev_high || candidate.break_prev_high ? "已突破昨日高點" : "等待突破觸發價",
+            hard: false,
+          },
+          {
+            label: "停損距離合理",
+            ok: Boolean(stopDistancePct !== null && stopDistancePct > 0 && stopDistancePct <= 3),
+            detail: stopDistancePct === null ? "缺停損價" : `停損距離 ${number(stopDistancePct)}%`,
+            hard: true,
+          },
+          {
+            label: "追價風險可控",
+            ok: riskScore <= 55 && distanceToVwap <= 3,
+            detail: `風險分數 ${number(riskScore)}，距 VWAP ${number(distanceToVwap)}%`,
+            hard: true,
+          },
+          {
+            label: "逐筆 / 五檔資料",
+            ok: Boolean(hasTick && hasOrderbook),
+            detail: hasTick && hasOrderbook ? "高精準即時資料已具備" : "缺 Tick / 五檔時不作高精準進場",
+            hard: false,
+          },
+        ];
+        const passed = checks.filter((item) => item.ok).length;
+        const hardBlocked = checks.some((item) => item.hard && !item.ok);
+        const conclusion = hardBlocked
+          ? "尚未通過進場前檢查，僅可觀察或等待。"
+          : (candidate.entry_status === "executable" ? "核心條件通過，仍需按部位風控執行。" : "核心條件接近，等待系統觸發或下一次更新確認。");
+        const rows = checks.map((item) => `
+          <li>
+            <strong>${item.ok ? "通過" : "未通過"}｜${escapeHtml(item.label)}</strong>
+            <span class="muted">${escapeHtml(item.detail)}</span>
+          </li>
+        `).join("");
+        return `
+          <article class="advisor-card">
+            <h3>進場前檢查表</h3>
+            <p><strong>${escapeHtml(conclusion)}</strong></p>
+            <div class="advisor-grid">
+              ${metric("檢查通過", `${passed} / ${checks.length}`)}
+              ${metric("資料即時", escapeHtml(yesNo(dataHealth.is_live)))}
+              ${metric("可作盤中判斷", escapeHtml(yesNo(dataHealth.can_use_for_daytrade && safety.is_executable_allowed)))}
+              ${metric("停損距離", stopDistancePct === null ? "-" : `${escapeHtml(number(stopDistancePct))}%`)}
+              ${metric("高精準資料", escapeHtml(hasTick && hasOrderbook ? "已具備" : "尚未具備"))}
+            </div>
+            <ul class="decision-list">${rows}</ul>
+            <p class="warn-inline">此檢查表只做進場前風控與資料完整度提醒，不會調整模型評級；資料延遲、使用上一筆、缺 VWAP、缺量比或缺停損價時，不顯示強烈做多。</p>
+          </article>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -2733,6 +2823,7 @@ def tw_advisor_script() -> str:
             ${blockedMessages.length ? `<div class="warn-inline">${list(blockedMessages)}</div>` : ""}
           </article>
 
+          ${renderEntryChecklistCard(payload)}
           ${renderPrecisionContextCard(precision)}
 
           <article class="advisor-card">
@@ -3495,6 +3586,7 @@ def accuracy_dashboard_script() -> str:
         $("accuracy-grade").innerHTML = table(payload.by_grade || [], "分級");
         $("accuracy-confidence").innerHTML = table(payload.by_confidence || [], "信心等級");
         $("accuracy-market").innerHTML = table(payload.by_market || [], "市場");
+        renderDataCompleteness(payload.data_completeness || {});
         renderScorecard(payload.strategy_scorecard || {});
         renderReviewChart(payload.review_tag_loss_distribution || {});
         renderMissed(payload.missed_rate_report || {});
@@ -3519,6 +3611,22 @@ def accuracy_dashboard_script() -> str:
           <td>${escapeHtml(item.sample_message || "")}</td>
         </tr>`).join("") : `<tr><td colspan="11">目前沒有${label}統計資料。</td></tr>`;
         return `<table><thead><tr><th>${label}</th><th>樣本數</th><th>樣本品質</th><th>具統計意義</th><th>勝率</th><th>平均報酬</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>停損率</th><th>達標率</th><th>提示</th></tr></thead><tbody>${body}</tbody></table>`;
+      }
+
+      function renderDataCompleteness(data) {
+        const missing = Array.isArray(data.missing_items) ? data.missing_items : [];
+        $("accuracy-data-completeness").innerHTML = `
+          <div class="summary">
+            ${metric("成績樣本", data.sample_size || 0)}
+            ${metric("20日窗口", data.has_20_day_window ? "有" : "不足")}
+            ${metric("40日窗口", data.has_40_day_window ? "有" : "不足")}
+            ${metric("60日窗口", data.has_60_day_window ? "有" : "不足")}
+            ${metric("漏抓診斷", data.has_missed_diagnostic ? "有" : "不足")}
+            ${metric("可否調參", data.ready_for_model_tuning ? "可初步觀察" : "不建議")}
+          </div>
+          <p class="muted">${escapeHtml(data.message || "資料完整度尚在累積。")}</p>
+          <p class="muted"><strong>缺口：</strong>${escapeHtml(missing.length ? missing.join("、") : "暫無明顯缺口")}</p>
+        `;
       }
 
       function sampleQualityLabel(value) {

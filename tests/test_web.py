@@ -57,11 +57,13 @@ class WebTests(unittest.TestCase):
           上一交易日復盤
           下個交易日觀察清單
           模型檢討
+          精準資料缺口總覽
           資料健康度
           台股全市場異動掃描池
           漏抓股票診斷
           模型條件診斷
           B+ 觸發條件追蹤
+          進場前檢查表
           B+可練習觀察數量
         </body></html>
         """
@@ -99,6 +101,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("虧損交易覆盤標籤", html)
         self.assertIn("樣本品質", html)
         self.assertIn("sampleQualityLabel", html)
+        self.assertIn("資料完整度", html)
+        self.assertIn("accuracy-data-completeness", html)
+        self.assertIn("可否調參", html)
 
     def test_tw_advisor_page_has_stock_input_and_scan_api(self):
         html = render_tw_advisor_page()
@@ -129,6 +134,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("法人買超不能取代", html)
         self.assertIn("族群強只是背景", html)
         self.assertIn("精準當沖資料檢查", html)
+        self.assertIn("進場前檢查表", html)
+        self.assertIn("停損距離合理", html)
+        self.assertIn("缺 Tick / 五檔時不作高精準進場", html)
         self.assertIn("逐筆成交 Tick", html)
         self.assertIn("五檔委買委賣", html)
         self.assertIn("缺少逐筆成交與五檔委買委賣", html)

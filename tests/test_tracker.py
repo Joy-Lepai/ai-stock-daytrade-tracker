@@ -786,6 +786,10 @@ class TrackerStatusTests(unittest.TestCase):
             html = output_path.read_text(encoding="utf-8")
 
         self.assertIn("今日推薦檢查表", html)
+        self.assertIn("精準資料缺口總覽", html)
+        self.assertIn("缺逐筆 Tick", html)
+        self.assertIn("缺五檔委買委賣", html)
+        self.assertIn("不會調整 A / B+ / B 條件", html)
         self.assertIn("資料健康度", html)
         self.assertIn("資料日期", html)
         self.assertIn("是否過期", html)

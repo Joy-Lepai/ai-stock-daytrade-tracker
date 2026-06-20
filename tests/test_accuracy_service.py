@@ -20,6 +20,9 @@ class AccuracyServiceTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["sample_quality"], "insufficient")
         self.assertFalse(payload["summary"]["is_statistically_meaningful"])
         self.assertIn("樣本數不足", payload["summary"]["message"])
+        self.assertEqual(payload["data_completeness"]["sample_size"], 0)
+        self.assertFalse(payload["data_completeness"]["ready_for_model_tuning"])
+        self.assertIn("逐筆成交 Tick 尚未接入", payload["data_completeness"]["missing_items"])
         self.assertEqual(payload["by_status"], [])
 
     def test_high_confidence_backtest_is_counted(self):
