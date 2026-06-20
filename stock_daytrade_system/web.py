@@ -2626,6 +2626,41 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderFugleTradesCard = (trades) => {
+        trades = trades || {};
+        const warnings = Array.isArray(trades.warnings) ? trades.warnings : [];
+        const enabledText = trades.enabled ? "已啟用" : "尚未啟用";
+        const configuredText = trades.configured ? "已設定" : "尚未設定";
+        return `
+          <article class="advisor-card">
+            <h3>Fugle 逐筆成交 / 大單偵測</h3>
+            <p><strong>${escapeHtml(trades.status_label || "尚未啟用")}</strong></p>
+            <p class="muted">此區只讀富果行情 API，不串接下單。若有 API Key，系統會用 REST Trades 判斷大單敲進 / 敲出；WebSocket 可作為下一階段即時升級。</p>
+            <div class="advisor-grid">
+              ${metric("啟用狀態", escapeHtml(enabledText))}
+              ${metric("API Key", escapeHtml(configuredText))}
+              ${metric("資料來源", escapeHtml(trades.source || "Fugle"))}
+              ${metric("狀態", escapeHtml(trades.status || "disabled"))}
+              ${metric("逐筆筆數", escapeHtml(trades.trades_count ?? 0))}
+              ${metric("最新成交價", escapeHtml(number(trades.latest_price)))}
+              ${metric("最新成交量", escapeHtml(number(trades.latest_size, 0)))}
+              ${metric("最新成交時間", escapeHtml(trades.latest_time || "-"))}
+              ${metric("大單狀態", escapeHtml(statusZh(trades.large_trade_status)))}
+              ${metric("大單門檻", escapeHtml(number(trades.large_trade_threshold, 0)))}
+              ${metric("大單價格", escapeHtml(number(trades.large_trade_price)))}
+              ${metric("大單量", escapeHtml(number(trades.large_trade_size, 0)))}
+              ${metric("大單時間", escapeHtml(trades.large_trade_time || "-"))}
+              ${metric("敲進次數", escapeHtml(trades.large_buy_count ?? 0))}
+              ${metric("敲出次數", escapeHtml(trades.large_sell_count ?? 0))}
+              ${metric("方向不明", escapeHtml(trades.large_unknown_count ?? 0))}
+            </div>
+            <p class="muted">${escapeHtml(trades.large_trade_summary || "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。")}</p>
+            ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
+            ${trades.error ? `<p class="warn-inline">${escapeHtml(trades.error)}</p>` : ""}
+            <p class="warn-inline">Fugle 逐筆成交只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+          </article>
+        `;
+      };
       const renderTwseOrderbookCard = (quote) => {
         quote = quote || {};
         const bids = Array.isArray(quote.bid_levels) ? quote.bid_levels : [];
@@ -2932,6 +2967,7 @@ def tw_advisor_script() -> str:
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
         const shioajiQuote = payload.shioaji_quote || {};
+        const fugleTrades = payload.fugle_trades || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -3060,6 +3096,7 @@ def tw_advisor_script() -> str:
 
           ${renderEntryChecklistCard(payload)}
           ${renderEntryConfirmationCard(entryConfirmation)}
+          ${renderFugleTradesCard(fugleTrades)}
           ${renderTwseOrderbookCard(payload.realtime_quote || {})}
           ${renderShioajiQuoteCard(shioajiQuote)}
           ${renderPrecisionContextCard(precision)}

@@ -3,7 +3,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar
-from stock_daytrade_system.tw_scan_service import _data_health_payload, _intraday_chart_payload, _safety_payload
+from stock_daytrade_system.tw_scan_service import (
+    _data_health_payload,
+    _intraday_chart_payload,
+    _radar_quote_payload,
+    _safety_payload,
+)
 
 
 class TWScanServiceTests(unittest.TestCase):
@@ -113,6 +118,23 @@ class TWScanServiceTests(unittest.TestCase):
 
         self.assertFalse(payload["is_executable_allowed"])
         self.assertEqual(payload["effective_entry_status"], "practice_long")
+
+    def test_radar_quote_prefers_fugle_large_trade_signal(self):
+        payload = _radar_quote_payload(
+            {"price": 100, "five_level_status": "available"},
+            {"large_trade_status": "missing"},
+            {
+                "source": "Fugle REST Trades",
+                "large_trade_status": "buy_sweep",
+                "large_trade_summary": "疑似大單敲進：500 股。",
+                "large_trade_size": 500,
+                "large_trade_threshold": 200,
+            },
+        )
+
+        self.assertEqual(payload["large_trade_status"], "buy_sweep")
+        self.assertEqual(payload["last_tick_volume"], 500)
+        self.assertEqual(payload["large_trade_source"], "Fugle REST Trades")
 
 
 if __name__ == "__main__":

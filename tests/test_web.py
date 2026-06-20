@@ -134,6 +134,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("趨勢延續診斷", html)
         self.assertIn("籌碼背景", html)
         self.assertIn("族群狀態", html)
+        self.assertIn("Fugle 逐筆成交 / 大單偵測", html)
+        self.assertIn("Fugle 逐筆成交只作進場確認背景", html)
         self.assertIn("法人買超不能取代", html)
         self.assertIn("族群強只是背景", html)
         self.assertIn("精準當沖資料檢查", html)
