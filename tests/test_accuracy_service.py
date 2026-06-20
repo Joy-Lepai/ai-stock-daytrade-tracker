@@ -6,7 +6,7 @@ from stock_daytrade_system.accuracy_service import (
     build_accuracy_dashboard_payload,
     build_accuracy_group_payload,
 )
-from stock_daytrade_system.db import connect
+from stock_daytrade_system.db import connect, save_tw_full_market_snapshots
 
 
 class AccuracyServiceTests(unittest.TestCase):
@@ -24,6 +24,8 @@ class AccuracyServiceTests(unittest.TestCase):
         self.assertFalse(payload["data_completeness"]["ready_for_model_tuning"])
         self.assertIn("逐筆成交 Tick 尚未接入", payload["data_completeness"]["missing_items"])
         self.assertEqual(payload["by_status"], [])
+        self.assertIn("entry_radar_scorecard", payload)
+        self.assertEqual(payload["entry_radar_scorecard"]["windows"]["20"]["sample_quality"], "insufficient")
 
     def test_high_confidence_backtest_is_counted(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -164,6 +166,46 @@ class AccuracyServiceTests(unittest.TestCase):
         rows = payload["review_tag_loss_distribution"]["rows"]
         self.assertEqual(payload["review_tag_loss_distribution"]["sample_size"], 1)
         self.assertEqual({row["code"]: row["count"] for row in rows}, {"fomo": 1, "hold_loser": 1})
+
+    def test_entry_radar_scorecard_is_in_accuracy_payload(self):
+        from datetime import datetime
+
+        with tempfile.TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                save_tw_full_market_snapshots(
+                    conn,
+                    datetime(2026, 6, 18, 9, 30),
+                    [
+                        {
+                            "symbol": "2886.TW",
+                            "name": "兆豐金",
+                            "latest_price": 40,
+                            "change_pct": 3.1,
+                            "volume": 10_000_000,
+                            "turnover": 400_000_000,
+                            "volume_ratio": 0.72,
+                            "vwap": 39.8,
+                            "ai_grade": "B",
+                            "entry_status": "wait_volume",
+                            "reason_code": "low_volume_ratio",
+                        }
+                    ],
+                )
+                conn.execute(
+                    """
+                    UPDATE tw_full_market_snapshots
+                    SET max_gain_after_scan = 1.4,
+                        max_drawdown_after_scan = -0.3,
+                        hit_1_pct = 1
+                    WHERE symbol = '2886.TW'
+                    """
+                )
+                payload = build_accuracy_dashboard_payload(conn)
+
+        radar = payload["entry_radar_scorecard"]
+        self.assertEqual(radar["title"], "進場雷達成績單")
+        self.assertEqual(radar["windows"]["20"]["rows"][0]["blocker_label"], "量比不足")
+        self.assertIn("進場雷達", " ".join(payload["model_suggestions"]))
 
 
 if __name__ == "__main__":

@@ -557,6 +557,8 @@ def render_tracker_html(
     {_review_mode_sections(long_summary, report_time)}
     <h2>本週模型觀察</h2>
     {_model_observation_panel(long_summary)}
+    <h2>進場雷達成績單</h2>
+    {_entry_radar_scorecard_panel(long_summary)}
     <h2>資料健康度</h2>
     {_data_health_panel(long_summary)}
     <h2>台股全市場異動掃描池</h2>
@@ -1075,6 +1077,55 @@ def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
         f'<ul class="decision-list">{note_html}</ul>'
         '</section>'
     )
+
+
+def _entry_radar_scorecard_panel(summary: Optional[LongModelSummary]) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    scorecard = ((diagnostics or {}).get("entry_radar_scorecard") or {}).get("windows", {}).get("20", {})
+    rows = list(scorecard.get("rows") or [])[:6]
+    if not rows:
+        return (
+            '<section class="decision-center">'
+            '<p class="muted">目前尚無進場雷達卡關成績資料；需累積盤後驗證後才可判斷。</p>'
+            '</section>'
+        )
+    body = "".join(
+        '<tr>'
+        f'<td><strong>{escape(str(item.get("blocker_label", "-")))}</strong><br><span class="muted">{escape(str(item.get("blocker_code", "-")))}</span></td>'
+        f'<td>{int(item.get("sample_size", 0) or 0)}</td>'
+        f'<td>{int(item.get("verified", 0) or 0)}</td>'
+        f'<td>{float(item.get("win_rate", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("target_2_rate", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("avg_max_gain", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("avg_max_drawdown", 0) or 0):.2f}%</td>'
+        f'<td class="notes">{escape(str(item.get("interpretation") or item.get("sample_message") or ""))}</td>'
+        '</tr>'
+        for item in rows
+    )
+    return (
+        '<section class="decision-center">'
+        '<section class="notice">此區只統計最大卡關原因的盤後表現，不會自動調整 A / B+ / B 條件。</section>'
+        '<div class="summary">'
+        f'{_metric("20日樣本", int(scorecard.get("sample_size", 0) or 0))}'
+        f'{_metric("20日已驗證", int(scorecard.get("verified", 0) or 0))}'
+        f'{_metric_text("樣本品質", _scorecard_quality_label(str(scorecard.get("sample_quality", "insufficient"))))}'
+        f'{_metric_text("判讀狀態", "可初步觀察" if scorecard.get("is_statistically_meaningful") else "樣本不足")}'
+        '</div>'
+        f'<p class="muted">{escape(str(scorecard.get("message") or "樣本不足，不建議依卡關原因調整模型。"))}</p>'
+        '<div class="table-wrap"><table><thead><tr><th>最大卡關</th><th>出現</th><th>已驗證</th><th>1%勝率</th><th>2%命中</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>解讀</th></tr></thead><tbody>'
+        f'{body}'
+        '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _scorecard_quality_label(value: str) -> str:
+    return {
+        "insufficient": "樣本不足",
+        "early": "初步樣本",
+        "meaningful": "具參考性",
+        "trusted": "較可信",
+    }.get(value, "樣本不足")
 
 
 def _timeframe_gap_report_panel(summary: Optional[LongModelSummary]) -> str:

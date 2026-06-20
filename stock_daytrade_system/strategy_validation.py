@@ -17,6 +17,42 @@ EARLY_SAMPLE_SIZE = 60
 TRUSTED_SAMPLE_SIZE = 100
 
 
+BLOCKER_LABELS = {
+    "data_not_live": "資料非即時",
+    "cached_price": "使用上一筆",
+    "delayed_price": "資料延遲",
+    "data_missing": "資料不足",
+    "data_failed": "資料擷取失敗",
+    "yahoo_intraday_failed": "盤中資料失敗",
+    "missing_price": "缺價格",
+    "missing_vwap": "缺 VWAP",
+    "vwap_missing": "缺 VWAP",
+    "missing_volume_ratio": "缺量比",
+    "volume_ratio_missing": "缺量比",
+    "below_vwap": "未站上 VWAP",
+    "wait_vwap": "等待站回 VWAP",
+    "low_volume_ratio": "量比不足",
+    "wait_volume": "等待量能",
+    "no_breakout": "尚未突破",
+    "wait_breakout": "等待突破",
+    "failed_breakout": "突破失敗",
+    "high_risk": "追價風險高",
+    "risk_high": "追價風險高",
+    "high_chase_risk": "追價風險高",
+    "too_far_from_vwap": "距離 VWAP 過遠",
+    "wait_pullback": "等待拉回",
+    "avoid": "避開",
+    "low_liquidity": "流動性不足",
+    "below_candidate_threshold": "低於異動門檻",
+    "not_in_watchlist": "原追蹤池未包含",
+    "full_market_detected": "全市場掃描找到",
+    "candidate_but_not_triggered": "候選但未觸發",
+    "missing_tick": "缺逐筆成交資料",
+    "missing_orderbook": "缺五檔資料",
+    "no_large_buy": "尚未確認大單敲進",
+}
+
+
 def update_tw_scan_result_verification(
     conn: sqlite3.Connection,
     captured_at: datetime,
@@ -147,6 +183,23 @@ def build_strategy_scorecard(conn: sqlite3.Connection, windows: Iterable[int] = 
     return payload
 
 
+def build_entry_radar_scorecard(conn: sqlite3.Connection, windows: Iterable[int] = (20, 40, 60)) -> dict:
+    rows = _latest_snapshot_rows(conn)
+    dates = sorted({row["date"] for row in rows}, reverse=True)
+    payload = {
+        "version": STRATEGY_VALIDATION_VERSION,
+        "title": "進場雷達成績單",
+        "available_trade_days": len(dates),
+        "windows": {},
+        "message": "此表只統計最大卡關原因後續表現，不會自動調整 A / B+ / B 條件。",
+    }
+    for window in windows:
+        selected_dates = set(dates[:window])
+        window_rows = [row for row in rows if row["date"] in selected_dates]
+        payload["windows"][str(window)] = _entry_radar_window_scorecard(window_rows, window)
+    return payload
+
+
 def build_missed_rate_report(conn: sqlite3.Connection, window: int = 20) -> dict:
     rows = _latest_snapshot_rows(conn)
     dates = sorted({row["date"] for row in rows}, reverse=True)
@@ -228,6 +281,133 @@ def build_model_observations(scorecard: dict, missed_report: dict) -> list[str]:
     if not notes:
         notes.append("目前樣本仍需累積；建議觀察 20 日後再調整，暫不建議修改模型條件。")
     return notes
+
+
+def build_entry_radar_observations(radar_scorecard: dict) -> list[str]:
+    window = ((radar_scorecard or {}).get("windows") or {}).get("20") or {}
+    rows = window.get("rows") or []
+    notes: list[str] = []
+    if int(window.get("verified", 0) or 0) < MIN_MEANINGFUL_SAMPLE_SIZE:
+        return ["進場雷達樣本不足，先累積卡關原因與盤後結果，不建議調整模型條件。"]
+    candidates = [row for row in rows if int(row.get("verified", 0) or 0) >= MIN_MEANINGFUL_SAMPLE_SIZE]
+    for row in candidates[:3]:
+        label = str(row.get("blocker_label") or row.get("blocker_code") or "未知卡關")
+        continue_rate = float(row.get("continue_up_rate", 0) or 0)
+        pullback_rate = float(row.get("pullback_rate", 0) or 0)
+        if continue_rate >= 35:
+            notes.append(f"{label} 後續仍有一定續漲比例，建議保留觀察層，不要直接升級為可執行。")
+        elif pullback_rate >= 50:
+            notes.append(f"{label} 後續回撤比例偏高，現有等待或避開規則暫時合理。")
+    return notes or ["進場雷達目前沒有明顯偏差，持續累積 20 / 40 / 60 日樣本。"]
+
+
+def _entry_radar_window_scorecard(rows: list[sqlite3.Row], window: int) -> dict:
+    grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        grouped[_entry_radar_blocker_code(row)].append(row)
+    items = [_entry_radar_group_stats(code, items) for code, items in grouped.items()]
+    items.sort(key=lambda item: (-int(item["verified"]), -int(item["sample_size"]), str(item["blocker_label"])))
+    verified = sum(1 for row in rows if row["max_gain_after_scan"] is not None)
+    meaningful = [item for item in items if int(item["verified"]) >= MIN_MEANINGFUL_SAMPLE_SIZE]
+    top_continue = max(meaningful, key=lambda item: (float(item["continue_up_rate"]), float(item["avg_max_gain"])), default=None)
+    top_pullback = max(meaningful, key=lambda item: (float(item["pullback_rate"]), abs(float(item["avg_max_drawdown"]))), default=None)
+    return {
+        "window_days": window,
+        "sample_size": len(rows),
+        "verified": verified,
+        "sample_quality": _sample_quality(verified),
+        "sample_message": _sample_message(verified),
+        "is_statistically_meaningful": verified >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "rows": items,
+        "top_continue": top_continue,
+        "top_pullback": top_pullback,
+        "message": "樣本不足，不建議依卡關原因調整模型。" if verified < MIN_MEANINGFUL_SAMPLE_SIZE else "可初步觀察卡關原因是否過度保守或確實有效。",
+    }
+
+
+def _entry_radar_group_stats(code: str, rows: list[sqlite3.Row]) -> dict:
+    total = len(rows)
+    verified = [row for row in rows if row["max_gain_after_scan"] is not None]
+    wins = [row for row in verified if (_float(row["max_gain_after_scan"]) or 0) >= 1]
+    target_0_5 = [row for row in verified if bool(row["hit_0_5_pct"])]
+    target_1 = [row for row in verified if bool(row["hit_1_pct"])]
+    target_2 = [row for row in verified if bool(row["hit_2_pct"])]
+    pullback = [row for row in verified if (_float(row["max_drawdown_after_scan"]) or 0) <= -1]
+    stop = [row for row in verified if bool(row["hit_stop_loss"])]
+    target = [row for row in verified if bool(row["hit_take_profit"]) or bool(row["hit_2_pct"])]
+    avg_gain = _avg(_float(row["max_gain_after_scan"]) for row in verified)
+    avg_drawdown = _avg(_float(row["max_drawdown_after_scan"]) for row in verified)
+    label = _entry_radar_blocker_label(code)
+    return {
+        "blocker_code": code,
+        "blocker_label": label,
+        "sample_size": total,
+        "verified": len(verified),
+        "sample_quality": _sample_quality(len(verified)),
+        "sample_message": _sample_message(len(verified)),
+        "is_statistically_meaningful": len(verified) >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "win_rate": round(len(wins) / len(verified) * 100, 2) if verified else 0.0,
+        "target_0_5_rate": round(len(target_0_5) / len(verified) * 100, 2) if verified else 0.0,
+        "target_1_rate": round(len(target_1) / len(verified) * 100, 2) if verified else 0.0,
+        "target_2_rate": round(len(target_2) / len(verified) * 100, 2) if verified else 0.0,
+        "avg_max_gain": avg_gain,
+        "avg_max_drawdown": avg_drawdown,
+        "stop_rate": round(len(stop) / len(verified) * 100, 2) if verified else 0.0,
+        "target_rate": round(len(target) / len(verified) * 100, 2) if verified else 0.0,
+        "continue_up_rate": round(len(target_2) / len(verified) * 100, 2) if verified else 0.0,
+        "pullback_rate": round(len(pullback) / len(verified) * 100, 2) if verified else 0.0,
+        "interpretation": _entry_radar_interpretation(label, len(verified), len(target_2), len(pullback)),
+    }
+
+
+def _entry_radar_blocker_code(row: sqlite3.Row) -> str:
+    keys = set(row.keys())
+    source_only_codes = {"full_market_detected", "selected", "not_in_watchlist", "out_of_pool"}
+    for field in ("signal_reason_code", "reason_code", "entry_status", "signal_entry_status", "ai_grade"):
+        value = row[field] if field in keys else None
+        code = str(value).strip() if value is not None else ""
+        if code and code not in {"-", "unknown", "未入選"} and code.lower() not in source_only_codes:
+            return _normalize_blocker_code(code)
+    return "unknown"
+
+
+def _normalize_blocker_code(code: str) -> str:
+    lower = code.lower()
+    if lower in {"volume_ratio_missing", "missing_volume_ratio"}:
+        return "missing_volume_ratio"
+    if lower in {"vwap_missing", "missing_vwap"}:
+        return "missing_vwap"
+    if lower in {"risk_high", "high_chase_risk", "too_far_from_vwap"}:
+        return lower
+    if "volume" in lower and "missing" in lower:
+        return "missing_volume_ratio"
+    if "vwap" in lower and "missing" in lower:
+        return "missing_vwap"
+    if "volume" in lower or lower == "wait_volume":
+        return "wait_volume" if lower == "wait_volume" else "low_volume_ratio"
+    if "vwap" in lower or lower == "wait_vwap":
+        return "wait_vwap" if lower == "wait_vwap" else "below_vwap"
+    if "breakout" in lower or lower == "wait_breakout":
+        return "wait_breakout" if lower == "wait_breakout" else "no_breakout"
+    if lower in {"high_risk", "avoid", "data_missing", "data_failed", "wait_pullback"}:
+        return lower
+    return lower
+
+
+def _entry_radar_blocker_label(code: str) -> str:
+    return BLOCKER_LABELS.get(code, code.replace("_", " "))
+
+
+def _entry_radar_interpretation(label: str, verified: int, continue_count: int, pullback_count: int) -> str:
+    if verified < MIN_MEANINGFUL_SAMPLE_SIZE:
+        return "樣本不足，先累積資料，不建議調整模型。"
+    continue_rate = continue_count / verified * 100 if verified else 0
+    pullback_rate = pullback_count / verified * 100 if verified else 0
+    if continue_rate >= 35:
+        return f"{label} 後續仍有續強案例，可列為觀察偏差，但不要直接放寬 A 級。"
+    if pullback_rate >= 50:
+        return f"{label} 後續回撤比例偏高，目前風控提醒具有參考價值。"
+    return f"{label} 目前未呈現明顯偏差，建議繼續累積樣本。"
 
 
 def _verify_row(row: sqlite3.Row, captured_at: datetime, bars: list[Bar]) -> dict | None:

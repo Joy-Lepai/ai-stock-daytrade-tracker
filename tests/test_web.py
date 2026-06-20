@@ -104,6 +104,10 @@ class WebTests(unittest.TestCase):
         self.assertIn("資料完整度", html)
         self.assertIn("accuracy-data-completeness", html)
         self.assertIn("可否調參", html)
+        self.assertIn("進場雷達成績單", html)
+        self.assertIn("accuracy-entry-radar", html)
+        self.assertIn("renderEntryRadarScorecard", html)
+        self.assertIn("最大卡關", html)
 
     def test_tw_advisor_page_has_stock_input_and_scan_api(self):
         html = render_tw_advisor_page()

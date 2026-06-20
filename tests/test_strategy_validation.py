@@ -7,6 +7,7 @@ from pathlib import Path
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.db import connect, default_db_path, save_tw_full_market_snapshots
 from stock_daytrade_system.strategy_validation import (
+    build_entry_radar_scorecard,
     build_missed_rate_report,
     build_model_observations,
     build_strategy_scorecard,
@@ -243,6 +244,79 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(missed["missed_by_pool_count"], 0)
             self.assertEqual(missed["seen_but_filtered_count"], 1)
             self.assertEqual(missed["regret_after_close"]["count"], 1)
+
+    def test_entry_radar_scorecard_groups_blocker_reasons(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            captured = datetime(2026, 6, 18, 9, 30)
+            save_tw_full_market_snapshots(
+                conn,
+                captured,
+                [
+                    {
+                        "symbol": "3711.TW",
+                        "name": "日月光投控",
+                        "latest_price": 150,
+                        "change_pct": 3.4,
+                        "volume": 8_000_000,
+                        "turnover": 1_200_000_000,
+                        "volume_ratio": 0.7,
+                        "vwap": 149,
+                        "source_reasons": ["成交金額前段"],
+                        "ai_grade": "B",
+                        "entry_status": "wait_volume",
+                        "reason_code": "low_volume_ratio",
+                    },
+                    {
+                        "symbol": "6919.TW",
+                        "name": "康霈",
+                        "latest_price": 109,
+                        "change_pct": 9.9,
+                        "volume": 12_000_000,
+                        "turnover": 1_300_000_000,
+                        "volume_ratio": 5.0,
+                        "vwap": 106,
+                        "source_reasons": ["接近漲停"],
+                        "ai_grade": "C",
+                        "entry_status": "high_risk",
+                        "reason_code": "high_chase_risk",
+                    },
+                ],
+            )
+            conn.execute(
+                """
+                UPDATE tw_full_market_snapshots
+                SET max_gain_after_scan = 1.2,
+                    max_drawdown_after_scan = -0.4,
+                    hit_1_pct = 1,
+                    hit_2_pct = 0,
+                    hit_stop_loss = 0,
+                    hit_take_profit = 0
+                WHERE symbol = '3711.TW'
+                """
+            )
+            conn.execute(
+                """
+                UPDATE tw_full_market_snapshots
+                SET max_gain_after_scan = 0.2,
+                    max_drawdown_after_scan = -1.5,
+                    hit_1_pct = 0,
+                    hit_2_pct = 0,
+                    hit_stop_loss = 1,
+                    hit_take_profit = 0
+                WHERE symbol = '6919.TW'
+                """
+            )
+
+            scorecard = build_entry_radar_scorecard(conn)
+
+            rows = scorecard["windows"]["20"]["rows"]
+            by_code = {row["blocker_code"]: row for row in rows}
+            self.assertEqual(scorecard["title"], "進場雷達成績單")
+            self.assertEqual(by_code["low_volume_ratio"]["blocker_label"], "量比不足")
+            self.assertEqual(by_code["low_volume_ratio"]["win_rate"], 100)
+            self.assertEqual(by_code["high_chase_risk"]["blocker_label"], "追價風險高")
+            self.assertEqual(by_code["high_chase_risk"]["pullback_rate"], 100)
 
 
 if __name__ == "__main__":

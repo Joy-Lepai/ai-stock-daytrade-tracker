@@ -11,6 +11,7 @@ from stock_daytrade_system.tracker import (
     _bullish_focus_table,
     _change_number,
     _data_status_block,
+    _entry_radar_scorecard_panel,
     _entry_status_message,
     _focus_card,
     _market_mode_panel,
@@ -680,6 +681,50 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("tw-scan-symbol", html)
         self.assertIn("data-stock-search", html)
+
+    def test_entry_radar_scorecard_panel_renders_blocker_stats(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "entry_radar_scorecard": {
+                    "windows": {
+                        "20": {
+                            "sample_size": 2,
+                            "verified": 2,
+                            "sample_quality": "insufficient",
+                            "is_statistically_meaningful": False,
+                            "message": "樣本不足，不建議依卡關原因調整模型。",
+                            "rows": [
+                                {
+                                    "blocker_code": "low_volume_ratio",
+                                    "blocker_label": "量比不足",
+                                    "sample_size": 2,
+                                    "verified": 2,
+                                    "win_rate": 50,
+                                    "target_2_rate": 0,
+                                    "avg_max_gain": 1.1,
+                                    "avg_max_drawdown": -0.5,
+                                    "interpretation": "樣本不足，先累積資料，不建議調整模型。",
+                                }
+                            ],
+                        }
+                    }
+                }
+            },
+        )
+
+        html = _entry_radar_scorecard_panel(summary)
+
+        self.assertIn("最大卡關", html)
+        self.assertIn("量比不足", html)
+        self.assertIn("1.10%", html)
+        self.assertIn("不會自動調整 A / B+ / B 條件", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
