@@ -21,6 +21,8 @@ from stock_daytrade_system.db import (
     update_backtests,
 )
 from stock_daytrade_system.decision_center import build_decision_center, paper_activity_stats
+from stock_daytrade_system.fugle_market_data import FugleMarketDataConfig
+from stock_daytrade_system.fugle_priority_pool import build_fugle_priority_pool
 from stock_daytrade_system.intraday import OpeningSignal, analyze_opening_confirmation
 from stock_daytrade_system.long_model import SCORING_MODEL_VERSION, build_long_candidates, build_long_model_summary
 from stock_daytrade_system.market_clock import taiwan_market_session
@@ -391,6 +393,14 @@ def run_tracker(
         model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
         entry_radar_observations = build_entry_radar_observations(entry_radar_scorecard)
         b_plus_triggers = build_b_plus_trigger_tracker(conn, market="TW", date_text=now.strftime("%Y-%m-%d"))
+        fugle_config = FugleMarketDataConfig.from_env()
+        fugle_priority_pool = build_fugle_priority_pool(
+            long_candidates,
+            b_plus_triggers=b_plus_triggers,
+            pinned_symbols=config.fugle_priority_symbols,
+            enabled=fugle_config.enabled,
+            configured=fugle_config.configured,
+        )
         visible_long_candidates = [
             item for item in long_candidates
             if item.grade in {"A", "B+", "B", "C"} or item.entry_status in {"wait_volume", "wait_vwap", "high_risk"}
@@ -513,6 +523,7 @@ def run_tracker(
         diagnostics["post_market_verification"] = post_market_verification
         diagnostics["strategy_scorecard"] = strategy_scorecard
         diagnostics["entry_radar_scorecard"] = entry_radar_scorecard
+        diagnostics["fugle_priority_pool"] = fugle_priority_pool
         diagnostics["missed_rate_report"] = missed_rate_report
         diagnostics["model_observations"] = model_observations + [
             item for item in entry_radar_observations if item not in model_observations

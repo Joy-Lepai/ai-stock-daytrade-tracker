@@ -552,6 +552,7 @@ def render_tracker_html(
     {_precision_gap_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
     {_signal_center(long_summary)}
+    {_fugle_priority_pool_panel(long_summary)}
     {_trend_continuation_panel(long_summary, report_time)}
     {_position_command_center(long_summary)}
     {_review_mode_sections(long_summary, report_time)}
@@ -1075,6 +1076,66 @@ def _model_observation_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric_text("盤後可惜漏掉", f"{regret_rate:.2f}%")}'
         '</div>'
         f'<ul class="decision-list">{note_html}</ul>'
+        '</section>'
+    )
+
+
+def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
+    pool = ((summary.diagnostics or {}).get("fugle_priority_pool") if summary else None) or {}
+    rows = list(pool.get("selected") or [])
+    status_text = "已啟用" if pool.get("enabled") else "未啟用"
+    configured_text = "API Key 已設定" if pool.get("configured") else "API Key 未設定"
+    pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
+    if not rows:
+        return (
+            '<section class="decision-center">'
+            '<h2>Fugle 5檔即時追蹤池</h2>'
+            '<section class="notice">此區用來分配 Fugle 基本用戶 5 檔即時追蹤名額；不會改模型、不會增加推薦、不會自動下單。</section>'
+            '<div class="summary">'
+            f'{_metric_text("Fugle 狀態", status_text)}'
+            f'{_metric_text("金鑰狀態", configured_text)}'
+            f'{_metric_text("指定追蹤", pinned_text)}'
+            f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
+            f'{_metric("已選標的", 0)}'
+            '</div>'
+            f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
+            '</section>'
+        )
+    body = "".join(
+        '<tr>'
+        f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</a></strong><br><span class="muted">{escape(str(item.get("tracking_purpose", "")))}</span></td>'
+        f'<td>{escape(str(item.get("grade", "-")))}</td>'
+        f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
+        f'<td>{escape(str(item.get("trigger_readiness", "-")))}</td>'
+        f'<td>{_fmt(item.get("last_price"))}</td>'
+        f'<td>{_fmt(item.get("vwap"))}</td>'
+        f'<td>{_fmt(item.get("volume_ratio"))}x</td>'
+        f'<td>{_fmt(item.get("trigger_price"))}</td>'
+        f'<td>{_fmt(item.get("stop_loss"))}</td>'
+        f'<td>{_fmt(item.get("priority_score"))}</td>'
+        f'<td>{escape("可" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
+        f'<td class="notes">{escape(str(item.get("priority_reason", "")))}</td>'
+        '</tr>'
+        for item in rows
+    )
+    return (
+        '<section class="decision-center">'
+        '<h2>Fugle 5檔即時追蹤池</h2>'
+        '<section class="notice">基本用戶最多追蹤 5 檔；此區只做即時五檔 / 逐筆確認資源配置，不會改 A / B+ / B 條件，也不會自動下單。</section>'
+        '<div class="summary">'
+        f'{_metric_text("Fugle 狀態", status_text)}'
+        f'{_metric_text("金鑰狀態", configured_text)}'
+        f'{_metric_text("指定追蹤", pinned_text)}'
+        f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
+        f'{_metric("已選標的", int(pool.get("selected_count", len(rows)) or len(rows)))}'
+        f'{_metric("其餘候選", int(pool.get("excluded_count", 0) or 0))}'
+        '</div>'
+        f'<p class="muted">{escape(str(pool.get("message") or ""))}</p>'
+        '<div class="table-wrap"><table><thead><tr>'
+        '<th>股票</th><th>分級</th><th>狀態</th><th>B+ readiness</th><th>現價</th><th>VWAP</th><th>量比</th><th>觸發價</th><th>停損</th><th>順位分</th><th>進場確認</th><th>入選原因</th>'
+        '</tr></thead><tbody>'
+        f'{body}'
+        '</tbody></table></div>'
         '</section>'
     )
 

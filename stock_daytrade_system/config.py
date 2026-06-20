@@ -37,6 +37,7 @@ class AppConfig:
     risk: RiskConfig
     auto_universe: List[WatchSymbol]
     manual_symbols: List[WatchSymbol]
+    fugle_priority_symbols: List[str]
     symbols: List[WatchSymbol]
 
 
@@ -44,12 +45,14 @@ def load_config(path: Path) -> AppConfig:
     raw = json.loads(path.read_text(encoding="utf-8"))
     auto_universe = [WatchSymbol(**item) for item in raw.get("auto_universe", raw.get("symbols", []))]
     manual_symbols = [WatchSymbol(**item) for item in raw.get("manual_symbols", [])]
+    fugle_priority_symbols = [str(item).strip().upper() for item in raw.get("fugle_priority_symbols", []) if str(item).strip()]
     symbols = _dedupe_symbols(auto_universe + manual_symbols)
     return AppConfig(
         market=MarketConfig(**raw["market"]),
         risk=RiskConfig(**raw["risk"]),
         auto_universe=auto_universe,
         manual_symbols=manual_symbols,
+        fugle_priority_symbols=fugle_priority_symbols,
         symbols=symbols,
     )
 
@@ -60,6 +63,7 @@ def config_to_dict(config: AppConfig) -> Dict[str, Any]:
         "risk": config.risk.__dict__,
         "auto_universe": [symbol.__dict__ for symbol in config.auto_universe],
         "manual_symbols": [symbol.__dict__ for symbol in config.manual_symbols],
+        "fugle_priority_symbols": list(config.fugle_priority_symbols),
         "symbols": [symbol.__dict__ for symbol in config.symbols],
     }
 

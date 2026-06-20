@@ -72,5 +72,6 @@
   "manual_symbols": [
     {"symbol": "6919.TW", "name": "康霈生技", "sector": "biotech"},
     {"symbol": "5388.TW", "name": "中磊", "sector": "networking"}
-  ]
+  ],
+  "fugle_priority_symbols": ["6919.TW"]
 }

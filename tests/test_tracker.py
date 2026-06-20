@@ -14,6 +14,7 @@ from stock_daytrade_system.tracker import (
     _entry_radar_scorecard_panel,
     _entry_status_message,
     _focus_card,
+    _fugle_priority_pool_panel,
     _market_mode_panel,
     _recommendation_checklist_table,
     _tomorrow_continuation_candidates,
@@ -725,6 +726,53 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("量比不足", html)
         self.assertIn("1.10%", html)
         self.assertIn("不會自動調整 A / B+ / B 條件", html)
+
+    def test_fugle_priority_pool_panel_renders_selected_symbols(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "fugle_priority_pool": {
+                    "enabled": True,
+                    "configured": True,
+                    "max_symbols": 5,
+                    "selected_count": 1,
+                    "excluded_count": 3,
+                    "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
+                    "selected": [
+                        {
+                            "symbol": "2884.TW",
+                            "name": "玉山金",
+                            "grade": "B+",
+                            "entry_status": "practice_long",
+                            "trigger_readiness": "near",
+                            "last_price": 32.1,
+                            "vwap": 31.9,
+                            "volume_ratio": 1.1,
+                            "trigger_price": 32.3,
+                            "stop_loss": 31.4,
+                            "priority_score": 955,
+                            "can_use_for_entry_confirmation": True,
+                            "tracking_purpose": "虛擬交易練習觀察",
+                            "priority_reason": "練習買多，適合即時觀察",
+                        }
+                    ],
+                }
+            },
+        )
+
+        html = _fugle_priority_pool_panel(summary)
+
+        self.assertIn("Fugle 5檔即時追蹤池", html)
+        self.assertIn("2884.TW｜玉山金", html)
+        self.assertIn("基本用戶最多追蹤 5 檔", html)
+        self.assertIn("不會改 A / B+ / B 條件", html)
+        self.assertIn("可</td>", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
