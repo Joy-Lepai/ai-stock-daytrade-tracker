@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      DASHBOARD_URL: https://ai-stock-daytrade-tracker.onrender.com
+      DASHBOARD_URL: https://stock.letslepai.com
     steps:
       - name: Trigger layered Render refresh
         run: |
