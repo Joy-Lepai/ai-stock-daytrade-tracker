@@ -73,6 +73,43 @@ class TWDiagnosticsTests(unittest.TestCase):
         self.assertEqual(health["missing_count"], 1)
         self.assertLess(health["missing_ratio"], 35)
 
+    def test_yahoo_404_diagnostics_are_separated_from_hard_failures(self):
+        now = datetime(2026, 6, 18, 9, 22, tzinfo=ZoneInfo("Asia/Taipei"))
+        fresh = now - timedelta(seconds=30)
+        symbols = [
+            WatchSymbol("2330.TW", "台積電", "semiconductor"),
+            WatchSymbol("6485.TW", "點序", "semiconductor"),
+            WatchSymbol("TX=F", "台指期代理", "index"),
+        ]
+
+        payload = build_tw_diagnostics(
+            DiagnosticInputs(
+                now=now,
+                all_symbols=symbols,
+                intraday_symbols=[item.symbol for item in symbols],
+                daily_data={},
+                intraday_data={"2330.TW": [Bar(fresh, 100, 101, 99, 100, 1000)]},
+                daily_errors={},
+                intraday_errors={
+                    "6485.TW": "symbol_not_found:6485.TW: HTTP 404 Not Found",
+                    "TX=F": "yahoo_proxy_unavailable:TX=F: HTTP 404 Not Found",
+                },
+                taifex_errors={},
+                cmoney_errors={},
+                market_session="regular",
+                market_status="偏多",
+                momentum_scan={"items": []},
+                candidates=[],
+            )
+        )
+
+        health = payload["data_health"]
+        self.assertEqual(health["symbol_not_found_count"], 1)
+        self.assertEqual(health["yahoo_proxy_unavailable_count"], 1)
+        self.assertIn("6485.TW", health["symbol_not_found_symbols"])
+        self.assertIn("TX=F", health["yahoo_proxy_unavailable_symbols"])
+        self.assertIn("不影響官方資料源", health["unavailable_symbols_message"])
+
     def test_missed_stock_analysis_has_reason_code(self):
         now = datetime(2026, 6, 18, 9, 22, tzinfo=ZoneInfo("Asia/Taipei"))
         payload = build_tw_diagnostics(

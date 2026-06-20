@@ -1,6 +1,7 @@
 from datetime import datetime
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from stock_daytrade_system.data import Bar, MarketDataError, YahooChartClient
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, health_status_snapshot, retry_sync
@@ -39,6 +40,24 @@ class ResilienceTests(unittest.TestCase):
         self.assertIn("down", health["last_error"])
         self.assertEqual(health["retry_count"], 3)
 
+    def test_retry_sync_records_non_retryable_as_partial(self):
+        def invalid_symbol():
+            raise RuntimeError("symbol_not_found")
+
+        with patch("stock_daytrade_system.resilience.time.sleep") as sleep:
+            with self.assertRaises(RuntimeError):
+                retry_sync(
+                    invalid_symbol,
+                    source="yahoo_chart",
+                    operation_name="Yahoo chart 6485.TW 5m",
+                    should_retry=lambda exc: False,
+                )
+
+        health = health_status_snapshot()["yahoo_chart"]
+        self.assertEqual(health["status"], "PARTIAL")
+        self.assertEqual(health["retry_count"], 0)
+        self.assertEqual(sleep.call_count, 0)
+
     def test_yahoo_batch_degrades_single_symbol_failure(self):
         class FakeClient(YahooChartClient):
             def _fetch_chart(self, symbol, range_, interval, include_prepost):
@@ -52,6 +71,36 @@ class ResilienceTests(unittest.TestCase):
         self.assertEqual(data["3260.TW"], [])
         self.assertIn("3260.TW", errors)
         self.assertEqual(health_status_snapshot()["yahoo_chart"]["status"], "PARTIAL")
+
+    def test_yahoo_404_is_symbol_not_found_without_retry(self):
+        client = YahooChartClient(retries=3)
+
+        def raise_404(*args, **kwargs):
+            raise HTTPError("https://example.test", 404, "Not Found", hdrs=None, fp=None)
+
+        with patch("urllib.request.urlopen", side_effect=raise_404) as urlopen:
+            with patch("stock_daytrade_system.resilience.time.sleep") as sleep:
+                data, errors = client.fetch_many_intraday_with_errors(["6485.TW"], interval="5m")
+
+        self.assertEqual(data["6485.TW"], [])
+        self.assertTrue(errors["6485.TW"].startswith("symbol_not_found"))
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
+
+    def test_yahoo_futures_proxy_404_is_classified_without_retry(self):
+        client = YahooChartClient(retries=3)
+
+        def raise_404(*args, **kwargs):
+            raise HTTPError("https://example.test", 404, "Not Found", hdrs=None, fp=None)
+
+        with patch("urllib.request.urlopen", side_effect=raise_404) as urlopen:
+            with patch("stock_daytrade_system.resilience.time.sleep") as sleep:
+                data, errors = client.fetch_many_daily_with_errors(["TX=F"])
+
+        self.assertEqual(data["TX=F"], [])
+        self.assertTrue(errors["TX=F"].startswith("yahoo_proxy_unavailable"))
+        self.assertEqual(urlopen.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
 
 
 if __name__ == "__main__":

@@ -108,7 +108,10 @@ def retry_sync(
     delays = tuple(retry_delays)
     attempts = len(delays) + 1
     last_error: Optional[Exception] = None
+    attempts_used = 0
+    stopped_by_policy = False
     for index in range(attempts):
+        attempts_used = index + 1
         try:
             result = operation()
             if index:
@@ -118,6 +121,7 @@ def retry_sync(
             last_error = exc
             retry_allowed = should_retry(exc) if should_retry else True
             if index >= len(delays) or not retry_allowed:
+                stopped_by_policy = not retry_allowed
                 break
             LOGGER.warning(
                 "%s failed for %s on attempt %s/%s: %s; retrying in %.1fs",
@@ -129,7 +133,18 @@ def retry_sync(
                 delays[index],
             )
             time.sleep(delays[index])
-    message = f"{operation_name} failed after {attempts} attempts: {last_error}"
-    LOGGER.error(message)
-    record_source_health(source, "ERROR", failure_count=1, retry_count=len(delays), error=str(last_error or "unknown error"))
+    message = f"{operation_name} failed after {attempts_used} attempt{'s' if attempts_used != 1 else ''}: {last_error}"
+    if stopped_by_policy:
+        LOGGER.info(message)
+        record_source_health(
+            source,
+            "PARTIAL",
+            partial_count=1,
+            retry_count=max(attempts_used - 1, 0),
+            error=str(last_error or "unknown error"),
+            message=f"{operation_name} skipped retry for non-retryable error.",
+        )
+    else:
+        LOGGER.error(message)
+        record_source_health(source, "ERROR", failure_count=1, retry_count=len(delays), error=str(last_error or "unknown error"))
     raise last_error or RuntimeError(message)

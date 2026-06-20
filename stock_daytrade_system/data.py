@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,14 @@ class Bar:
 
 
 class MarketDataError(RuntimeError):
+    pass
+
+
+class SymbolNotFoundError(MarketDataError):
+    pass
+
+
+class YahooProxyUnavailableError(MarketDataError):
     pass
 
 
@@ -108,6 +117,14 @@ class YahooChartClient:
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
                     return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    if _is_yahoo_proxy_symbol(symbol):
+                        raise YahooProxyUnavailableError(
+                            f"yahoo_proxy_unavailable:{symbol}: HTTP 404 Not Found"
+                        ) from exc
+                    raise SymbolNotFoundError(f"symbol_not_found:{symbol}: HTTP 404 Not Found") from exc
+                raise MarketDataError(f"failed to fetch {symbol}: {exc}") from exc
             except Exception as exc:
                 raise MarketDataError(f"failed to fetch {symbol}: {exc}") from exc
 
@@ -158,6 +175,8 @@ class YahooChartClient:
     ) -> Tuple[Dict[str, List[Bar]], Dict[str, str]]:
         data: Dict[str, List[Bar]] = {}
         errors: Dict[str, str] = {}
+        not_found: Dict[str, str] = {}
+        proxy_unavailable: Dict[str, str] = {}
         for symbol in symbols:
             try:
                 data[symbol] = self._fetch_chart(
@@ -168,16 +187,38 @@ class YahooChartClient:
                 )
             except MarketDataError as exc:
                 data[symbol] = []
-                errors[symbol] = str(exc)
+                message = _normalize_market_data_error(exc)
+                errors[symbol] = message
+                if isinstance(exc, SymbolNotFoundError) or message.startswith("symbol_not_found"):
+                    not_found[symbol] = message
+                elif isinstance(exc, YahooProxyUnavailableError) or message.startswith("yahoo_proxy_unavailable"):
+                    proxy_unavailable[symbol] = message
         success_count = sum(1 for bars in data.values() if bars)
+        failure_count = len(errors)
+        unavailable_count = len(not_found) + len(proxy_unavailable)
+        hard_failure_count = max(failure_count - unavailable_count, 0)
+        if errors:
+            if hard_failure_count == 0 and success_count:
+                status = "PARTIAL"
+                message = "Yahoo 部分代號不存在或代理資料不可用，已排除評分；其他股票照常計算。"
+            elif hard_failure_count == 0:
+                status = "PARTIAL"
+                message = "Yahoo 代號不存在或代理資料不可用，已降級處理。"
+            else:
+                status = "PARTIAL" if success_count else "ERROR"
+                message = "Yahoo 部分股票資料擷取失敗，已以空資料降級處理。"
+        else:
+            status = "OK"
+            message = "Yahoo 資料擷取成功。"
         record_source_health(
             "yahoo_chart",
-            "PARTIAL" if errors and success_count else "ERROR" if errors else "OK",
+            status,
             success_count=success_count,
-            failure_count=len(errors),
+            failure_count=hard_failure_count,
+            partial_count=unavailable_count,
             failed_symbols=errors.keys(),
             error="; ".join(f"{symbol}: {error}" for symbol, error in sorted(errors.items())[:5]),
-            message="Yahoo 部分股票資料擷取失敗，已以空資料降級處理。" if errors else "Yahoo 資料擷取成功。",
+            message=message,
         )
         return data, errors
 
@@ -221,5 +262,28 @@ def _get(values: List[Optional[float]], index: int) -> Optional[float]:
 
 
 def _is_non_retryable(exc: MarketDataError) -> bool:
+    if isinstance(exc, (SymbolNotFoundError, YahooProxyUnavailableError)):
+        return True
     text = str(exc).lower()
-    return "nodename nor servname" in text or "name or service not known" in text
+    return (
+        "symbol_not_found" in text
+        or "yahoo_proxy_unavailable" in text
+        or "http 404" in text
+        or "not found" in text
+        or "nodename nor servname" in text
+        or "name or service not known" in text
+    )
+
+
+def _normalize_market_data_error(exc: MarketDataError) -> str:
+    text = str(exc)
+    if isinstance(exc, SymbolNotFoundError) or "symbol_not_found" in text:
+        return text if text.startswith("symbol_not_found") else f"symbol_not_found:{text}"
+    if isinstance(exc, YahooProxyUnavailableError) or "yahoo_proxy_unavailable" in text:
+        return text if text.startswith("yahoo_proxy_unavailable") else f"yahoo_proxy_unavailable:{text}"
+    return text
+
+
+def _is_yahoo_proxy_symbol(symbol: str) -> bool:
+    raw = str(symbol or "").upper()
+    return raw in {"TX=F", "TW=F"} or raw.endswith("=F")

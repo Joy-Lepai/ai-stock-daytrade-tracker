@@ -690,6 +690,11 @@ class TrackerStatusTests(unittest.TestCase):
                     "is_intraday_session": True,
                     "is_today_data": True,
                     "failed_symbols": ["9999.TW"],
+                    "symbol_not_found_count": 1,
+                    "symbol_not_found_symbols": ["6485.TW"],
+                    "yahoo_proxy_unavailable_count": 1,
+                    "yahoo_proxy_unavailable_symbols": ["TX=F"],
+                    "unavailable_symbols_message": "1 檔 Yahoo 無資料或代號不存在，已排除評分；1 個 Yahoo 代理商品不可用，不影響官方資料源",
                     "data_sources": ["Yahoo Finance chart endpoint"],
                     "uses_realtime_or_delayed": "批次 dashboard 以 Yahoo chart endpoint 為主。",
                     "data_date": "2026-01-01",
@@ -791,6 +796,10 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("缺五檔委買委賣", html)
         self.assertIn("不會調整 A / B+ / B 條件", html)
         self.assertIn("資料健康度", html)
+        self.assertIn("Yahoo無資料/無效代號", html)
+        self.assertIn("Yahoo代理失敗", html)
+        self.assertIn("已排除評分", html)
+        self.assertIn("不影響官方資料源", html)
         self.assertIn("資料日期", html)
         self.assertIn("是否過期", html)
         self.assertIn("台股全市場異動掃描池", html)

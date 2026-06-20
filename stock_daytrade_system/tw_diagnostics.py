@@ -145,6 +145,7 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
     )
     stale = bool(is_intraday_session and (latest_at is None or (age_minutes is not None and age_minutes > 15)))
     partial = bool(inputs.daily_errors or inputs.intraday_errors or inputs.taifex_errors or inputs.cmoney_errors)
+    unavailable = _unavailable_symbol_diagnostics(inputs)
     if stale:
         status = "過期"
         recommendation_state = "資料過期，暫停產生當沖建議"
@@ -192,6 +193,11 @@ def _data_health(inputs: DiagnosticInputs) -> dict:
         "cached_ratio": round(price_counts["cached"] / total_price_count * 100, 2),
         "missing_ratio": round(price_counts["missing"] / total_price_count * 100, 2),
         "most_common_error": _most_common_error(inputs),
+        "symbol_not_found_count": unavailable["symbol_not_found_count"],
+        "symbol_not_found_symbols": unavailable["symbol_not_found_symbols"],
+        "yahoo_proxy_unavailable_count": unavailable["yahoo_proxy_unavailable_count"],
+        "yahoo_proxy_unavailable_symbols": unavailable["yahoo_proxy_unavailable_symbols"],
+        "unavailable_symbols_message": unavailable["message"],
         "data_source_status": status,
         "stock_pool_count": symbol_count,
         "intraday_symbol_count": intraday_symbol_count,
@@ -244,6 +250,30 @@ def _most_common_error(inputs: DiagnosticInputs) -> str:
             if text:
                 counts[text] = counts.get(text, 0) + 1
     return max(counts.items(), key=lambda item: item[1])[0] if counts else ""
+
+
+def _unavailable_symbol_diagnostics(inputs: DiagnosticInputs) -> dict:
+    not_found = set()
+    proxy = set()
+    for errors in (inputs.daily_errors, inputs.intraday_errors):
+        for symbol, error in errors.items():
+            text = str(error or "")
+            if text.startswith("symbol_not_found"):
+                not_found.add(symbol)
+            elif text.startswith("yahoo_proxy_unavailable"):
+                proxy.add(symbol)
+    message_parts = []
+    if not_found:
+        message_parts.append(f"{len(not_found)} 檔 Yahoo 無資料或代號不存在，已排除評分")
+    if proxy:
+        message_parts.append(f"{len(proxy)} 個 Yahoo 代理商品不可用，不影響官方資料源")
+    return {
+        "symbol_not_found_count": len(not_found),
+        "symbol_not_found_symbols": sorted(not_found)[:30],
+        "yahoo_proxy_unavailable_count": len(proxy),
+        "yahoo_proxy_unavailable_symbols": sorted(proxy)[:30],
+        "message": "；".join(message_parts),
+    }
 
 
 def _full_market_summary(full_market_scan: dict, scan_items: list[dict]) -> dict:
