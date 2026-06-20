@@ -2501,6 +2501,54 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderInstitutionalCard = (candidate) => {
+        const chip = candidate?.institutional_context || {};
+        return `
+          <article class="advisor-card">
+            <h3>籌碼背景</h3>
+            <p><strong>${escapeHtml(chip.institutional_label || "籌碼資料不足")}</strong></p>
+            <p class="muted">${escapeHtml(chip.institutional_reason || "目前沒有可用籌碼資料；籌碼只作背景，不作為強烈做多依據。")}</p>
+            <div class="advisor-grid">
+              ${metric("外資昨日", escapeHtml(number(chip.foreign_buy_sell)))}
+              ${metric("投信昨日", escapeHtml(number(chip.investment_trust_buy_sell)))}
+              ${metric("自營商昨日", escapeHtml(number(chip.dealer_buy_sell)))}
+              ${metric("三大法人合計", escapeHtml(number(chip.institutional_total_buy_sell)))}
+              ${metric("外資近3日", chip.foreign_3d_sum === null || chip.foreign_3d_sum === undefined ? "資料不足" : escapeHtml(number(chip.foreign_3d_sum)))}
+              ${metric("外資近5日", chip.foreign_5d_sum === null || chip.foreign_5d_sum === undefined ? "資料不足" : escapeHtml(number(chip.foreign_5d_sum)))}
+              ${metric("投信近3日", chip.investment_trust_3d_sum === null || chip.investment_trust_3d_sum === undefined ? "資料不足" : escapeHtml(number(chip.investment_trust_3d_sum)))}
+              ${metric("投信近5日", chip.investment_trust_5d_sum === null || chip.investment_trust_5d_sum === undefined ? "資料不足" : escapeHtml(number(chip.investment_trust_5d_sum)))}
+              ${metric("資料日期", escapeHtml(chip.institutional_data_date || "-"))}
+              ${metric("資料狀態", escapeHtml(chip.institutional_data_status || "missing"))}
+            </div>
+            <p class="warn-inline">法人買超不能取代 VWAP、量比、突破與風控；即使籌碼偏多，也不會直接產生強烈做多。</p>
+          </article>
+        `;
+      };
+      const renderSectorContextCard = (candidate) => {
+        const sector = candidate?.sector_context || {};
+        const topSymbols = Array.isArray(sector.sector_top_symbols) && sector.sector_top_symbols.length
+          ? sector.sector_top_symbols.join("、")
+          : "暫無同族群領先標的";
+        return `
+          <article class="advisor-card">
+            <h3>族群狀態</h3>
+            <p><strong>${escapeHtml(sector.sector_status_label || "暫無族群資料")}</strong></p>
+            <p class="muted">${escapeHtml(sector.sector_reason || "目前沒有足夠族群資料；族群強弱只作背景，不作為強烈做多依據。")}</p>
+            <div class="advisor-grid">
+              ${metric("所屬族群", escapeHtml(sector.industry_label || sector.industry || "-"))}
+              ${metric("族群排名", escapeHtml(sector.sector_rank || "-"))}
+              ${metric("族群分數", escapeHtml(number(sector.sector_strength_score)))}
+              ${metric("上漲家數", escapeHtml(sector.sector_advancers_count ?? "-"))}
+              ${metric("下跌家數", escapeHtml(sector.sector_decliners_count ?? "-"))}
+              ${metric("族群均量比", escapeHtml(number(sector.sector_volume_ratio_avg)))}
+              ${metric("是否領漲", escapeHtml(sector.is_sector_leader ? "是" : "否"))}
+              ${metric("是否落後", escapeHtml(sector.is_sector_lagging ? "是" : "否"))}
+            </div>
+            <p class="muted">同族群重點：${escapeHtml(topSymbols)}</p>
+            <p class="warn-inline">族群強只是背景；個股仍須通過即時資料、VWAP、量比、突破與停損風控。</p>
+          </article>
+        `;
+      };
 
       const renderEmpty = (message) => {
         result.className = "advisor-result empty";
@@ -2671,6 +2719,8 @@ def tw_advisor_script() -> str:
           </article>
 
           ${renderTrendDiagnosis(candidate)}
+          ${renderInstitutionalCard(candidate)}
+          ${renderSectorContextCard(candidate)}
 
           <article class="advisor-card">
             <div class="advisor-sections">

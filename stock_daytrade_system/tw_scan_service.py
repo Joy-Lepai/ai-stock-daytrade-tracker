@@ -223,6 +223,8 @@ def _candidate_payload(candidate) -> Optional[dict]:
         "trend_status": getattr(candidate, "trend_status", ""),
         "trend_label": getattr(candidate, "trend_label", ""),
         "trend_reason_code": getattr(candidate, "trend_reason_code", ""),
+        "institutional_context": getattr(candidate, "institutional_context", {}) or {},
+        "sector_context": getattr(candidate, "sector_context", {}) or {},
     }
 
 

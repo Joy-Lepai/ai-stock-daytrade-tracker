@@ -8,9 +8,11 @@ from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.confidence_model import evaluate_signal
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.indicators import atr, average_volume, pct_change
+from stock_daytrade_system.institutional_context import evaluate_institutional_context
 from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.market_context import MarketIndicator
 from stock_daytrade_system.scoring import MarketBias
+from stock_daytrade_system.sector_context import evaluate_sector_context
 from stock_daytrade_system.sectors import SectorStrength
 from stock_daytrade_system.session_policy import apply_tw_entry_timing_policy
 from stock_daytrade_system.timeframe_diagnostics import build_timeframe_windows, classify_trend_continuation
@@ -86,6 +88,8 @@ class LongCandidate:
     trend_status: str = ""
     trend_label: str = ""
     trend_reason_code: str = ""
+    institutional_context: dict = field(default_factory=dict)
+    sector_context: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -224,6 +228,8 @@ def _build_candidate(
     upper_shadow_pct = _upper_shadow_pct(last)
     vwap_distance_pct = _vwap_distance_pct(last_price, vwap)
     institutional_buy = ranking.total_buy_million if ranking else None
+    institutional_context = evaluate_institutional_context(ranking).to_dict()
+    sector_context = evaluate_sector_context(sector).to_dict()
 
     bullish_score, reasons = _bullish_score(
         change_pct=change_pct,
@@ -427,6 +433,8 @@ def _build_candidate(
         trend_status=str(trend_diagnosis.get("status") or ""),
         trend_label=str(trend_diagnosis.get("label") or ""),
         trend_reason_code=str(trend_diagnosis.get("reason_code") or ""),
+        institutional_context=institutional_context,
+        sector_context=sector_context,
     )
 
 

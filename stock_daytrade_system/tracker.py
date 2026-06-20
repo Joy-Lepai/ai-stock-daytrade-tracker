@@ -871,6 +871,8 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     focus_items = _top_focus_items(summary)
     focus_html = "".join(_focus_card(item, front_context) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
+    sector_summary = _top_sector_summary(summary)
+    institutional_summary = _institutional_background_summary(summary)
     return (
         '<section class="decision-center">'
         '<h2>今日決策摘要</h2>'
@@ -887,12 +889,36 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric("B", int(counts.get("grade_b", checklist.get("grade_b", 0) or 0)))}'
         f'{_metric("high_risk", int(counts.get("high_risk", checklist.get("high_risk", 0) or 0)))}'
         f'{_metric("avoid", int(counts.get("avoid", checklist.get("avoid", 0) or 0)))}'
+        f'{_metric_text("今日強勢族群", sector_summary)}'
+        f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
         '<h3>今日重點觀察股</h3>'
         f'<div class="signal-grid">{focus_html}</div>'
         '</section>'
     )
+
+
+def _top_sector_summary(summary: Optional[LongModelSummary]) -> str:
+    if summary is None or not summary.sector_heat:
+        return "暫無族群資料"
+    top = [item for item in summary.sector_heat if item.score > 0][:3]
+    if not top:
+        return "族群未明顯同步"
+    return "、".join(f"{sector_label(item.sector)} {item.score:.1f}" for item in top)
+
+
+def _institutional_background_summary(summary: Optional[LongModelSummary]) -> str:
+    if summary is None:
+        return "籌碼資料不足"
+    counts: dict[str, int] = {}
+    for item in summary.candidates:
+        label = str((getattr(item, "institutional_context", {}) or {}).get("institutional_label") or "籌碼資料不足")
+        counts[label] = counts.get(label, 0) + 1
+    if not counts:
+        return "籌碼資料不足"
+    top = sorted(counts.items(), key=lambda row: (-row[1], row[0]))[:2]
+    return "、".join(f"{label} {count} 檔" for label, count in top)
 
 
 def _top_focus_items(summary: Optional[LongModelSummary]) -> list[LongCandidate]:
@@ -918,10 +944,12 @@ def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> st
     next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
     display_label = _display_trade_bias_label(item.entry_status, item.trade_bias, item.trade_bias_label)
+    background = f"{_institutional_badge(item)}｜{_sector_context_badge(item)}"
     return (
         '<div class="decision-panel">'
         f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a>{_position_size_tag(item.trigger_price or item.last_price, item.stop_loss)}</strong>'
         f'<div>{escape(front.category)}｜{escape(front.subtitle)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{data_badge}</div>'
+        f'<p class="muted"><strong>背景：</strong>{background}</p>'
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
         f'<p class="muted"><strong>下一步：</strong>{escape(next_step)}</p>'
@@ -1082,6 +1110,7 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
 
 def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] = None) -> str:
     data_badge = _candidate_price_status_badge(item, front_context)
+    background = f"{_institutional_badge(item)}｜{_sector_context_badge(item)}"
     metrics = (
         f"現價 {_fmt(item.last_price)}｜VWAP {_fmt(item.vwap)}｜量比 {_fmt(item.volume_ratio)}x｜"
         f"停損 {_fmt(item.stop_loss)}｜停利 {_fmt(item.target_price)}｜{data_badge}"
@@ -1092,6 +1121,7 @@ def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] 
         f"<div class=\"signal-meta\">{escape(view.headline)}</div>"
         f"<div class=\"signal-meta\">內部狀態：{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{escape(str(getattr(item, 'lifecycle_status', 'observed') or 'observed'))}</div>"
         f"<div class=\"signal-meta\">{escape(metrics)}</div>"
+        f"<div class=\"signal-meta\">背景：{background}</div>"
         f"<div class=\"signal-meta\">信心：{escape(str(item.confidence_level_label or item.confidence_level or '-'))}</div>"
         f"<div class=\"signal-meta\">{escape(view.reason)}</div>"
         f"<div class=\"signal-next\">下一步：{escape(view.next_step)}</div>"
@@ -1109,6 +1139,16 @@ def _candidate_price_status_badge(item: LongCandidate, front_context: Optional[d
         return f"資料延遲：{context.get('price_status_label') or '延遲'}"
     label = str(context.get("price_status_label") or "")
     return label or "即時"
+
+
+def _institutional_badge(item: LongCandidate) -> str:
+    context = getattr(item, "institutional_context", {}) or {}
+    return escape(str(context.get("institutional_label") or "籌碼資料不足"))
+
+
+def _sector_context_badge(item: LongCandidate) -> str:
+    context = getattr(item, "sector_context", {}) or {}
+    return escape(str(context.get("sector_status_label") or "暫無族群資料"))
 
 
 def _signal_card(item: dict) -> str:
@@ -1257,6 +1297,7 @@ def _position_command_center(summary: Optional[LongModelSummary]) -> str:
         f'{_metric_text("全數停利情境", f"{if_all_take_profit:+.2f}")}'
         f'{_metric_text("可否再加碼", "可" if overview.get("can_add_any") else "不可")}'
         f'{_metric_text("總風險", "偏高" if overview.get("total_risk_high") else "可控")}'
+        f'{_metric_text("同族群風險", "集中" if overview.get("sector_concentration_high") else "未集中")}'
         '</div>'
     )
     rows = []
@@ -1274,6 +1315,8 @@ def _position_command_center(summary: Optional[LongModelSummary]) -> str:
             f'<td>{_fmt(item.get("volume_ratio"))}x</td>'
             f'<td>{_fmt(item.get("stop_loss"))}</td>'
             f'<td>{_fmt(item.get("target_price"))}</td>'
+            f'<td class="notes">{escape(str(item.get("institutional_label", "籌碼資料不足")))}<br><span class="muted">{escape(str(item.get("institutional_reason", "")))}</span></td>'
+            f'<td class="notes">{escape(str(item.get("sector_status_label", "暫無族群資料")))}<br><span class="muted">{escape(str(item.get("sector_reason", "")))}</span></td>'
             f'<td class="notes">{escape(str(item.get("next_step", "-")))}</td>'
             f'<td class="notes">{escape(str(item.get("invalidation", "-")))}</td>'
             f'<td class="notes">{escape("；".join(forbidden) if forbidden else "允許加碼，但仍需控制部位。")}</td>'
@@ -1284,7 +1327,7 @@ def _position_command_center(summary: Optional[LongModelSummary]) -> str:
         '<th data-sort="text">股票</th><th data-sort="text">持倉動作</th><th data-sort="number">成本</th>'
         '<th data-sort="number">現價</th><th data-sort="number">數量</th><th data-sort="number">未實現損益</th>'
         '<th data-sort="number">VWAP</th><th data-sort="number">量比</th><th data-sort="number">停損</th>'
-        '<th data-sort="number">停利</th><th>下一步</th><th>失效條件</th><th>不可加碼原因</th>'
+        '<th data-sort="number">停利</th><th>籌碼背景</th><th>族群狀態</th><th>下一步</th><th>失效條件</th><th>不可加碼原因</th>'
         '</tr></thead><tbody>'
         + ''.join(rows)
         + '</tbody></table></div>'
@@ -2073,6 +2116,8 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
             f"<td data-sort-value=\"{_sort_value(item.risk_score)}\">{_fmt(item.risk_score)}</td>"
             f"<td>{_trade_bias_badge(item.trade_bias, item.trade_bias_label, item.entry_status)}<br><span class=\"muted\">{escape(_display_trade_bias_reason(item.entry_status, item.trade_bias_reason))}</span></td>"
             f"<td>{escape(_entry_status_label(item.entry_status))}<br><span class=\"muted\">{escape(_entry_status_message(item.entry_status))}</span></td>"
+            f"<td>{_institutional_badge(item)}<br><span class=\"muted\">{escape(str((getattr(item, 'institutional_context', {}) or {}).get('institutional_reason', '')))}</span></td>"
+            f"<td>{_sector_context_badge(item)}<br><span class=\"muted\">{escape(str((getattr(item, 'sector_context', {}) or {}).get('sector_reason', '')))}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.confidence_score)}\">{_fmt(item.confidence_score)}<br><span class=\"muted\">{escape(item.confidence_level_label)}</span></td>"
             f"<td data-sort-value=\"{_sort_value(item.conflicts_count)}\">{item.conflicts_count}<br><span class=\"muted\">{escape(item.conflict_summary)}</span></td>"
             f"<td class=\"notes\">{escape(item.confidence_summary)}</td>"
@@ -2086,7 +2131,7 @@ def _long_candidate_table(summary: Optional[LongModelSummary]) -> str:
         "<th data-sort=\"number\">今日漲幅</th><th data-sort=\"number\">成交金額</th><th data-sort=\"number\">量比</th>"
         "<th data-sort=\"number\">VWAP</th><th data-sort=\"text\">破昨高</th><th data-sort=\"text\">破5日高</th><th data-sort=\"text\">破10日高</th>"
         "<th data-sort=\"number\">多方分數</th><th data-sort=\"number\">風險分數</th><th data-sort=\"text\">當下狀態</th><th data-sort=\"text\">進場狀態</th>"
-        "<th data-sort=\"number\">信心分數</th><th data-sort=\"number\">衝突</th><th>信心摘要</th><th>多方理由</th><th>風險理由</th>"
+        "<th data-sort=\"text\">籌碼背景</th><th data-sort=\"text\">族群狀態</th><th data-sort=\"number\">信心分數</th><th data-sort=\"number\">衝突</th><th>信心摘要</th><th>多方理由</th><th>風險理由</th>"
         "</tr></thead><tbody>"
         + "".join(rows)
         + "</tbody></table>"

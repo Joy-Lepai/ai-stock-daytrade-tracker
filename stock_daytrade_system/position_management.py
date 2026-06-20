@@ -38,6 +38,11 @@ class PositionAction:
     add_forbidden: bool
     add_forbidden_reasons: list[str]
     reason_code: str
+    institutional_label: str
+    institutional_reason: str
+    sector_label: str
+    sector_status_label: str
+    sector_reason: str
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -62,6 +67,10 @@ def build_position_command_center(conn: sqlite3.Connection, market: str = "TW") 
     pnl_pct = round(unrealized / invested * 100, 2) if invested else 0.0
     stop_loss_risk_pct = abs(stop_loss_total) / invested * 100 if invested and stop_loss_total < 0 else 0.0
     total_risk_high = stop_loss_risk_pct > MAX_TOTAL_STOP_LOSS_RISK_PCT
+    sector_counts: dict[str, int] = {}
+    for item in actions:
+        sector_counts[item.sector_label] = sector_counts.get(item.sector_label, 0) + 1
+    concentrated = any(count >= 3 and sector != "暫無族群資料" for sector, count in sector_counts.items())
     return {
         "version": POSITION_MANAGEMENT_VERSION,
         "market": market,
@@ -76,9 +85,17 @@ def build_position_command_center(conn: sqlite3.Connection, market: str = "TW") 
             "can_add_any": any(item.can_add for item in actions) and not total_risk_high,
             "allow_new_position": len(actions) < 5 and not total_risk_high,
             "total_risk_high": total_risk_high,
-            "total_risk_message": "今日總風險已偏高，不建議再加碼或新增持倉。" if total_risk_high else "總風險目前仍在可控範圍內。",
+            "sector_concentration_high": concentrated,
+            "total_risk_message": (
+                "今日總風險已偏高，不建議再加碼或新增持倉。"
+                if total_risk_high
+                else "同族群持倉較集中，新增或加碼需保守。"
+                if concentrated
+                else "總風險目前仍在可控範圍內。"
+            ),
             "max_total_stop_loss_risk_pct": MAX_TOTAL_STOP_LOSS_RISK_PCT,
             "stop_loss_risk_pct": round(stop_loss_risk_pct, 2),
+            "sector_position_counts": sector_counts,
         },
         "positions": [item.to_dict() for item in actions],
     }
@@ -108,7 +125,7 @@ def _position_action(conn: sqlite3.Connection, row: dict) -> PositionAction:
     quantity = _float(row.get("quantity")) or 0.0
     stop_loss = _float(row.get("stop_loss"))
     target = _float(row.get("target_price"))
-    vwap, volume_ratio, entry_status, risk_score = _latest_signal_context(conn, symbol)
+    vwap, volume_ratio, entry_status, risk_score, institutional_label, institutional_reason, sector_label_value, sector_status_label, sector_reason = _latest_signal_context(conn, symbol)
     invested = round(cost * quantity, 2)
     pnl = round((current - cost) * quantity, 2)
     pnl_pct = round((current - cost) / cost * 100, 2) if cost else 0.0
@@ -124,6 +141,8 @@ def _position_action(conn: sqlite3.Connection, row: dict) -> PositionAction:
         volume_ratio=volume_ratio,
         entry_status=entry_status,
         risk_score=risk_score,
+        institutional_label=institutional_label,
+        sector_status_label=sector_status_label,
     )
     can_add = not forbidden and pnl > 0 and action in {"續抱", "可加碼"}
     if can_add:
@@ -154,6 +173,11 @@ def _position_action(conn: sqlite3.Connection, row: dict) -> PositionAction:
         add_forbidden=not can_add,
         add_forbidden_reasons=forbidden if forbidden else [],
         reason_code=_reason_code(action, forbidden),
+        institutional_label=institutional_label,
+        institutional_reason=institutional_reason,
+        sector_label=sector_label_value,
+        sector_status_label=sector_status_label,
+        sector_reason=sector_reason,
     )
 
 
@@ -169,7 +193,17 @@ def _holding_action(current: float, cost: float, stop_loss: Optional[float], tar
     return "續抱"
 
 
-def _add_forbidden_reasons(*, current: float, cost: float, vwap: Optional[float], volume_ratio: Optional[float], entry_status: str, risk_score: Optional[float]) -> list[str]:
+def _add_forbidden_reasons(
+    *,
+    current: float,
+    cost: float,
+    vwap: Optional[float],
+    volume_ratio: Optional[float],
+    entry_status: str,
+    risk_score: Optional[float],
+    institutional_label: str = "",
+    sector_status_label: str = "",
+) -> list[str]:
     reasons = []
     if current <= cost:
         reasons.append("目前虧損，不做攤平加碼。")
@@ -185,6 +219,10 @@ def _add_forbidden_reasons(*, current: float, cost: float, vwap: Optional[float]
         reasons.append("目前為風險或資料不足狀態，禁止加碼。")
     if risk_score is not None and risk_score >= 65:
         reasons.append("風險分數偏高，禁止加碼。")
+    if institutional_label == "籌碼偏弱":
+        reasons.append("籌碼背景偏弱，禁止加碼。")
+    if sector_status_label == "族群偏弱":
+        reasons.append("族群明顯轉弱，禁止加碼。")
     return reasons
 
 
@@ -223,12 +261,13 @@ def _reason_code(action: str, forbidden: list[str]) -> str:
     return "add_blocked"
 
 
-def _latest_signal_context(conn: sqlite3.Connection, symbol: str) -> tuple[Optional[float], Optional[float], str, Optional[float]]:
+def _latest_signal_context(conn: sqlite3.Connection, symbol: str) -> tuple[Optional[float], Optional[float], str, Optional[float], str, str, str, str, str]:
     row = conn.execute(
         """
-        SELECT i.vwap, i.volume_ratio, r.entry_status, r.risk_score
+        SELECT i.vwap, i.volume_ratio, r.entry_status, r.risk_score, s.sector
         FROM intraday_snapshots i
         LEFT JOIN recommendations r ON r.market = 'TW' AND r.symbol = i.symbol AND r.date = i.date
+        LEFT JOIN symbols s ON s.symbol = i.symbol
         WHERE i.symbol = ?
         ORDER BY i.captured_at DESC
         LIMIT 1
@@ -236,8 +275,19 @@ def _latest_signal_context(conn: sqlite3.Connection, symbol: str) -> tuple[Optio
         (symbol,),
     ).fetchone()
     if row is None:
-        return None, None, "", None
-    return _float(row["vwap"]), _float(row["volume_ratio"]), row["entry_status"] or "", _float(row["risk_score"])
+        return None, None, "", None, "籌碼資料不足", "持倉區目前沒有法人背景資料。", "暫無族群資料", "暫無族群資料", "持倉區目前沒有族群強弱資料。"
+    sector = row["sector"] or ""
+    return (
+        _float(row["vwap"]),
+        _float(row["volume_ratio"]),
+        row["entry_status"] or "",
+        _float(row["risk_score"]),
+        "籌碼資料不足",
+        "目前持倉區沒有可用三大法人背景；不可因資料不足而加碼。",
+        sector or "暫無族群資料",
+        "暫無族群資料" if not sector else "族群背景",
+        "持倉加碼仍以即時價格、VWAP、量比、突破與總風險為準。",
+    )
 
 
 def _latest_price(conn: sqlite3.Connection, symbol: str) -> Optional[float]:

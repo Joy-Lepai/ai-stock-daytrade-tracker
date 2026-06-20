@@ -73,6 +73,8 @@ class LongModelTests(unittest.TestCase):
         self.assertTrue(candidates[0].above_vwap)
         self.assertIn("intraday_window", candidates[0].timeframe_diagnostics)
         self.assertTrue(candidates[0].trend_diagnosis)
+        self.assertIn("institutional_label", candidates[0].institutional_context)
+        self.assertIn("sector_status_label", candidates[0].sector_context)
 
     def test_pre_open_time_policy_does_not_mark_candidate_executable(self):
         bars = [daily_bar(index, 90 + index * 0.4) for index in range(30)]

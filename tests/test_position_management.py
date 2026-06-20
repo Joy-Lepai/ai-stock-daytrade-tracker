@@ -56,6 +56,9 @@ class PositionManagementTests(unittest.TestCase):
                 self.assertEqual(payload["summary"]["positions_count"], 1)
                 self.assertEqual(item["action"], "減碼")
                 self.assertFalse(item["can_add"])
+                self.assertEqual(item["institutional_label"], "籌碼資料不足")
+                self.assertIn("sector_status_label", item)
+                self.assertIn("sector_concentration_high", payload["summary"])
                 self.assertTrue(any("不做攤平加碼" in text for text in item["add_forbidden_reasons"]))
                 self.assertEqual(position_action_for_symbol(conn, "2330.TW", market="TW")["symbol"], "2330.TW")
 
