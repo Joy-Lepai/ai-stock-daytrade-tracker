@@ -1088,6 +1088,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     radar_status_text = _fugle_radar_status_label(str(pool.get("entry_radar_status") or "waiting"))
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
     acceptance_html = _fugle_acceptance_checklist(pool, rows)
+    quick_read_html = _fugle_quick_read_panel(rows)
     if not rows:
         return (
             '<section class="decision-center">'
@@ -1103,6 +1104,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             '</div>'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
             f'{acceptance_html}'
+            f'{quick_read_html}'
             '</section>'
         )
     body = "".join(
@@ -1142,6 +1144,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         '</div>'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         f'{acceptance_html}'
+        f'{quick_read_html}'
         '<div class="table-wrap"><table><thead><tr>'
         '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
@@ -1149,6 +1152,82 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         '</tbody></table></div>'
         '</section>'
     )
+
+
+def _fugle_quick_read_panel(rows: list[dict]) -> str:
+    if not rows:
+        return (
+            '<section class="notice">'
+            '<strong>Fugle 雷達速讀：</strong>目前沒有即時追蹤標的。'
+            '</section>'
+        )
+    items = []
+    for item in rows[:5]:
+        symbol = str(item.get("symbol") or "")
+        name = str(item.get("name") or "")
+        label = _fugle_entry_readiness_label(item)
+        support = _fugle_support_summary(item)
+        gap = _fugle_gap_summary(item)
+        items.append(
+            f"<li><strong>{escape(symbol)}｜{escape(name)}</strong>："
+            f"{escape(label)}。{escape(support)}；{escape(gap)}</li>"
+        )
+    return (
+        '<section class="notice">'
+        '<strong>Fugle 雷達速讀：</strong>'
+        '<ul>'
+        + "".join(items)
+        + "</ul>"
+        '</section>'
+    )
+
+
+def _fugle_entry_readiness_label(item: dict) -> str:
+    entry_status = str(item.get("entry_status") or "")
+    radar_status = str(item.get("entry_confirmation_status") or "")
+    if item.get("entry_confirmation_can_consider"):
+        return "可做進場前確認"
+    if entry_status in {"high_risk", "avoid", "data_missing"}:
+        return "僅作風險觀察"
+    if radar_status in {"ready", "near"}:
+        return "接近觸發，仍需等待原模型條件"
+    if radar_status in {"review_only", "blocked"}:
+        return "暫不作即時進場判斷"
+    return "等待確認"
+
+
+def _fugle_support_summary(item: dict) -> str:
+    supports = []
+    if str(item.get("orderbook_status") or "") in {"supportive", "limit_up_locked"}:
+        supports.append("五檔買盤偏強")
+    if str(item.get("large_trade_status") or "") in {"buy_sweep", "large_buy", "inflow"}:
+        supports.append("有大單敲進跡象")
+    if str(item.get("price_tick_trend") or "") in {"rising", "stable"}:
+        supports.append("最新價未轉弱")
+    if str(item.get("bid_volume_trend") or "") in {"improving", "stable"}:
+        supports.append("委買量未轉弱")
+    return "支持因素：" + ("、".join(supports) if supports else "尚無明確盤中支持")
+
+
+def _fugle_gap_summary(item: dict) -> str:
+    gaps = []
+    if str(item.get("orderbook_status") or "") in {"missing", ""}:
+        gaps.append("缺五檔")
+    elif str(item.get("orderbook_status") or "") == "sell_pressure":
+        gaps.append("賣壓偏重")
+    if str(item.get("large_trade_status") or "") in {"missing", ""}:
+        gaps.append("缺逐筆")
+    elif str(item.get("large_trade_status") or "") in {"sell_sweep", "large_sell", "outflow"}:
+        gaps.append("疑似大單敲出")
+    if str(item.get("price_tick_trend") or "") == "weak":
+        gaps.append("最新價轉弱")
+    if str(item.get("ask_volume_trend") or "") == "deteriorating":
+        gaps.append("委賣量增加")
+    if str(item.get("entry_status") or "") == "high_risk":
+        gaps.append("追價風險高")
+    if str(item.get("entry_status") or "") == "avoid":
+        gaps.append("模型避開")
+    return "主要缺口：" + ("、".join(gaps) if gaps else "暫無重大缺口")
 
 
 def _fugle_acceptance_checklist(pool: dict, rows: list[dict]) -> str:

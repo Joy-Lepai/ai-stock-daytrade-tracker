@@ -761,6 +761,11 @@ class TrackerStatusTests(unittest.TestCase):
                             "stop_loss": 31.4,
                             "priority_score": 955,
                             "can_use_for_entry_confirmation": True,
+                            "entry_confirmation_can_consider": True,
+                            "orderbook_status": "supportive",
+                            "large_trade_status": "buy_sweep",
+                            "price_tick_trend": "rising",
+                            "bid_volume_trend": "stable",
                             "tracking_purpose": "虛擬交易練習觀察",
                             "priority_reason": "練習買多，適合即時觀察",
                         },
@@ -776,6 +781,11 @@ class TrackerStatusTests(unittest.TestCase):
                             "priority_score": 800,
                             "can_use_for_entry_confirmation": False,
                             "entry_confirmation_can_consider": False,
+                            "orderbook_status": "supportive",
+                            "large_trade_status": "missing",
+                            "price_tick_trend": "stable",
+                            "bid_volume_trend": "missing",
+                            "ask_volume_trend": "missing",
                             "tracking_purpose": "只追蹤風險降溫，不作進場",
                             "priority_reason": "使用者指定即時追蹤；高風險只追蹤風險變化，不列為進場",
                         },
@@ -797,6 +807,12 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("本次實際 API 呼叫 6 次", html)
         self.assertIn("指定追蹤已入池：6919.TW", html)
         self.assertIn("風險防線正常：6919.TW", html)
+        self.assertIn("Fugle 雷達速讀", html)
+        self.assertIn("2884.TW｜玉山金", html)
+        self.assertIn("可做進場前確認", html)
+        self.assertIn("6919.TW｜康霈生技", html)
+        self.assertIn("僅作風險觀察", html)
+        self.assertIn("主要缺口：缺逐筆、追價風險高", html)
         self.assertIn("可</td>", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
