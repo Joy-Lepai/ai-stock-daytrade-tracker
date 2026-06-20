@@ -36,6 +36,9 @@ class ShioajiQuoteTests(unittest.TestCase):
                 "bid_volume": 80,
                 "ask_price": 100.1,
                 "ask_volume": 20,
+                "tick_type": "buy",
+                "last_tick_volume": 350,
+                "large_trade_threshold": 200,
                 "ts": "2026-06-18T09:30:00+08:00",
             },
         )
@@ -46,6 +49,8 @@ class ShioajiQuoteTests(unittest.TestCase):
         self.assertEqual(quote.bidask_status, "top_of_book")
         self.assertEqual(quote.five_level_status, "not_streaming")
         self.assertEqual(quote.orderbook_imbalance, 60)
+        self.assertEqual(quote.large_trade_status, "buy_sweep")
+        self.assertIn("疑似大單敲進", quote.large_trade_summary)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,10 @@ class ShioajiQuote:
     bidask_status: str = "missing"
     five_level_status: str = "not_streaming"
     orderbook_imbalance: Optional[float] = None
+    last_tick_volume: Optional[float] = None
+    large_trade_status: str = "missing"
+    large_trade_summary: str = "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。"
+    large_trade_threshold: Optional[float] = None
     error: str = ""
     warnings: list[str] = field(default_factory=list)
 
@@ -200,6 +204,15 @@ def parse_shioaji_snapshot(symbol: str, payload: Any, *, source: str = "Shioaji"
     bid_volume = _pick_float(data, "bid_volume", "buy_volume")
     ask_price = _pick_float(data, "ask_price", "sell_price")
     ask_volume = _pick_float(data, "ask_volume", "sell_volume")
+    last_tick_volume = _pick_float(data, "last_tick_volume", "tick_volume", "trade_volume")
+    large_trade_threshold = _pick_float(data, "large_trade_threshold", "largeTradeThreshold") or 200.0
+    large_trade_status, large_trade_summary = _large_trade_status(
+        explicit=str(data.get("large_trade_status") or data.get("largeTradeStatus") or ""),
+        explicit_summary=str(data.get("large_trade_summary") or data.get("largeTradeSummary") or ""),
+        tick_type=str(data.get("tick_type") or data.get("tickType") or ""),
+        tick_volume=last_tick_volume,
+        threshold=large_trade_threshold,
+    )
     imbalance = _orderbook_imbalance(bid_volume, ask_volume)
     ts = _pick_time(data)
     warnings = ["Shioaji MVP 目前使用 snapshot / top-of-book；完整五檔委買委賣需 streaming worker。"]
@@ -230,6 +243,10 @@ def parse_shioaji_snapshot(symbol: str, payload: Any, *, source: str = "Shioaji"
         bidask_status="top_of_book" if bid_price is not None or ask_price is not None else "missing",
         five_level_status="not_streaming",
         orderbook_imbalance=imbalance,
+        last_tick_volume=last_tick_volume,
+        large_trade_status=large_trade_status,
+        large_trade_summary=large_trade_summary,
+        large_trade_threshold=large_trade_threshold,
         warnings=warnings,
     )
 
@@ -290,3 +307,26 @@ def _orderbook_imbalance(bid_volume: Optional[float], ask_volume: Optional[float
     if total <= 0:
         return None
     return round((bid - ask) / total * 100, 2)
+
+
+def _large_trade_status(
+    *,
+    explicit: str,
+    explicit_summary: str,
+    tick_type: str,
+    tick_volume: Optional[float],
+    threshold: float,
+) -> tuple[str, str]:
+    explicit = explicit.strip()
+    if explicit:
+        return explicit, explicit_summary or explicit
+    if tick_volume is None:
+        return "missing", "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。"
+    if tick_volume < threshold:
+        return "neutral", f"最近成交 {tick_volume:.0f} 股，未達大單門檻 {threshold:.0f} 股。"
+    tick_type = tick_type.strip().lower()
+    if tick_type in {"buy", "bid", "外盤", "買進", "b"}:
+        return "buy_sweep", f"疑似大單敲進：{tick_volume:.0f} 股。"
+    if tick_type in {"sell", "ask", "內盤", "賣出", "s"}:
+        return "sell_sweep", f"疑似大單敲出：{tick_volume:.0f} 股。"
+    return "unknown", f"有大額成交 {tick_volume:.0f} 股，但無法判斷主動買賣方向。"

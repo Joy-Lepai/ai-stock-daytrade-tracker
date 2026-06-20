@@ -364,6 +364,24 @@ CREATE TABLE IF NOT EXISTS last_known_prices (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (market, symbol)
 );
+
+CREATE TABLE IF NOT EXISTS tw_orderbook_snapshots (
+  market TEXT NOT NULL DEFAULT 'TW',
+  symbol TEXT NOT NULL,
+  captured_at TEXT NOT NULL,
+  price REAL,
+  bid_price REAL,
+  bid_volume REAL,
+  ask_price REAL,
+  ask_volume REAL,
+  bid_total_volume REAL,
+  ask_total_volume REAL,
+  orderbook_imbalance REAL,
+  five_level_status TEXT,
+  source TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (market, symbol, captured_at)
+);
 """
 
 
@@ -519,6 +537,73 @@ def last_known_price_row(conn: sqlite3.Connection, market: str, symbol: str) -> 
         """,
         (market, symbol),
     ).fetchone()
+
+
+def save_tw_orderbook_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    market: str,
+    symbol: str,
+    captured_at: datetime,
+    quote: dict,
+) -> None:
+    if not symbol or not quote:
+        return
+    price = _safe_float(quote.get("price"))
+    bid_total = _safe_float(quote.get("bid_total_volume"))
+    ask_total = _safe_float(quote.get("ask_total_volume"))
+    imbalance = _safe_float(quote.get("orderbook_imbalance"))
+    if price is None and bid_total is None and ask_total is None and imbalance is None:
+        return
+    captured_text = captured_at.isoformat(timespec="seconds")
+    now_text = datetime.now().astimezone().isoformat(timespec="seconds")
+    with conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO tw_orderbook_snapshots (
+              market, symbol, captured_at, price, bid_price, bid_volume, ask_price,
+              ask_volume, bid_total_volume, ask_total_volume, orderbook_imbalance,
+              five_level_status, source, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                market,
+                symbol,
+                captured_text,
+                price,
+                _safe_float(quote.get("bid_price")),
+                _safe_float(quote.get("bid_volume")),
+                _safe_float(quote.get("ask_price")),
+                _safe_float(quote.get("ask_volume")),
+                bid_total,
+                ask_total,
+                imbalance,
+                str(quote.get("five_level_status") or ""),
+                str(quote.get("source") or ""),
+                now_text,
+            ),
+        )
+
+
+def recent_tw_orderbook_snapshots(
+    conn: sqlite3.Connection,
+    *,
+    market: str,
+    symbol: str,
+    limit: int = 5,
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM tw_orderbook_snapshots
+        WHERE market = ? AND symbol = ?
+        ORDER BY captured_at DESC
+        LIMIT ?
+        """,
+        (market, symbol, max(1, int(limit))),
+    ).fetchall()
+    return [dict(row) for row in reversed(rows)]
 
 
 def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetime, rows: Iterable[dict]) -> None:
@@ -2138,6 +2223,15 @@ def _is_after_market_close(captured_at: datetime, recommendation_date: date) -> 
     if captured_at.date() > recommendation_date:
         return True
     return captured_at.date() == recommendation_date and (captured_at.hour, captured_at.minute) >= (13, 30)
+
+
+def _safe_float(value) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _upsert_expired_backtest(conn: sqlite3.Connection, row: sqlite3.Row, lifecycle_status: str) -> None:

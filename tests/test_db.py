@@ -11,7 +11,9 @@ from stock_daytrade_system.db import (
     last_known_price_row,
     latest_candidates,
     latest_us_candidates,
+    recent_tw_orderbook_snapshots,
     save_long_candidates,
+    save_tw_orderbook_snapshot,
     save_us_candidates,
     save_us_symbols,
     update_backtests,
@@ -162,6 +164,44 @@ class DatabaseTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["last_known_price"], 100)
         self.assertEqual(row["last_known_vwap"], 99.5)
+
+    def test_tw_orderbook_snapshots_can_be_saved_and_read_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "daytrade.db"
+            with connect(db_path) as conn:
+                save_tw_orderbook_snapshot(
+                    conn,
+                    market="TW",
+                    symbol="2330.TW",
+                    captured_at=datetime(2026, 6, 18, 9, 31),
+                    quote={
+                        "price": 100,
+                        "bid_total_volume": 1000,
+                        "ask_total_volume": 900,
+                        "orderbook_imbalance": 5.26,
+                        "five_level_status": "available",
+                        "source": "test",
+                    },
+                )
+                save_tw_orderbook_snapshot(
+                    conn,
+                    market="TW",
+                    symbol="2330.TW",
+                    captured_at=datetime(2026, 6, 18, 9, 32),
+                    quote={
+                        "price": 100.5,
+                        "bid_total_volume": 1300,
+                        "ask_total_volume": 700,
+                        "orderbook_imbalance": 30,
+                        "five_level_status": "available",
+                        "source": "test",
+                    },
+                )
+                rows = recent_tw_orderbook_snapshots(conn, market="TW", symbol="2330.TW", limit=5)
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["price"], 100)
+        self.assertEqual(rows[1]["bid_total_volume"], 1300)
 
     def test_saves_candidates_and_updates_backtest(self):
         with tempfile.TemporaryDirectory() as directory:

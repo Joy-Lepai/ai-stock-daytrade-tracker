@@ -2366,6 +2366,14 @@ def tw_advisor_script() -> str:
         sell_pressure: "賣壓偏重",
         limit_up_locked: "漲停鎖住",
         limit_down_locked: "跌停鎖住",
+        improving: "轉強",
+        deteriorating: "轉弱",
+        buy_sweep: "大單敲進",
+        sell_sweep: "大單敲出",
+        large_buy: "大單買進",
+        large_sell: "大單賣出",
+        inflow: "大單流入",
+        outflow: "大單流出",
       }[entry] || entry || "-");
       const displayTradeBias = (item) => {
         const entry = item?.entry_status || "";
@@ -2695,6 +2703,10 @@ def tw_advisor_script() -> str:
               ${metric("買賣盤差", radar.orderbook_imbalance === null || radar.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(radar.orderbook_imbalance))}%`)}
               ${metric("委買總量", escapeHtml(number(radar.bid_total_volume, 0)))}
               ${metric("委賣總量", escapeHtml(number(radar.ask_total_volume, 0)))}
+              ${metric("委買量變化", escapeHtml(statusZh(radar.bid_volume_trend)))}
+              ${metric("委賣量變化", escapeHtml(statusZh(radar.ask_volume_trend)))}
+              ${metric("最新價墊高", escapeHtml(statusZh(radar.price_tick_trend)))}
+              ${metric("盤口快照數", escapeHtml(radar.orderbook_history_count ?? "-"))}
               ${metric("風險", escapeHtml(statusZh(radar.risk_status)))}
               ${metric("資料", escapeHtml(statusZh(radar.data_status)))}
               ${metric("大單敲進 / 敲出", escapeHtml(statusZh(radar.large_trade_status)))}
@@ -2702,7 +2714,12 @@ def tw_advisor_script() -> str:
             <div class="advisor-sections">
               <section class="advisor-panel"><h3>檢查項目</h3><ul class="decision-list">${checkRows}</ul></section>
               <section class="advisor-panel"><h3>阻擋原因</h3>${list(blockers.length ? blockers : ["無硬性阻擋，但仍需依原模型與風控判斷。"])}</section>
-              <section class="advisor-panel"><h3>提醒</h3>${list(warnings.length ? warnings : [radar.large_trade_summary || "逐筆大單資料尚未接入。"])}</section>
+              <section class="advisor-panel"><h3>盤口 / 大單提醒</h3>${list(warnings.length ? warnings : [
+                radar.bid_volume_trend_summary || "委買量變化尚無足夠快照。",
+                radar.ask_volume_trend_summary || "委賣量變化尚無足夠快照。",
+                radar.price_tick_summary || "最新價快照尚不足。",
+                radar.large_trade_summary || "逐筆大單資料尚未接入。",
+              ])}</section>
             </div>
             <div class="advisor-sections">
               <section class="advisor-panel advisor-plan"><h3>下一步</h3><p>${escapeHtml(radar.next_step || "等待條件確認。")}</p></section>

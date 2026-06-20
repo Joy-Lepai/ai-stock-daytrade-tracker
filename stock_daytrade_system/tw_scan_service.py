@@ -9,7 +9,14 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.data_freshness import evaluate_data_freshness
-from stock_daytrade_system.db import connect, default_db_path, last_known_price_row, upsert_last_known_price
+from stock_daytrade_system.db import (
+    connect,
+    default_db_path,
+    last_known_price_row,
+    recent_tw_orderbook_snapshots,
+    save_tw_orderbook_snapshot,
+    upsert_last_known_price,
+)
 from stock_daytrade_system.entry_confirmation import build_entry_confirmation
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.intraday import analyze_opening_confirmation
@@ -107,13 +114,30 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         data_health=data_health,
     ).to_dict()
+    radar_quote_payload = _radar_quote_payload(realtime_payload, shioaji_payload)
     entry_confirmation_payload = build_entry_confirmation(
         candidate=candidate_payload,
         intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         data_health=data_health,
-        realtime_quote=realtime_payload,
+        realtime_quote=radar_quote_payload,
+        orderbook_history=[],
     ).to_dict()
     with connect(db_path) as conn:
+        save_tw_orderbook_snapshot(
+            conn,
+            market="TW",
+            symbol=item.symbol,
+            captured_at=captured_at,
+            quote=realtime_payload,
+        )
+        orderbook_history = recent_tw_orderbook_snapshots(conn, market="TW", symbol=item.symbol, limit=5)
+        entry_confirmation_payload = build_entry_confirmation(
+            candidate=candidate_payload,
+            intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+            data_health=data_health,
+            realtime_quote=radar_quote_payload,
+            orderbook_history=orderbook_history,
+        ).to_dict()
         if display_payload.get("current_price") is not None and not data_health.get("uses_last_known"):
             upsert_last_known_price(
                 conn,
@@ -222,6 +246,19 @@ def add_tw_watchlist_symbol(project_root: Path, raw_symbol: str) -> dict:
     payload = scan_tw_symbol_payload(project_root, item.symbol)
     payload["watchlist_added"] = item.symbol not in existing
     payload["watchlist_path"] = str(path)
+    return payload
+
+
+def _radar_quote_payload(realtime_payload: dict, shioaji_payload: dict) -> dict:
+    payload = dict(realtime_payload or {})
+    shioaji_payload = shioaji_payload or {}
+    large_status = str(shioaji_payload.get("large_trade_status") or "")
+    if large_status and large_status != "missing":
+        payload["large_trade_status"] = large_status
+        payload["large_trade_summary"] = shioaji_payload.get("large_trade_summary")
+        payload["large_trade_threshold"] = shioaji_payload.get("large_trade_threshold")
+        payload["last_tick_volume"] = shioaji_payload.get("last_tick_volume")
+        payload["tick_type"] = shioaji_payload.get("tick_type")
     return payload
 
 

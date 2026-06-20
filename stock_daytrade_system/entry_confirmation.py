@@ -6,7 +6,7 @@ from typing import Optional
 from stock_daytrade_system.data import Bar
 
 
-ENTRY_CONFIRMATION_VERSION = "entry_confirmation_v1_orderbook_radar_2026-06-21"
+ENTRY_CONFIRMATION_VERSION = "entry_confirmation_v2_orderbook_trend_radar_2026-06-21"
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,13 @@ class EntryConfirmation:
     orderbook_imbalance: Optional[float]
     large_trade_status: str
     large_trade_summary: str
+    bid_volume_trend: str
+    bid_volume_trend_summary: str
+    ask_volume_trend: str
+    ask_volume_trend_summary: str
+    price_tick_trend: str
+    price_tick_summary: str
+    orderbook_history_count: int
     checks: list[dict]
     blockers: list[str]
     warnings: list[str]
@@ -44,6 +51,7 @@ def build_entry_confirmation(
     intraday_bars: list[Bar],
     data_health: dict,
     realtime_quote: dict,
+    orderbook_history: Optional[list[dict]] = None,
 ) -> EntryConfirmation:
     candidate = candidate or {}
     data_health = data_health or {}
@@ -60,6 +68,11 @@ def build_entry_confirmation(
     above_vwap = bool(candidate.get("above_vwap")) if vwap is not None else False
     price_momentum = _price_momentum_status(intraday_bars)
     orderbook = _orderbook_status(realtime_quote)
+    history = list(orderbook_history or [])
+    bid_trend = _volume_trend_status(history, "bid_total_volume", want="increase")
+    ask_trend = _volume_trend_status(history, "ask_total_volume", want="decrease")
+    price_tick = _price_tick_trend_status(history, fallback=price_momentum)
+    large_trade = _large_trade_status(realtime_quote)
     stop_distance_pct = _stop_distance_pct(last_price, stop_loss)
     stop_ok = bool(stop_distance_pct is not None and 0 < stop_distance_pct <= 3)
     volume_ok = bool(volume_ratio is not None and volume_ratio >= 1)
@@ -80,7 +93,18 @@ def build_entry_confirmation(
     if orderbook["status"] == "sell_pressure":
         hard_blockers.append("五檔賣壓偏重。")
     if orderbook["status"] == "missing":
+        hard_blockers.append("缺公開五檔，盤口確認不足。")
         warnings.append("缺公開五檔，盤口確認不足。")
+    if bid_trend["status"] == "deteriorating":
+        warnings.append("委買量較前次減少，買盤支撐轉弱。")
+    if ask_trend["status"] == "deteriorating":
+        warnings.append("委賣量較前次增加，賣壓升高。")
+    if price_tick["status"] == "weak":
+        warnings.append("最新價快照沒有連續墊高。")
+    if large_trade["status"] == "missing":
+        warnings.append("缺逐筆成交，無法確認大單敲進。")
+    elif large_trade["status"] == "sell_sweep":
+        warnings.append("疑似大單敲出，進場需保守。")
     if volume_near:
         warnings.append("量比接近門檻，但尚未完全確認。")
     if realtime_quote.get("is_limit_up_locked"):
@@ -96,12 +120,15 @@ def build_entry_confirmation(
             f"量比 {volume_ratio:.2f}x" if volume_ratio is not None else "缺量比",
         ),
         _check("五檔盤口", orderbook_ok, orderbook["summary"]),
+        _check("委買量增加", bid_trend["ok"], bid_trend["summary"]),
+        _check("委賣量減少", ask_trend["ok"], ask_trend["summary"]),
+        _check("最新價連續墊高", price_tick["ok"], price_tick["summary"]),
         _check(
             "風險可控",
             risk_ok,
             _risk_summary(risk_score, stop_distance_pct),
         ),
-        _check("逐筆大單", False, "目前缺逐筆成交，無法判斷大單敲進 / 敲出"),
+        _check("逐筆大單", large_trade["ok"], large_trade["summary"]),
     ]
     score = sum(item["points"] for item in checks)
     if hard_blockers:
@@ -142,8 +169,15 @@ def build_entry_confirmation(
         bid_total_volume=orderbook["bid_total_volume"],
         ask_total_volume=orderbook["ask_total_volume"],
         orderbook_imbalance=orderbook["imbalance"],
-        large_trade_status="missing",
-        large_trade_summary="目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。",
+        large_trade_status=large_trade["status"],
+        large_trade_summary=large_trade["summary"],
+        bid_volume_trend=bid_trend["status"],
+        bid_volume_trend_summary=bid_trend["summary"],
+        ask_volume_trend=ask_trend["status"],
+        ask_volume_trend_summary=ask_trend["summary"],
+        price_tick_trend=price_tick["status"],
+        price_tick_summary=price_tick["summary"],
+        orderbook_history_count=len(history),
         checks=checks,
         blockers=hard_blockers,
         warnings=warnings,
@@ -191,6 +225,82 @@ def _orderbook_payload(status: str, bid_total, ask_total, imbalance, summary: st
         "imbalance": imbalance,
         "summary": summary,
     }
+
+
+def _volume_trend_status(history: list[dict], key: str, *, want: str) -> dict:
+    values = [_float(item.get(key)) for item in history if _float(item.get(key)) is not None]
+    label = "委買量" if key == "bid_total_volume" else "委賣量"
+    if len(values) < 2:
+        return {"status": "missing", "ok": False, "summary": f"{label}快照不足，尚無法判斷變化"}
+    previous = values[-2]
+    latest = values[-1]
+    if previous is None or latest is None:
+        return {"status": "missing", "ok": False, "summary": f"{label}快照不足，尚無法判斷變化"}
+    if want == "increase":
+        if latest > previous * 1.03:
+            return {"status": "improving", "ok": True, "summary": f"{label}增加：{previous:.0f} -> {latest:.0f}"}
+        if latest >= previous * 0.97:
+            return {"status": "stable", "ok": True, "summary": f"{label}持平：{previous:.0f} -> {latest:.0f}"}
+        return {"status": "deteriorating", "ok": False, "summary": f"{label}減少：{previous:.0f} -> {latest:.0f}"}
+    if latest < previous * 0.97:
+        return {"status": "improving", "ok": True, "summary": f"{label}減少：{previous:.0f} -> {latest:.0f}"}
+    if latest <= previous * 1.03:
+        return {"status": "stable", "ok": True, "summary": f"{label}持平：{previous:.0f} -> {latest:.0f}"}
+    return {"status": "deteriorating", "ok": False, "summary": f"{label}增加：{previous:.0f} -> {latest:.0f}"}
+
+
+def _price_tick_trend_status(history: list[dict], *, fallback: dict) -> dict:
+    prices = [_float(item.get("price")) for item in history if _float(item.get("price")) is not None]
+    if len(prices) >= 3:
+        recent = prices[-3:]
+        if recent[0] < recent[1] < recent[2]:
+            return {"status": "rising", "ok": True, "summary": f"最新價連續墊高：{recent[0]:.2f} -> {recent[1]:.2f} -> {recent[2]:.2f}"}
+        if recent[-1] >= recent[0]:
+            return {"status": "stable", "ok": True, "summary": f"最新價未轉弱：{recent[0]:.2f} -> {recent[-1]:.2f}"}
+        return {"status": "weak", "ok": False, "summary": f"最新價轉弱：{recent[0]:.2f} -> {recent[-1]:.2f}"}
+    if fallback.get("ok"):
+        return {"status": fallback.get("status") or "stable", "ok": True, "summary": f"快照不足，暫用 K 棒判斷：{fallback.get('summary')}"}
+    return {"status": "missing", "ok": False, "summary": "最新價快照不足，尚無法判斷連續墊高"}
+
+
+def _large_trade_status(quote: dict) -> dict:
+    explicit = str(quote.get("large_trade_status") or "").strip()
+    explicit_summary = str(quote.get("large_trade_summary") or "").strip()
+    if explicit:
+        return {
+            "status": explicit,
+            "ok": explicit in {"buy_sweep", "large_buy", "inflow"},
+            "summary": explicit_summary or _large_trade_label(explicit),
+        }
+    tick_volume = _float(
+        quote.get("last_tick_volume"),
+        quote.get("tick_volume"),
+        quote.get("large_trade_volume"),
+        quote.get("trade_volume"),
+    )
+    threshold = _float(quote.get("large_trade_threshold"), default=200.0) or 200.0
+    tick_type = str(quote.get("tick_type") or quote.get("tickType") or "").strip().lower()
+    if tick_volume is None:
+        return {"status": "missing", "ok": False, "summary": "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。"}
+    if tick_volume < threshold:
+        return {"status": "neutral", "ok": False, "summary": f"最近成交 {tick_volume:.0f} 股，未達大單門檻 {threshold:.0f} 股。"}
+    if tick_type in {"buy", "bid", "外盤", "買進", "b"}:
+        return {"status": "buy_sweep", "ok": True, "summary": f"疑似大單敲進：{tick_volume:.0f} 股。"}
+    if tick_type in {"sell", "ask", "內盤", "賣出", "s"}:
+        return {"status": "sell_sweep", "ok": False, "summary": f"疑似大單敲出：{tick_volume:.0f} 股。"}
+    return {"status": "unknown", "ok": False, "summary": f"有大額成交 {tick_volume:.0f} 股，但無法判斷主動買賣方向。"}
+
+
+def _large_trade_label(status: str) -> str:
+    return {
+        "buy_sweep": "疑似大單敲進。",
+        "large_buy": "疑似大單敲進。",
+        "inflow": "大單流入。",
+        "sell_sweep": "疑似大單敲出。",
+        "large_sell": "疑似大單敲出。",
+        "outflow": "大單流出。",
+        "missing": "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。",
+    }.get(status, status)
 
 
 def _check(label: str, ok: bool, detail: str) -> dict:

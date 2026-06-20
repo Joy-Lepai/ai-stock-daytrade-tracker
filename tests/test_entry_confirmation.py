@@ -42,11 +42,20 @@ class EntryConfirmationTests(unittest.TestCase):
                 "ask_total_volume": 600,
                 "orderbook_imbalance": 42.86,
             },
+            orderbook_history=[
+                {"price": 100.2, "bid_total_volume": 1100, "ask_total_volume": 900},
+                {"price": 100.6, "bid_total_volume": 1300, "ask_total_volume": 700},
+                {"price": 101.0, "bid_total_volume": 1500, "ask_total_volume": 600},
+            ],
         ).to_dict()
 
         self.assertEqual(payload["status"], "ready")
         self.assertTrue(payload["can_consider_entry"])
         self.assertEqual(payload["orderbook_status"], "supportive")
+        self.assertEqual(payload["bid_volume_trend"], "improving")
+        self.assertEqual(payload["ask_volume_trend"], "improving")
+        self.assertEqual(payload["price_tick_trend"], "rising")
+        self.assertEqual(payload["orderbook_history_count"], 3)
 
     def test_high_risk_is_blocked_even_with_orderbook_support(self):
         payload = build_entry_confirmation(
@@ -85,6 +94,61 @@ class EntryConfirmationTests(unittest.TestCase):
         ).to_dict()
 
         self.assertEqual(payload["status"], "review_only")
+        self.assertFalse(payload["can_consider_entry"])
+
+    def test_large_buy_trade_can_be_detected_when_tick_payload_exists(self):
+        payload = build_entry_confirmation(
+            candidate={
+                "entry_status": "executable",
+                "trade_bias": "long",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.4,
+                "stop_loss": 99,
+                "risk_score": 30,
+            },
+            intraday_bars=[bar(index, 100 + index * 0.3) for index in range(4)],
+            data_health={"is_live": True, "can_use_for_intraday_signal": True},
+            realtime_quote={
+                "five_level_status": "available",
+                "bid_total_volume": 1500,
+                "ask_total_volume": 700,
+                "orderbook_imbalance": 36.36,
+                "tick_type": "buy",
+                "last_tick_volume": 350,
+                "large_trade_threshold": 200,
+            },
+            orderbook_history=[
+                {"price": 100.2, "bid_total_volume": 1200, "ask_total_volume": 900},
+                {"price": 100.5, "bid_total_volume": 1500, "ask_total_volume": 700},
+            ],
+        ).to_dict()
+
+        self.assertEqual(payload["large_trade_status"], "buy_sweep")
+        self.assertIn("疑似大單敲進", payload["large_trade_summary"])
+
+    def test_missing_orderbook_history_is_explicit_not_error(self):
+        payload = build_entry_confirmation(
+            candidate={
+                "entry_status": "executable",
+                "trade_bias": "long",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.1,
+                "stop_loss": 99,
+                "risk_score": 30,
+            },
+            intraday_bars=[bar(index, 100 + index * 0.2) for index in range(4)],
+            data_health={"is_live": True, "can_use_for_intraday_signal": True},
+            realtime_quote={"five_level_status": "missing"},
+            orderbook_history=[],
+        ).to_dict()
+
+        self.assertEqual(payload["bid_volume_trend"], "missing")
+        self.assertEqual(payload["ask_volume_trend"], "missing")
+        self.assertEqual(payload["large_trade_status"], "missing")
         self.assertFalse(payload["can_consider_entry"])
 
 
