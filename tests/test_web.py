@@ -138,6 +138,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("Shioaji 即時報價 / 盤口確認", html)
         self.assertIn("TWSE MIS 公開五檔委買委賣", html)
         self.assertIn("公開五檔", html)
+        self.assertIn("進場確認雷達", html)
         self.assertIn("五檔委買委賣串流", html)
         self.assertIn("不會直接產生強烈做多，也不會自動下單", html)
         self.assertIn("停損距離合理", html)

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.db import connect, default_db_path, last_known_price_row, upsert_last_known_price
+from stock_daytrade_system.entry_confirmation import build_entry_confirmation
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
@@ -106,6 +107,12 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         data_health=data_health,
     ).to_dict()
+    entry_confirmation_payload = build_entry_confirmation(
+        candidate=candidate_payload,
+        intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
+        data_health=data_health,
+        realtime_quote=realtime_payload,
+    ).to_dict()
     with connect(db_path) as conn:
         if display_payload.get("current_price") is not None and not data_health.get("uses_last_known"):
             upsert_last_known_price(
@@ -170,6 +177,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "source_ranking": source_payload,
         "advisor_analysis": analysis_payload,
         "precision_context": precision_payload,
+        "entry_confirmation": entry_confirmation_payload,
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,

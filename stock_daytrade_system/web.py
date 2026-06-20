@@ -2350,6 +2350,22 @@ def tw_advisor_script() -> str:
         neutral: "中性",
         weak: "偏弱",
         unknown: "未知",
+        rising: "轉強",
+        stable: "穩定",
+        weak: "偏弱",
+        above: "站上",
+        below: "跌破",
+        near: "接近",
+        controlled: "可控",
+        high: "偏高",
+        live: "即時",
+        delayed: "延遲",
+        cached: "使用上一筆",
+        not_live: "非即時",
+        supportive: "買盤支持",
+        sell_pressure: "賣壓偏重",
+        limit_up_locked: "漲停鎖住",
+        limit_down_locked: "跌停鎖住",
       }[entry] || entry || "-");
       const displayTradeBias = (item) => {
         const entry = item?.entry_status || "";
@@ -2653,6 +2669,49 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderEntryConfirmationCard = (radar) => {
+        radar = radar || {};
+        const checks = Array.isArray(radar.checks) ? radar.checks : [];
+        const blockers = Array.isArray(radar.blockers) ? radar.blockers : [];
+        const warnings = Array.isArray(radar.warnings) ? radar.warnings : [];
+        const checkRows = checks.length ? checks.map((item) => `
+          <li>
+            <strong>${item.ok ? "通過" : "未通過"}｜${escapeHtml(item.label)}</strong>
+            <span class="muted">${escapeHtml(item.detail || "")}</span>
+          </li>
+        `).join("") : "<li>目前缺少雷達資料。</li>";
+        return `
+          <article class="advisor-card">
+            <h3>進場確認雷達</h3>
+            <p><strong>${escapeHtml(radar.status_label || "等待確認")}</strong></p>
+            <p class="muted">${escapeHtml(radar.summary || "目前仍需等待 VWAP、量能、盤口與風控確認。")}</p>
+            <div class="advisor-grid">
+              ${metric("雷達分數", escapeHtml(number(radar.score)))}
+              ${metric("可考慮進場", escapeHtml(yesNo(radar.can_consider_entry)))}
+              ${metric("價格動能", escapeHtml(statusZh(radar.price_momentum_status)))}
+              ${metric("VWAP", escapeHtml(statusZh(radar.vwap_status)))}
+              ${metric("量能", escapeHtml(statusZh(radar.volume_status)))}
+              ${metric("五檔盤口", escapeHtml(statusZh(radar.orderbook_status)))}
+              ${metric("買賣盤差", radar.orderbook_imbalance === null || radar.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(radar.orderbook_imbalance))}%`)}
+              ${metric("委買總量", escapeHtml(number(radar.bid_total_volume, 0)))}
+              ${metric("委賣總量", escapeHtml(number(radar.ask_total_volume, 0)))}
+              ${metric("風險", escapeHtml(statusZh(radar.risk_status)))}
+              ${metric("資料", escapeHtml(statusZh(radar.data_status)))}
+              ${metric("大單敲進 / 敲出", escapeHtml(statusZh(radar.large_trade_status)))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel"><h3>檢查項目</h3><ul class="decision-list">${checkRows}</ul></section>
+              <section class="advisor-panel"><h3>阻擋原因</h3>${list(blockers.length ? blockers : ["無硬性阻擋，但仍需依原模型與風控判斷。"])}</section>
+              <section class="advisor-panel"><h3>提醒</h3>${list(warnings.length ? warnings : [radar.large_trade_summary || "逐筆大單資料尚未接入。"])}</section>
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel advisor-plan"><h3>下一步</h3><p>${escapeHtml(radar.next_step || "等待條件確認。")}</p></section>
+              <section class="advisor-panel advisor-plan"><h3>失效條件</h3><p>${escapeHtml(radar.invalidation || "跌破 VWAP、量能退潮或資料延遲時失效。")}</p></section>
+            </div>
+            <p class="warn-inline">進場確認雷達只做進場前檢查，不會調整 A / B+ / B 分級，也不會單獨產生強烈做多。</p>
+          </article>
+        `;
+      };
       const renderPrecisionContextCard = (precision) => {
         precision = precision || {};
         const available = Array.isArray(precision.available_data) ? precision.available_data : [];
@@ -2791,6 +2850,7 @@ def tw_advisor_script() -> str:
         const analysis = payload.advisor_analysis || {};
         const frontTrade = payload.front_trade || {};
         const precision = payload.precision_context || {};
+        const entryConfirmation = payload.entry_confirmation || {};
         const shioajiQuote = payload.shioaji_quote || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
@@ -2918,6 +2978,7 @@ def tw_advisor_script() -> str:
           </article>
 
           ${renderEntryChecklistCard(payload)}
+          ${renderEntryConfirmationCard(entryConfirmation)}
           ${renderTwseOrderbookCard(payload.realtime_quote || {})}
           ${renderShioajiQuoteCard(shioajiQuote)}
           ${renderPrecisionContextCard(precision)}
