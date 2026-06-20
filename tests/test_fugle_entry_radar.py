@@ -20,8 +20,12 @@ class FakeFugleClient:
     def __init__(self, fail_symbols=None):
         self.config = FugleMarketDataConfig(enabled=True, api_key="test", candles_timeframe="1")
         self.fail_symbols = set(fail_symbols or [])
+        self.quote_calls = 0
+        self.trade_calls = 0
+        self.candle_calls = 0
 
     def fetch_quote(self, symbol):
+        self.quote_calls += 1
         if symbol in self.fail_symbols:
             raise RuntimeError("quote failed")
         return Payload(
@@ -46,6 +50,7 @@ class FakeFugleClient:
         )
 
     def fetch_trades(self, symbol):
+        self.trade_calls += 1
         return Payload(
             {
                 "symbol": symbol,
@@ -60,6 +65,7 @@ class FakeFugleClient:
         )
 
     def fetch_candles(self, symbol, timeframe="1"):
+        self.candle_calls += 1
         return Payload(
             {
                 "symbol": symbol,
@@ -135,6 +141,25 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(rows["2330.TW"]["fugle_confirmation_status"], "ok")
         self.assertEqual(rows["6919.TW"]["fugle_confirmation_status"], "failed")
         self.assertIn("暫時無法更新", rows["6919.TW"]["entry_confirmation_summary"])
+
+    def test_disabled_fugle_marks_pool_without_calling_symbol_endpoints(self):
+        client = FakeFugleClient()
+        client.config = FugleMarketDataConfig(enabled=False, api_key="", candles_timeframe="1")
+        with TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                payload = enrich_fugle_priority_pool(
+                    pool_for(["2330.TW"]),
+                    client=client,
+                    conn=conn,
+                    captured_at=datetime(2026, 6, 18, 9, 35),
+                )
+
+        item = payload["selected"][0]
+        self.assertEqual(payload["entry_radar_status"], "disabled")
+        self.assertEqual(payload["actual_api_calls"], 0)
+        self.assertEqual(client.quote_calls + client.trade_calls + client.candle_calls, 0)
+        self.assertEqual(item["entry_confirmation_status_label"], "等待 Fugle 設定")
+        self.assertFalse(item["entry_confirmation_can_consider"])
 
 
 if __name__ == "__main__":

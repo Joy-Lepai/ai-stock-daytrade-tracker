@@ -740,9 +740,11 @@ class TrackerStatusTests(unittest.TestCase):
                 "fugle_priority_pool": {
                     "enabled": True,
                     "configured": True,
+                    "entry_radar_status": "ok",
                     "max_symbols": 5,
                     "selected_count": 1,
                     "excluded_count": 3,
+                    "actual_api_calls": 3,
                     "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
                     "selected": [
                         {
@@ -772,6 +774,8 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("2884.TW｜玉山金", html)
         self.assertIn("基本用戶最多追蹤 5 檔", html)
         self.assertIn("不會改 A / B+ / B 條件", html)
+        self.assertIn("雷達狀態", html)
+        self.assertIn("實際 API 呼叫", html)
         self.assertIn("可</td>", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):

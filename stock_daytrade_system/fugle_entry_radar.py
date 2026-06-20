@@ -40,6 +40,24 @@ def enrich_fugle_priority_pool(
                 "confirmation_updated_at": captured_at.isoformat(timespec="seconds"),
                 "confirmation_success_count": 0,
                 "confirmation_failed_count": 0,
+                "planned_api_calls": 0,
+                "actual_api_calls": 0,
+            }
+        )
+        return payload
+    if not client.config.enabled or not client.config.configured:
+        reason = "Fugle 尚未啟用" if not client.config.enabled else "Fugle API Key 尚未設定"
+        payload.update(
+            {
+                "entry_radar_version": FUGLE_ENTRY_RADAR_VERSION,
+                "confirmation_updated_at": captured_at.isoformat(timespec="seconds"),
+                "confirmation_success_count": 0,
+                "confirmation_failed_count": len(rows),
+                "planned_api_calls": 0,
+                "actual_api_calls": 0,
+                "entry_radar_status": "disabled" if not client.config.enabled else "not_configured",
+                "entry_radar_message": f"{reason}，已保留 5 檔追蹤池，但不抓五檔 / 逐筆資料。",
+                "selected": [_unavailable_item(item, reason=reason) for item in rows],
             }
         )
         return payload
@@ -47,9 +65,11 @@ def enrich_fugle_priority_pool(
     enriched: list[dict] = []
     success_count = 0
     failed_count = 0
+    api_calls = 0
     for item in rows:
         try:
             enriched_item = _enrich_item(item, client=client, conn=conn, captured_at=captured_at)
+            api_calls += int(enriched_item.get("fugle_api_calls") or 0)
             if enriched_item.get("fugle_confirmation_status") == "ok":
                 success_count += 1
             else:
@@ -69,6 +89,9 @@ def enrich_fugle_priority_pool(
             "confirmation_updated_at": captured_at.isoformat(timespec="seconds"),
             "confirmation_success_count": success_count,
             "confirmation_failed_count": failed_count,
+            "planned_api_calls": len(rows) * 3,
+            "actual_api_calls": api_calls,
+            "entry_radar_status": "ok" if success_count else "partial",
             "selected": enriched,
         }
     )
@@ -150,9 +173,41 @@ def _enrich_item(
             "entry_confirmation_can_consider": confirmation.get("can_consider_entry"),
             "entry_confirmation_warnings": confirmation.get("warnings") or [],
             "orderbook_history_count": confirmation.get("orderbook_history_count") or 0,
+            "fugle_api_calls": 3,
         }
     )
     return enriched
+
+
+def _unavailable_item(item: dict, *, reason: str) -> dict:
+    payload = dict(item)
+    payload.update(
+        {
+            "fugle_confirmation_status": "disabled",
+            "fugle_confirmation_error": reason,
+            "fugle_quote_status": "disabled",
+            "fugle_trades_status": "disabled",
+            "fugle_candles_status": "disabled",
+            "orderbook_status": "missing",
+            "bid_volume_trend": "missing",
+            "bid_volume_trend_summary": "Fugle 未啟用，尚無法判斷委買量變化。",
+            "ask_volume_trend": "missing",
+            "ask_volume_trend_summary": "Fugle 未啟用，尚無法判斷委賣量變化。",
+            "large_trade_status": "missing",
+            "large_trade_summary": "Fugle 未啟用，尚無法判斷大單敲進 / 敲出。",
+            "price_tick_trend": "missing",
+            "price_tick_summary": "Fugle 未啟用，尚無法判斷最新價是否墊高。",
+            "entry_confirmation_status": "waiting",
+            "entry_confirmation_status_label": "等待 Fugle 設定",
+            "entry_confirmation_summary": f"{reason}，此檔僅保留在即時追蹤池，不作進場確認。",
+            "entry_confirmation_next_step": "完成 Fugle 設定並重新刷新後，再觀察五檔、逐筆與價格墊高。",
+            "entry_confirmation_can_consider": False,
+            "entry_confirmation_warnings": [reason],
+            "orderbook_history_count": 0,
+            "fugle_api_calls": 0,
+        }
+    )
+    return payload
 
 
 def _data_health_from_fugle(quote: dict, trades: dict, candles: dict) -> dict:

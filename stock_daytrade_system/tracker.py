@@ -1085,6 +1085,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     rows = list(pool.get("selected") or [])
     status_text = "已啟用" if pool.get("enabled") else "未啟用"
     configured_text = "API Key 已設定" if pool.get("configured") else "API Key 未設定"
+    radar_status_text = _fugle_radar_status_label(str(pool.get("entry_radar_status") or "waiting"))
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
     if not rows:
         return (
@@ -1094,6 +1095,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             '<div class="summary">'
             f'{_metric_text("Fugle 狀態", status_text)}'
             f'{_metric_text("金鑰狀態", configured_text)}'
+            f'{_metric_text("雷達狀態", radar_status_text)}'
             f'{_metric_text("指定追蹤", pinned_text)}'
             f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
             f'{_metric("已選標的", 0)}'
@@ -1127,14 +1129,16 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         '<div class="summary">'
         f'{_metric_text("Fugle 狀態", status_text)}'
         f'{_metric_text("金鑰狀態", configured_text)}'
+        f'{_metric_text("雷達狀態", radar_status_text)}'
         f'{_metric_text("指定追蹤", pinned_text)}'
         f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
         f'{_metric("已選標的", int(pool.get("selected_count", len(rows)) or len(rows)))}'
         f'{_metric("其餘候選", int(pool.get("excluded_count", 0) or 0))}'
         f'{_metric("雷達成功", int(pool.get("confirmation_success_count", 0) or 0))}'
         f'{_metric("雷達不足", int(pool.get("confirmation_failed_count", 0) or 0))}'
+        f'{_metric("實際 API 呼叫", int(pool.get("actual_api_calls", 0) or 0))}'
         '</div>'
-        f'<p class="muted">{escape(str(pool.get("message") or ""))}</p>'
+        f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         '<div class="table-wrap"><table><thead><tr>'
         '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
@@ -1151,6 +1155,16 @@ def _trend_label(status: str) -> str:
         "deteriorating": "轉弱",
         "missing": "資料不足",
     }.get(status or "missing", "資料不足")
+
+
+def _fugle_radar_status_label(status: str) -> str:
+    return {
+        "ok": "已更新",
+        "partial": "部分不足",
+        "disabled": "未啟用",
+        "not_configured": "未設定 Key",
+        "waiting": "等待更新",
+    }.get(status or "waiting", status or "等待更新")
 
 
 def _large_trade_label(status: str) -> str:
