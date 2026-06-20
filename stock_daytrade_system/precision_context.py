@@ -86,6 +86,9 @@ def build_precision_context(
         missing.append("族群同步背景")
 
     orderbook_status = str(data_health.get("twse_mis_five_level_status") or "missing")
+    fugle_status = str(data_health.get("fugle_status") or "disabled")
+    fugle_count = int(data_health.get("fugle_trades_count") or 0)
+    has_fugle_trades = fugle_status == "ok" and fugle_count > 0
     has_public_orderbook = orderbook_status in {
         "available",
         "limit_up_bid_only",
@@ -97,7 +100,11 @@ def build_precision_context(
         available.append("公開五檔委買委賣")
     else:
         missing.append("五檔委買委賣")
-    missing.extend(["逐筆成交 Tick", "即時新聞題材"])
+    if has_fugle_trades:
+        available.append("Fugle 逐筆成交")
+    else:
+        missing.append("逐筆成交 Tick")
+    missing.append("即時新聞題材")
     score = 0.0
     score += 18 if data_live else 0
     score += 16 if has_intraday else 0
@@ -109,10 +116,13 @@ def build_precision_context(
     score += 6 if institutional_status in {"ok", "partial"} else 0
     score += 6 if sector_status == "strong" else 0
     score += 4 if has_public_orderbook else 0
+    score += 8 if has_fugle_trades else 0
     score = min(score, 100.0)
     precision_level, precision_label = _precision_level(score, data_live)
-    # Without tick/orderbook feeds we intentionally cap this to observation.
-    can_precise = False
+    # Fugle REST trades are enough for MVP large-trade confirmation, but not a
+    # broker-grade low-latency feed; keep precise entry gated by live data and
+    # public orderbook availability.
+    can_precise = bool(data_live and has_fugle_trades and has_public_orderbook)
 
     return PrecisionContext(
         version=PRECISION_CONTEXT_VERSION,
@@ -120,7 +130,7 @@ def build_precision_context(
         precision_label=precision_label,
         readiness_score=round(score, 2),
         can_use_for_precise_daytrade=can_precise,
-        tick_data_status="missing",
+        tick_data_status="ok" if has_fugle_trades else "missing",
         orderbook_status="partial" if has_public_orderbook else "missing",
         news_status="missing",
         intraday_k_status="ok" if has_intraday else "missing",
@@ -137,7 +147,11 @@ def build_precision_context(
         missing_data=missing,
         available_data=available,
         summary=_summary(precision_label, data_live, missing),
-        next_data_to_add=["券商即時 Tick API", "更穩定的五檔串流 API", "即時新聞 / 題材來源"],
+        next_data_to_add=[
+            "Fugle WebSocket Trades",
+            "更穩定的五檔串流 API",
+            "即時新聞 / 題材來源",
+        ],
     )
 
 

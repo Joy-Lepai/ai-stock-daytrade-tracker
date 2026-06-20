@@ -30,7 +30,6 @@ from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_si
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.position_management import position_action_for_symbol
 from stock_daytrade_system.precision_context import build_precision_context
-from stock_daytrade_system.shioaji_quote import ShioajiQuoteClient
 from stock_daytrade_system.tw_advisor_analysis import build_tw_advisor_analysis
 from stock_daytrade_system.tw_realtime_quote import TwRealtimeQuoteClient
 from stock_daytrade_system.tw_momentum_scanner import (
@@ -84,13 +83,11 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
     with connect(db_path) as conn:
         last_known_row = last_known_price_row(conn, "TW", item.symbol)
     fugle_trades = FugleMarketDataClient().fetch_trades(item.symbol)
-    shioaji_quote = ShioajiQuoteClient().fetch_snapshot(item.symbol)
     realtime_quote = TwRealtimeQuoteClient().fetch(item.symbol)
     realtime_payload = realtime_quote.to_dict()
     scan_payload = _scan_payload_with_last_known(scan_item.to_dict(), last_known_row)
     fugle_payload = fugle_trades.to_dict()
-    shioaji_payload = shioaji_quote.to_dict()
-    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, shioaji_payload)
+    display_payload = _display_payload(scan_payload, model, realtime_payload, last_known_row, fugle_payload)
     data_health = _data_health_payload(
         captured_at,
         display_payload,
@@ -98,8 +95,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_errors,
         quote_intraday_errors,
         item.symbol,
-        shioaji_payload,
         realtime_payload,
+        fugle_payload,
     )
     candidate_payload = _candidate_payload(model)
     analysis_payload = build_tw_advisor_analysis(
@@ -117,7 +114,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
         data_health=data_health,
     ).to_dict()
-    radar_quote_payload = _radar_quote_payload(realtime_payload, shioaji_payload, fugle_payload)
+    radar_quote_payload = _radar_quote_payload(realtime_payload, {}, fugle_payload)
     entry_confirmation_payload = build_entry_confirmation(
         candidate=candidate_payload,
         intraday_bars=quote_intraday_data.get(item.symbol) or intraday_data.get(item.symbol, []),
@@ -199,7 +196,6 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "scan": scan_payload,
         "candidate": candidate_payload,
         "fugle_trades": fugle_payload,
-        "shioaji_quote": shioaji_payload,
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "data_health": data_health,
@@ -216,7 +212,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,
-        "data_source": f"Fugle optional + Shioaji optional + TWSE MIS + {provider_status.get('active_provider', 'yahoo')} market data provider",
+        "data_source": f"Fugle REST Trades MVP + TWSE MIS public orderbook + {provider_status.get('active_provider', 'yahoo')} market data provider",
         "provider_status": provider_status,
         "official_institutional": {
             "version": official_institutional.version,
@@ -253,11 +249,11 @@ def add_tw_watchlist_symbol(project_root: Path, raw_symbol: str) -> dict:
     return payload
 
 
-def _radar_quote_payload(realtime_payload: dict, shioaji_payload: dict, fugle_payload: Optional[dict] = None) -> dict:
+def _radar_quote_payload(realtime_payload: dict, secondary_tick_payload: Optional[dict] = None, fugle_payload: Optional[dict] = None) -> dict:
     payload = dict(realtime_payload or {})
     fugle_payload = fugle_payload or {}
-    shioaji_payload = shioaji_payload or {}
-    for source_payload in (fugle_payload, shioaji_payload):
+    secondary_tick_payload = secondary_tick_payload or {}
+    for source_payload in (fugle_payload, secondary_tick_payload):
         large_status = str(source_payload.get("large_trade_status") or "")
         if large_status and large_status != "missing":
             payload["large_trade_status"] = large_status
@@ -335,20 +331,24 @@ def _scan_payload_with_last_known(scan_data: dict, last_known_row) -> dict:
     return payload
 
 
-def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None, shioaji_quote: Optional[dict] = None) -> dict:
+def _display_payload(scan_item, candidate, realtime_quote: dict, last_known_row=None, fugle_trades: Optional[dict] = None) -> dict:
     scan_data = dict(scan_item or {})
     candidate_data = _candidate_payload(candidate) or {}
-    shioaji_quote = shioaji_quote or {}
-    current_price = shioaji_quote.get("price") if shioaji_quote.get("price") is not None else realtime_quote.get("price")
-    change_pct = shioaji_quote.get("change_pct") if shioaji_quote.get("change_pct") is not None else realtime_quote.get("change_pct")
+    fugle_trades = fugle_trades or {}
+    current_price = (
+        fugle_trades.get("latest_price")
+        if fugle_trades.get("latest_price") is not None
+        else realtime_quote.get("price")
+    )
+    change_pct = realtime_quote.get("change_pct")
     source = (
-        shioaji_quote.get("source")
-        if shioaji_quote.get("price") is not None
+        fugle_trades.get("source")
+        if fugle_trades.get("latest_price") is not None
         else realtime_quote.get("source")
         if realtime_quote.get("price") is not None
         else "Yahoo Finance intraday chart"
     )
-    quote_time = shioaji_quote.get("quote_time") or realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
+    quote_time = fugle_trades.get("latest_time") or realtime_quote.get("quote_time") or scan_data.get("latest_at") or ""
     if current_price is None:
         current_price = scan_data.get("latest_price")
     if current_price is None:
@@ -384,11 +384,11 @@ def _data_health_payload(
     intraday_errors: dict,
     quote_intraday_errors: dict,
     symbol: str,
-    shioaji_quote: Optional[dict] = None,
     realtime_quote: Optional[dict] = None,
+    fugle_trades: Optional[dict] = None,
 ) -> dict:
-    shioaji_quote = shioaji_quote or {}
     realtime_quote = realtime_quote or {}
+    fugle_trades = fugle_trades or {}
     quote_time = str(display.get("quote_time") or "")
     quote_dt = _parse_quote_time(quote_time)
     age_minutes = None
@@ -453,13 +453,14 @@ def _data_health_payload(
         "twse_mis_ask_total_volume": realtime_quote.get("ask_total_volume"),
         "twse_mis_is_limit_up_locked": bool(realtime_quote.get("is_limit_up_locked")),
         "twse_mis_is_limit_down_locked": bool(realtime_quote.get("is_limit_down_locked")),
-        "shioaji_enabled": bool(shioaji_quote.get("enabled")),
-        "shioaji_configured": bool(shioaji_quote.get("configured")),
-        "shioaji_status": shioaji_quote.get("status") or "disabled",
-        "shioaji_status_label": shioaji_quote.get("status_label") or "尚未啟用",
-        "shioaji_quote_success": bool(shioaji_quote.get("price") is not None),
-        "shioaji_bidask_status": shioaji_quote.get("bidask_status") or "missing",
-        "shioaji_five_level_status": shioaji_quote.get("five_level_status") or "not_streaming",
+        "fugle_enabled": bool(fugle_trades.get("enabled")),
+        "fugle_configured": bool(fugle_trades.get("configured")),
+        "fugle_status": fugle_trades.get("status") or "disabled",
+        "fugle_status_label": fugle_trades.get("status_label") or "尚未啟用",
+        "fugle_trades_success": bool(fugle_trades.get("trades_count")),
+        "fugle_trades_count": fugle_trades.get("trades_count") or 0,
+        "fugle_large_trade_status": fugle_trades.get("large_trade_status") or "missing",
+        "fugle_large_trade_summary": fugle_trades.get("large_trade_summary") or "",
         "uses_cache": freshness.uses_last_known,
         "is_data_missing": has_error,
         "can_use_for_daytrade": status == "正常" and freshness.state == "live",

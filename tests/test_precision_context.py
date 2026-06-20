@@ -53,6 +53,24 @@ class PrecisionContextTests(unittest.TestCase):
         self.assertIn("逐筆成交 Tick", payload["missing_data"])
         self.assertNotIn("五檔委買委賣", payload["missing_data"])
 
+    def test_precision_context_uses_fugle_trades_as_tick_data_mvp(self):
+        payload = build_precision_context(
+            candidate={"vwap": 100, "volume_ratio": 1.1},
+            intraday_bars=[bar(index, 100 + index * 0.1, 1000) for index in range(12)],
+            data_health={
+                "is_live": True,
+                "can_use_for_intraday_signal": True,
+                "twse_mis_five_level_status": "available",
+                "fugle_status": "ok",
+                "fugle_trades_count": 30,
+            },
+        ).to_dict()
+
+        self.assertEqual(payload["tick_data_status"], "ok")
+        self.assertIn("Fugle 逐筆成交", payload["available_data"])
+        self.assertNotIn("逐筆成交 Tick", payload["missing_data"])
+        self.assertTrue(payload["can_use_for_precise_daytrade"])
+
     def test_review_only_when_data_is_not_live(self):
         context = build_precision_context(
             candidate={"vwap": 100, "volume_ratio": 1.0},

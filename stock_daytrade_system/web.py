@@ -2595,37 +2595,6 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
-      const renderShioajiQuoteCard = (quote) => {
-        quote = quote || {};
-        const warnings = Array.isArray(quote.warnings) ? quote.warnings : [];
-        const enabledText = quote.enabled ? "已啟用" : "尚未啟用";
-        const configuredText = quote.configured ? "已設定" : "尚未設定";
-        return `
-          <article class="advisor-card">
-            <h3>Shioaji 即時報價 / 盤口確認</h3>
-            <p><strong>${escapeHtml(quote.status_label || "尚未啟用")}</strong></p>
-            <p class="muted">此區只讀行情，不串接真實下單。Shioaji 可補強逐筆成交與五檔委買委賣，但本版 MVP 先支援 snapshot / top-of-book 顯示。</p>
-            <div class="advisor-grid">
-              ${metric("啟用狀態", escapeHtml(enabledText))}
-              ${metric("憑證狀態", escapeHtml(configuredText))}
-              ${metric("資料來源", escapeHtml(quote.source || "Shioaji"))}
-              ${metric("報價狀態", escapeHtml(quote.status || "disabled"))}
-              ${metric("成交價", escapeHtml(number(quote.price)))}
-              ${metric("均價", escapeHtml(number(quote.average_price)))}
-              ${metric("成交量", escapeHtml(number(quote.total_volume ?? quote.volume, 0)))}
-              ${metric("最佳委買", quote.bid_price === null || quote.bid_price === undefined ? "-" : `${escapeHtml(number(quote.bid_price))} / ${escapeHtml(number(quote.bid_volume, 0))}`)}
-              ${metric("最佳委賣", quote.ask_price === null || quote.ask_price === undefined ? "-" : `${escapeHtml(number(quote.ask_price))} / ${escapeHtml(number(quote.ask_volume, 0))}`)}
-              ${metric("買賣盤差", quote.orderbook_imbalance === null || quote.orderbook_imbalance === undefined ? "-" : `${escapeHtml(number(quote.orderbook_imbalance))}%`)}
-              ${metric("逐筆成交 Tick", escapeHtml(statusZh(quote.tick_status)))}
-              ${metric("五檔委買委賣串流", escapeHtml(statusZh(quote.five_level_status)))}
-              ${metric("報價時間", escapeHtml(quote.quote_time || quote.fetched_at || "-"))}
-            </div>
-            ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
-            ${quote.error ? `<p class="warn-inline">${escapeHtml(quote.error)}</p>` : ""}
-            <p class="muted">安全規則：Shioaji 報價只作進場確認背景，不會直接產生強烈做多，也不會自動下單。</p>
-          </article>
-        `;
-      };
       const renderFugleTradesCard = (trades) => {
         trades = trades || {};
         const warnings = Array.isArray(trades.warnings) ? trades.warnings : [];
@@ -2769,6 +2738,11 @@ def tw_advisor_script() -> str:
         const available = Array.isArray(precision.available_data) ? precision.available_data : [];
         const missing = Array.isArray(precision.missing_data) ? precision.missing_data : [];
         const nextData = Array.isArray(precision.next_data_to_add) ? precision.next_data_to_add : [];
+        const hasTick = precision.tick_data_status === "ok";
+        const hasOrderbook = precision.orderbook_status === "ok" || precision.orderbook_status === "partial";
+        const precisionWarning = hasTick && hasOrderbook
+          ? "Fugle 逐筆成交與 TWSE MIS 公開五檔已作為 MVP 進場確認背景；仍不會直接產生強烈做多或自動下單。"
+          : "缺少逐筆成交或五檔委買委賣時，系統不會把訊號視為高精準即時進場依據。";
         return `
           <article class="advisor-card">
             <h3>精準當沖資料檢查</h3>
@@ -2793,7 +2767,7 @@ def tw_advisor_script() -> str:
               <section class="advisor-panel"><h3>仍缺資料</h3>${list(missing.length ? missing : ["無明顯缺口"])}</section>
               <section class="advisor-panel"><h3>下一步可補</h3>${list(nextData.length ? nextData : ["暫無"])}</section>
             </div>
-            <p class="warn-inline">缺少逐筆成交與五檔委買委賣時，系統不會把訊號視為高精準即時進場依據。</p>
+            <p class="warn-inline">${escapeHtml(precisionWarning)}</p>
           </article>
         `;
       };
@@ -2966,7 +2940,6 @@ def tw_advisor_script() -> str:
         const frontTrade = payload.front_trade || {};
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
-        const shioajiQuote = payload.shioaji_quote || {};
         const fugleTrades = payload.fugle_trades || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
@@ -3084,8 +3057,9 @@ def tw_advisor_script() -> str:
               ${metric("Yahoo 1分K", escapeHtml(dataHealth.yahoo_intraday_1m_success ? "成功" : "失敗 / 回退"))}
               ${metric("TWSE / TPEX", escapeHtml(dataHealth.twse_tpex_quote_success ? "成功" : "失敗"))}
               ${metric("公開五檔", escapeHtml(dataHealth.twse_mis_five_level_status_label || "五檔資料不足"))}
-              ${metric("Shioaji 報價", escapeHtml(dataHealth.shioaji_status_label || "尚未啟用"))}
-              ${metric("Shioaji 五檔", escapeHtml(statusZh(dataHealth.shioaji_five_level_status || "not_streaming")))}
+              ${metric("Fugle 逐筆成交", escapeHtml(dataHealth.fugle_status_label || "尚未啟用"))}
+              ${metric("Fugle 逐筆筆數", escapeHtml(dataHealth.fugle_trades_count ?? 0))}
+              ${metric("Fugle 大單", escapeHtml(statusZh(dataHealth.fugle_large_trade_status || "missing")))}
               ${metric("使用 cache", escapeHtml(yesNo(dataHealth.uses_cache)))}
               ${metric("data_missing", escapeHtml(yesNo(dataHealth.is_data_missing)))}
               ${metric("市場時段", escapeHtml(`${safety.market_session || "-"}｜${safety.market_status_text || "-"}`))}
@@ -3098,7 +3072,6 @@ def tw_advisor_script() -> str:
           ${renderEntryConfirmationCard(entryConfirmation)}
           ${renderFugleTradesCard(fugleTrades)}
           ${renderTwseOrderbookCard(payload.realtime_quote || {})}
-          ${renderShioajiQuoteCard(shioajiQuote)}
           ${renderPrecisionContextCard(precision)}
 
           <article class="advisor-card">

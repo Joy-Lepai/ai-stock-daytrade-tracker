@@ -136,6 +136,35 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertEqual(payload["last_tick_volume"], 500)
         self.assertEqual(payload["large_trade_source"], "Fugle REST Trades")
 
+    def test_data_health_reports_fugle_mvp_status(self):
+        captured_at = datetime(2026, 6, 18, 9, 40, tzinfo=ZoneInfo("Asia/Taipei"))
+        payload = _data_health_payload(
+            captured_at,
+            {
+                "current_price": 100,
+                "quote_time": "2026-06-18T09:39:00+08:00",
+            },
+            {},
+            {},
+            {},
+            "2330.TW",
+            realtime_quote={"five_level_status": "available"},
+            fugle_trades={
+                "enabled": True,
+                "configured": True,
+                "status": "ok",
+                "status_label": "已接入逐筆成交",
+                "trades_count": 30,
+                "large_trade_status": "buy_sweep",
+                "large_trade_summary": "疑似大單敲進。",
+            },
+        )
+
+        self.assertEqual(payload["fugle_status"], "ok")
+        self.assertEqual(payload["fugle_trades_count"], 30)
+        self.assertEqual(payload["fugle_large_trade_status"], "buy_sweep")
+        self.assertNotIn("shioaji_status", payload)
+
 
 if __name__ == "__main__":
     unittest.main()
