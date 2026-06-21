@@ -20,6 +20,7 @@ from stock_daytrade_system.db import (
 )
 from stock_daytrade_system.entry_confirmation import build_entry_confirmation
 from stock_daytrade_system.entry_radar_summary import build_entry_radar_summary
+from stock_daytrade_system.breakout_trap_diagnosis import build_breakout_trap_diagnosis
 from stock_daytrade_system.frontend_language import front_trade_view
 from stock_daytrade_system.fugle_market_data import FugleMarketDataClient
 from stock_daytrade_system.intraday import analyze_opening_confirmation
@@ -193,6 +194,14 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         market_mode="intraday" if clock.session == "regular" else "closed_review",
         intraday=clock.session == "regular",
     ).to_dict()
+    breakout_trap_diagnosis = build_breakout_trap_diagnosis(
+        candidate=candidate_payload or scan_payload,
+        intraday_bars=effective_intraday_bars,
+        entry_confirmation=entry_confirmation_payload,
+        data_health=data_health,
+        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        intraday=clock.session == "regular",
+    ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
     reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
     errors = {}
@@ -233,6 +242,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "precision_context": precision_payload,
         "entry_confirmation": entry_confirmation_payload,
         "entry_radar_summary": entry_radar_summary,
+        "breakout_trap_diagnosis": breakout_trap_diagnosis,
         "intraday_chart": chart_payload,
         "errors": errors,
         "warnings": warnings,

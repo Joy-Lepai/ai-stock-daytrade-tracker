@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.cmoney import CMoneyRanking
+from stock_daytrade_system.breakout_trap_diagnosis import build_breakout_trap_diagnosis
 from stock_daytrade_system.frontend_language import front_trade_counts, front_trade_view
 from stock_daytrade_system.entry_radar_summary import build_entry_radar_summary
 from stock_daytrade_system.intraday import OpeningSignal
@@ -1029,6 +1030,7 @@ def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> st
     conclusion = _display_conclusion_for_candidate(item)
     front = front_trade_view(item, **(front_context or {}))
     radar = _dashboard_entry_radar(item, front_context)
+    trap = _dashboard_breakout_trap(item, front_context)
     data_badge = _candidate_price_status_badge(item, front_context)
     bullish_reason = _display_reason_for_candidate(item)
     next_step = _next_step_for_entry(item.entry_status)
@@ -1043,6 +1045,7 @@ def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> st
         f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
         f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
         f'<p class="muted"><strong>最大卡關：</strong>{escape(radar.blocker_summary)}</p>'
+        f'<p class="muted"><strong>真假突破：</strong>{escape(trap.status_label)}｜{escape(trap.summary)}</p>'
         f'<p class="muted"><strong>下一步：</strong>{escape(radar.next_trigger or next_step)}</p>'
         f'<p class="muted"><strong>失效條件：</strong>{escape(invalidation)}</p>'
         f'<p class="muted"><strong>風險提醒：</strong>{escape(risk_reason)}</p>'
@@ -1481,6 +1484,7 @@ def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] 
     data_badge = _candidate_price_status_badge(item, front_context)
     background = f"{_institutional_badge(item)}｜{_sector_context_badge(item)}"
     radar = _dashboard_entry_radar(item, front_context)
+    trap = _dashboard_breakout_trap(item, front_context)
     metrics = (
         f"現價 {_fmt(item.last_price)}｜VWAP {_fmt(item.vwap)}｜量比 {_fmt(item.volume_ratio)}x｜"
         f"停損 {_fmt(item.stop_loss)}｜停利 {_fmt(item.target_price)}｜{data_badge}"
@@ -1495,6 +1499,7 @@ def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] 
         f"<div class=\"signal-meta\">信心：{escape(str(item.confidence_level_label or item.confidence_level or '-'))}</div>"
         f"<div class=\"signal-meta\">{escape(view.reason)}</div>"
         f"<div class=\"signal-meta\">最大卡關：{escape(radar.blocker_summary)}</div>"
+        f"<div class=\"signal-meta\">真假突破：{escape(trap.status_label)}｜{escape(trap.summary)}</div>"
         f"<div class=\"signal-next\">下一步：{escape(radar.next_trigger or view.next_step)}</div>"
         "</div>"
     )
@@ -1521,6 +1526,29 @@ def _dashboard_entry_radar(item: LongCandidate, front_context: Optional[dict] = 
         data_health=data_health,
         entry_confirmation={},
         safety={},
+        market_mode=market_mode,
+        intraday=intraday,
+    )
+
+
+def _dashboard_breakout_trap(item: LongCandidate, front_context: Optional[dict] = None):
+    context = front_context or {}
+    market_mode = str(context.get("market_mode") or "intraday")
+    intraday = bool(context.get("intraday", market_mode == "intraday"))
+    uses_last_known = bool(context.get("uses_last_known"))
+    is_delayed = bool(context.get("is_delayed"))
+    data_health = {
+        "is_live": bool(not uses_last_known and not is_delayed and market_mode == "intraday"),
+        "can_use_for_intraday_signal": bool(not uses_last_known and not is_delayed and market_mode == "intraday"),
+        "uses_last_known": uses_last_known,
+        "uses_cache": uses_last_known,
+        "is_delayed": is_delayed,
+    }
+    return build_breakout_trap_diagnosis(
+        candidate=item,
+        intraday_bars=[],
+        entry_confirmation={},
+        data_health=data_health,
         market_mode=market_mode,
         intraday=intraday,
     )

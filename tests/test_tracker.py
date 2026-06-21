@@ -511,6 +511,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("2330.TW｜台積電", html)
         self.assertIn("等待量能", html)
         self.assertIn("站上 VWAP", html)
+        self.assertIn("真假突破", html)
         self.assertIn("position-size-tag", html)
         self.assertIn('data-position-entry="101"', html)
         self.assertIn('data-position-stop="98"', html)
@@ -573,6 +574,7 @@ class TrackerStatusTests(unittest.TestCase):
         html = _focus_card(item, {"market_mode": "intraday", "intraday": True})
 
         self.assertIn("最大卡關", html)
+        self.assertIn("真假突破", html)
         self.assertIn("量比 0.72x", html)
         self.assertIn("量比放大到 1.0x", html)
 

@@ -2582,6 +2582,39 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderBreakoutTrapCard = (diagnosis) => {
+        diagnosis = diagnosis || {};
+        const evidence = Array.isArray(diagnosis.evidence) ? diagnosis.evidence : [];
+        const warnings = Array.isArray(diagnosis.warnings) ? diagnosis.warnings : [];
+        return `
+          <article class="advisor-card breakout-trap-card">
+            <h3>真假突破 / 假跌破診斷</h3>
+            <p><strong>${escapeHtml(diagnosis.status_label || "等待判斷")}</strong></p>
+            <p>${escapeHtml(diagnosis.summary || "等待 VWAP、突破、盤口與逐筆資料確認。")}</p>
+            <div class="advisor-grid">
+              ${metric("目前診斷", escapeHtml(diagnosis.status_label || "-"))}
+              ${metric("風險等級", escapeHtml(statusZh(diagnosis.risk_level || "-")))}
+              ${metric("狀態碼", escapeHtml(diagnosis.status || "-"))}
+              ${metric("不改模型", escapeHtml(yesNo(diagnosis.does_not_change_model !== false)))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>支持證據</h3>
+                ${list(evidence.length ? evidence : ["目前尚無足夠證據判定為真突破。"])}
+              </section>
+              <section class="advisor-panel">
+                <h3>風險提醒</h3>
+                ${list(warnings.length ? warnings : ["目前沒有額外假突破 / 誘多提醒。"])}
+              </section>
+              <section class="advisor-panel">
+                <h3>下一步</h3>
+                <p>${escapeHtml(diagnosis.next_step || "等待突破後守穩、站回 VWAP、量能與五檔同步確認。")}</p>
+              </section>
+            </div>
+            <p class="warn-inline">失效條件：${escapeHtml(diagnosis.invalidation || "跌破 VWAP、量能退潮、五檔賣壓轉強或資料轉為延遲時失效。")}</p>
+          </article>
+        `;
+      };
       const renderInstitutionalCard = (candidate) => {
         const chip = candidate?.institutional_context || {};
         return `
@@ -3043,6 +3076,7 @@ def tw_advisor_script() -> str:
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
         const entryRadarSummary = payload.entry_radar_summary || {};
+        const breakoutTrapDiagnosis = payload.breakout_trap_diagnosis || {};
         const fugleQuote = payload.fugle_quote || {};
         const fugleTrades = payload.fugle_trades || {};
         const fugleCandles = payload.fugle_candles || {};
@@ -3147,6 +3181,7 @@ def tw_advisor_script() -> str:
           </article>
           ${positionCard}
           ${renderEntryRadarSummaryCard(entryRadarSummary)}
+          ${renderBreakoutTrapCard(breakoutTrapDiagnosis)}
           ${renderStrongLongDecisionCard(payload)}
 
           <article class="advisor-card">
