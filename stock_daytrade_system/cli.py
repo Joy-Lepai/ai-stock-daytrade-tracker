@@ -45,6 +45,8 @@ from stock_daytrade_system.strategy_validation import (
     STRATEGY_VALIDATION_VERSION,
     build_entry_radar_observations,
     build_entry_radar_scorecard,
+    build_breakout_trap_observations,
+    build_breakout_trap_scorecard,
     build_missed_rate_report,
     build_model_observations,
     build_strategy_scorecard,
@@ -390,9 +392,11 @@ def run_tracker(
         backtest_data = backtest_summary(conn, now.date())
         strategy_scorecard = build_strategy_scorecard(conn)
         entry_radar_scorecard = build_entry_radar_scorecard(conn)
+        breakout_trap_scorecard = build_breakout_trap_scorecard(conn)
         missed_rate_report = build_missed_rate_report(conn)
         model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
         entry_radar_observations = build_entry_radar_observations(entry_radar_scorecard)
+        breakout_trap_observations = build_breakout_trap_observations(breakout_trap_scorecard)
         b_plus_triggers = build_b_plus_trigger_tracker(conn, market="TW", date_text=now.strftime("%Y-%m-%d"))
         fugle_config = FugleMarketDataConfig.from_env()
         fugle_priority_pool = build_fugle_priority_pool(
@@ -530,10 +534,13 @@ def run_tracker(
         diagnostics["post_market_verification"] = post_market_verification
         diagnostics["strategy_scorecard"] = strategy_scorecard
         diagnostics["entry_radar_scorecard"] = entry_radar_scorecard
+        diagnostics["breakout_trap_scorecard"] = breakout_trap_scorecard
         diagnostics["fugle_priority_pool"] = fugle_priority_pool
         diagnostics["missed_rate_report"] = missed_rate_report
         diagnostics["model_observations"] = model_observations + [
-            item for item in entry_radar_observations if item not in model_observations
+            item
+            for item in entry_radar_observations + breakout_trap_observations
+            if item not in model_observations
         ]
         diagnostics["position_command_center"] = build_position_command_center(conn, market="TW")
         long_summary = build_long_model_summary(

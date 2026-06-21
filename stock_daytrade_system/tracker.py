@@ -561,6 +561,8 @@ def render_tracker_html(
     {_model_observation_panel(long_summary)}
     <h2>進場雷達成績單</h2>
     {_entry_radar_scorecard_panel(long_summary)}
+    <h2>真假突破診斷成績單</h2>
+    {_breakout_trap_scorecard_panel(long_summary)}
     <h2>資料健康度</h2>
     {_data_health_panel(long_summary)}
     <h2>台股全市場異動掃描池</h2>
@@ -1346,6 +1348,47 @@ def _entry_radar_scorecard_panel(summary: Optional[LongModelSummary]) -> str:
         '</div>'
         f'<p class="muted">{escape(str(scorecard.get("message") or "樣本不足，不建議依卡關原因調整模型。"))}</p>'
         '<div class="table-wrap"><table><thead><tr><th>最大卡關</th><th>出現</th><th>已驗證</th><th>1%勝率</th><th>2%命中</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>解讀</th></tr></thead><tbody>'
+        f'{body}'
+        '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _breakout_trap_scorecard_panel(summary: Optional[LongModelSummary]) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    scorecard = ((diagnostics or {}).get("breakout_trap_scorecard") or {}).get("windows", {}).get("20", {})
+    rows = list(scorecard.get("rows") or [])[:6]
+    if not rows:
+        return (
+            '<section class="decision-center">'
+            '<p class="muted">目前尚無真假突破診斷成績資料；需累積盤後驗證後才可判斷。</p>'
+            '</section>'
+        )
+    body = "".join(
+        '<tr>'
+        f'<td><strong>{escape(str(item.get("status_label", "-")))}</strong><br><span class="muted">{escape(str(item.get("status", "-")))}</span></td>'
+        f'<td>{int(item.get("sample_size", 0) or 0)}</td>'
+        f'<td>{int(item.get("verified", 0) or 0)}</td>'
+        f'<td>{float(item.get("target_1_rate", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("target_2_rate", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("pullback_rate", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("avg_max_gain", 0) or 0):.2f}%</td>'
+        f'<td>{float(item.get("avg_max_drawdown", 0) or 0):.2f}%</td>'
+        f'<td class="notes">{escape(str(item.get("interpretation") or item.get("sample_message") or ""))}</td>'
+        '</tr>'
+        for item in rows
+    )
+    return (
+        '<section class="decision-center">'
+        '<section class="notice">此區只驗證真突破 / 假突破 / 誘多風險等診斷，不會自動調整 A / B+ / B 條件。</section>'
+        '<div class="summary">'
+        f'{_metric("20日樣本", int(scorecard.get("sample_size", 0) or 0))}'
+        f'{_metric("20日已驗證", int(scorecard.get("verified", 0) or 0))}'
+        f'{_metric_text("樣本品質", _scorecard_quality_label(str(scorecard.get("sample_quality", "insufficient"))))}'
+        f'{_metric_text("判讀狀態", "可初步觀察" if scorecard.get("is_statistically_meaningful") else "樣本不足")}'
+        '</div>'
+        f'<p class="muted">{escape(str(scorecard.get("message") or "樣本不足，不建議依真假突破診斷調整模型。"))}</p>'
+        '<div class="table-wrap"><table><thead><tr><th>診斷</th><th>出現</th><th>已驗證</th><th>1%命中</th><th>2%命中</th><th>回撤率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>解讀</th></tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
         '</section>'

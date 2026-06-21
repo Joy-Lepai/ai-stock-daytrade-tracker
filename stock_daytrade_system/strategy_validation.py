@@ -52,6 +52,17 @@ BLOCKER_LABELS = {
     "no_large_buy": "尚未確認大單敲進",
 }
 
+BREAKOUT_TRAP_LABELS = {
+    "true_breakout": "真突破",
+    "false_breakout_risk": "假突破風險",
+    "fake_breakdown_reclaim": "假跌破後站回",
+    "breakdown_weak": "跌破轉弱",
+    "washout_watch": "洗盤觀察",
+    "bull_trap_risk": "誘多風險",
+    "data_insufficient": "資料不足",
+    "review_only": "復盤觀察",
+}
+
 
 def update_tw_scan_result_verification(
     conn: sqlite3.Connection,
@@ -200,6 +211,26 @@ def build_entry_radar_scorecard(conn: sqlite3.Connection, windows: Iterable[int]
     return payload
 
 
+def build_breakout_trap_scorecard(conn: sqlite3.Connection, windows: Iterable[int] = (20, 40, 60)) -> dict:
+    rows = _latest_snapshot_rows(conn)
+    dates = sorted({row["date"] for row in rows}, reverse=True)
+    payload = {
+        "version": STRATEGY_VALIDATION_VERSION,
+        "title": "真假突破診斷成績單",
+        "available_trade_days": len(dates),
+        "windows": {},
+        "message": "此表只驗證真突破 / 假突破 / 誘多風險等診斷後續結果，不會自動調整 A / B+ / B 條件。",
+    }
+    payload["windows"] = {
+        str(window): _breakout_trap_window_scorecard(
+            [row for row in rows if row["date"] in set(dates[:window])],
+            window,
+        )
+        for window in windows
+    }
+    return payload
+
+
 def build_missed_rate_report(conn: sqlite3.Connection, window: int = 20) -> dict:
     rows = _latest_snapshot_rows(conn)
     dates = sorted({row["date"] for row in rows}, reverse=True)
@@ -299,6 +330,118 @@ def build_entry_radar_observations(radar_scorecard: dict) -> list[str]:
         elif pullback_rate >= 50:
             notes.append(f"{label} 後續回撤比例偏高，現有等待或避開規則暫時合理。")
     return notes or ["進場雷達目前沒有明顯偏差，持續累積 20 / 40 / 60 日樣本。"]
+
+
+def build_breakout_trap_observations(scorecard: dict) -> list[str]:
+    window = ((scorecard or {}).get("windows") or {}).get("20") or {}
+    rows = window.get("rows") or []
+    verified = int(window.get("verified", 0) or 0)
+    if verified < MIN_MEANINGFUL_SAMPLE_SIZE:
+        return ["真假突破診斷樣本不足，先累積盤後驗證，不建議調整模型條件。"]
+    by_code = {str(item.get("status")): item for item in rows}
+    notes: list[str] = []
+    true_breakout = by_code.get("true_breakout") or {}
+    false_breakout = by_code.get("false_breakout_risk") or {}
+    bull_trap = by_code.get("bull_trap_risk") or {}
+    fake_reclaim = by_code.get("fake_breakdown_reclaim") or {}
+    if int(true_breakout.get("verified", 0) or 0) >= MIN_MEANINGFUL_SAMPLE_SIZE:
+        if float(true_breakout.get("target_1_rate", 0) or 0) >= 50:
+            notes.append("真突破後續達 1% 比例偏高，可繼續列為進場前確認重點，但仍需風控。")
+        elif float(true_breakout.get("pullback_rate", 0) or 0) >= 40:
+            notes.append("真突破後續回撤偏多，建議檢查五檔賣壓與停損距離，不要直接追高。")
+    if int(false_breakout.get("verified", 0) or 0) >= MIN_MEANINGFUL_SAMPLE_SIZE and float(false_breakout.get("pullback_rate", 0) or 0) >= 45:
+        notes.append("假突破風險後續回撤比例偏高，目前避開追價的提醒具有參考價值。")
+    if int(bull_trap.get("verified", 0) or 0) >= MIN_MEANINGFUL_SAMPLE_SIZE and float(bull_trap.get("continue_up_rate", 0) or 0) >= 35:
+        notes.append("誘多風險後續仍有續漲案例，建議只新增觀察層，不要直接升級可執行。")
+    if int(fake_reclaim.get("verified", 0) or 0) >= MIN_MEANINGFUL_SAMPLE_SIZE and float(fake_reclaim.get("target_1_rate", 0) or 0) >= 45:
+        notes.append("假跌破後站回有一定續強比例，可作為洗盤後重新觀察訊號。")
+    return notes or ["真假突破診斷目前沒有明顯偏差，持續累積 20 / 40 / 60 日樣本。"]
+
+
+def _breakout_trap_window_scorecard(rows: list[sqlite3.Row], window: int) -> dict:
+    grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        grouped[_breakout_trap_status(row)].append(row)
+    items = [_breakout_trap_group_stats(code, items) for code, items in grouped.items()]
+    items.sort(key=lambda item: (-int(item["verified"]), -int(item["sample_size"]), str(item["status_label"])))
+    verified = sum(1 for row in rows if row["max_gain_after_scan"] is not None)
+    return {
+        "window_days": window,
+        "sample_size": len(rows),
+        "verified": verified,
+        "sample_quality": _sample_quality(verified),
+        "sample_message": _sample_message(verified),
+        "is_statistically_meaningful": verified >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "rows": items,
+        "message": "樣本不足，不建議依真假突破診斷調整模型。" if verified < MIN_MEANINGFUL_SAMPLE_SIZE else "可初步觀察真突破與陷阱診斷是否有效。",
+    }
+
+
+def _breakout_trap_group_stats(code: str, rows: list[sqlite3.Row]) -> dict:
+    total = len(rows)
+    verified = [row for row in rows if row["max_gain_after_scan"] is not None]
+    target_0_5 = [row for row in verified if bool(row["hit_0_5_pct"])]
+    target_1 = [row for row in verified if bool(row["hit_1_pct"])]
+    target_2 = [row for row in verified if bool(row["hit_2_pct"])]
+    pullback = [row for row in verified if (_float(row["max_drawdown_after_scan"]) or 0) <= -1]
+    stop = [row for row in verified if bool(row["hit_stop_loss"])]
+    target = [row for row in verified if bool(row["hit_take_profit"]) or bool(row["hit_2_pct"])]
+    avg_gain = _avg(_float(row["max_gain_after_scan"]) for row in verified)
+    avg_drawdown = _avg(_float(row["max_drawdown_after_scan"]) for row in verified)
+    label = BREAKOUT_TRAP_LABELS.get(code, code.replace("_", " "))
+    return {
+        "status": code,
+        "status_label": label,
+        "sample_size": total,
+        "verified": len(verified),
+        "sample_quality": _sample_quality(len(verified)),
+        "sample_message": _sample_message(len(verified)),
+        "is_statistically_meaningful": len(verified) >= MIN_MEANINGFUL_SAMPLE_SIZE,
+        "target_0_5_rate": round(len(target_0_5) / len(verified) * 100, 2) if verified else 0.0,
+        "target_1_rate": round(len(target_1) / len(verified) * 100, 2) if verified else 0.0,
+        "target_2_rate": round(len(target_2) / len(verified) * 100, 2) if verified else 0.0,
+        "continue_up_rate": round(len(target_2) / len(verified) * 100, 2) if verified else 0.0,
+        "pullback_rate": round(len(pullback) / len(verified) * 100, 2) if verified else 0.0,
+        "stop_rate": round(len(stop) / len(verified) * 100, 2) if verified else 0.0,
+        "target_rate": round(len(target) / len(verified) * 100, 2) if verified else 0.0,
+        "avg_max_gain": avg_gain,
+        "avg_max_drawdown": avg_drawdown,
+        "interpretation": _breakout_trap_interpretation(label, code, len(verified), len(target_1), len(target_2), len(pullback)),
+    }
+
+
+def _breakout_trap_status(row: sqlite3.Row) -> str:
+    keys = set(row.keys())
+    value = row["breakout_trap_status"] if "breakout_trap_status" in keys else ""
+    status = str(value or "").strip()
+    if status and status not in {"-", "unknown"}:
+        return status
+    if row["data_status"] == "data_missing":
+        return "data_insufficient"
+    if row["entry_status"] == "high_risk":
+        return "bull_trap_risk"
+    if row["entry_status"] == "avoid":
+        return "breakdown_weak"
+    if bool(row["break_prev_high"]) and bool(row["above_vwap"]):
+        return "true_breakout"
+    if not bool(row["above_vwap"]):
+        return "washout_watch"
+    return "review_only"
+
+
+def _breakout_trap_interpretation(label: str, code: str, verified: int, target_1_count: int, target_2_count: int, pullback_count: int) -> str:
+    if verified < MIN_MEANINGFUL_SAMPLE_SIZE:
+        return "樣本不足，先累積資料，不建議調整模型。"
+    target_1_rate = target_1_count / verified * 100 if verified else 0
+    continue_rate = target_2_count / verified * 100 if verified else 0
+    pullback_rate = pullback_count / verified * 100 if verified else 0
+    if code == "true_breakout" and target_1_rate >= 50:
+        return f"{label} 後續達 1% 比例較高，可作為進場前確認重點。"
+    if code in {"false_breakout_risk", "bull_trap_risk", "breakdown_weak"} and pullback_rate >= 45:
+        return f"{label} 後續回撤比例偏高，目前風險提醒具有參考價值。"
+    if code in {"fake_breakdown_reclaim", "washout_watch"} and continue_rate >= 35:
+        return f"{label} 後續仍有續強案例，可列為觀察，不應直接升級可執行。"
+    return f"{label} 目前未呈現明顯偏差，建議繼續累積樣本。"
 
 
 def _entry_radar_window_scorecard(rows: list[sqlite3.Row], window: int) -> dict:

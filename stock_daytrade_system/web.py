@@ -1677,6 +1677,9 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <h2>進場雷達成績單</h2>
     <section id="accuracy-entry-radar" class="review-chart-card"></section>
     <div class="table-wrap" id="accuracy-entry-radar-table"></div>
+    <h2>真假突破診斷成績單</h2>
+    <section id="accuracy-breakout-trap" class="review-chart-card"></section>
+    <div class="table-wrap" id="accuracy-breakout-trap-table"></div>
     <h2>心魔分佈（錯誤原因統計）</h2>
     <section id="accuracy-review-chart" class="review-chart-card"></section>
     <h2>漏抓率報告</h2>
@@ -3988,6 +3991,7 @@ def accuracy_dashboard_script() -> str:
         renderDataCompleteness(payload.data_completeness || {});
         renderScorecard(payload.strategy_scorecard || {});
         renderEntryRadarScorecard(payload.entry_radar_scorecard || {});
+        renderBreakoutTrapScorecard(payload.breakout_trap_scorecard || {});
         renderReviewChart(payload.review_tag_loss_distribution || {});
         renderMissed(payload.missed_rate_report || {});
         const suggestions = payload.model_suggestions || [];
@@ -4099,6 +4103,41 @@ def accuracy_dashboard_script() -> str:
           }
         }
         $("accuracy-entry-radar-table").innerHTML = `<table><thead><tr><th>期間</th><th>最大卡關</th><th>出現次數</th><th>已驗證</th><th>樣本品質</th><th>1%勝率</th><th>0.5%命中</th><th>1%命中</th><th>2%命中</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>回撤率</th><th>解讀</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="13">目前沒有進場雷達成績資料。</td></tr>'}</tbody></table>`;
+      }
+
+      function renderBreakoutTrapScorecard(scorecard) {
+        const windows = scorecard.windows || {};
+        const window20 = windows["20"] || {};
+        $("accuracy-breakout-trap").innerHTML = `
+          <div class="summary">
+            ${metric("20日樣本", window20.sample_size || 0)}
+            ${metric("20日已驗證", window20.verified || 0)}
+            ${metric("樣本品質", sampleQualityLabel(window20.sample_quality))}
+            ${metric("可否判斷", window20.is_statistically_meaningful ? "可初步觀察" : "樣本不足")}
+          </div>
+          <p class="muted">${escapeHtml(scorecard.message || "真假突破診斷只做盤後驗證，不會自動調整模型。")}</p>
+          <p class="muted">${escapeHtml(window20.message || "樣本不足，不建議依真假突破診斷調整模型。")}</p>
+        `;
+        const rows = [];
+        for (const [windowName, data] of Object.entries(windows)) {
+          for (const item of (data.rows || []).slice(0, 12)) {
+            rows.push(`<tr>
+              <td>${escapeHtml(windowName)}日</td>
+              <td><strong>${escapeHtml(item.status_label || item.status)}</strong><br><span class="muted">${escapeHtml(item.status || "-")}</span></td>
+              <td>${item.sample_size || 0}</td>
+              <td>${item.verified || 0}</td>
+              <td>${escapeHtml(sampleQualityLabel(item.sample_quality))}</td>
+              <td>${number(item.target_0_5_rate)}%</td>
+              <td>${number(item.target_1_rate)}%</td>
+              <td>${number(item.target_2_rate)}%</td>
+              <td>${number(item.pullback_rate)}%</td>
+              <td>${number(item.avg_max_gain)}%</td>
+              <td>${number(item.avg_max_drawdown)}%</td>
+              <td>${escapeHtml(item.interpretation || item.sample_message || "")}</td>
+            </tr>`);
+          }
+        }
+        $("accuracy-breakout-trap-table").innerHTML = `<table><thead><tr><th>期間</th><th>診斷</th><th>出現次數</th><th>已驗證</th><th>樣本品質</th><th>0.5%命中</th><th>1%命中</th><th>2%命中</th><th>回撤率</th><th>平均最大漲幅</th><th>平均最大回撤</th><th>解讀</th></tr></thead><tbody>${rows.join("") || '<tr><td colspan="12">目前沒有真假突破診斷成績資料。</td></tr>'}</tbody></table>`;
       }
 
       function renderReviewChart(distribution) {

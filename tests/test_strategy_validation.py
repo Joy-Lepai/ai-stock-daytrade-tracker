@@ -7,6 +7,8 @@ from pathlib import Path
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.db import connect, default_db_path, save_tw_full_market_snapshots
 from stock_daytrade_system.strategy_validation import (
+    build_breakout_trap_observations,
+    build_breakout_trap_scorecard,
     build_entry_radar_scorecard,
     build_missed_rate_report,
     build_model_observations,
@@ -317,6 +319,95 @@ class StrategyValidationTests(unittest.TestCase):
             self.assertEqual(by_code["low_volume_ratio"]["win_rate"], 100)
             self.assertEqual(by_code["high_chase_risk"]["blocker_label"], "追價風險高")
             self.assertEqual(by_code["high_chase_risk"]["pullback_rate"], 100)
+
+    def test_breakout_trap_diagnosis_is_saved_and_scorecard_groups_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            captured = datetime(2026, 6, 18, 9, 30)
+            save_tw_full_market_snapshots(
+                conn,
+                captured,
+                [
+                    {
+                        "symbol": "2330.TW",
+                        "name": "台積電",
+                        "latest_price": 100,
+                        "change_pct": 3.8,
+                        "volume": 8_000_000,
+                        "turnover": 800_000_000,
+                        "volume_ratio": 1.3,
+                        "vwap": 99,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "source_reasons": ["成交金額前段"],
+                        "ai_grade": "A",
+                        "entry_status": "executable",
+                        "reason_code": "selected",
+                    },
+                    {
+                        "symbol": "6919.TW",
+                        "name": "康霈",
+                        "latest_price": 109,
+                        "change_pct": 9.9,
+                        "volume": 12_000_000,
+                        "turnover": 1_300_000_000,
+                        "volume_ratio": 5.0,
+                        "vwap": 106,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "source_reasons": ["接近漲停"],
+                        "ai_grade": "C",
+                        "entry_status": "high_risk",
+                        "risk_score": 76,
+                        "upper_shadow_pct": 2.5,
+                        "reason_code": "high_chase_risk",
+                    },
+                ],
+            )
+            conn.execute(
+                """
+                UPDATE tw_full_market_snapshots
+                SET max_gain_after_scan = 1.5,
+                    max_drawdown_after_scan = -0.3,
+                    hit_1_pct = 1,
+                    hit_2_pct = 0,
+                    hit_stop_loss = 0,
+                    hit_take_profit = 0
+                WHERE symbol = '2330.TW'
+                """
+            )
+            conn.execute(
+                """
+                UPDATE tw_full_market_snapshots
+                SET max_gain_after_scan = 0.2,
+                    max_drawdown_after_scan = -1.4,
+                    hit_1_pct = 0,
+                    hit_2_pct = 0,
+                    hit_stop_loss = 1,
+                    hit_take_profit = 0
+                WHERE symbol = '6919.TW'
+                """
+            )
+
+            saved = conn.execute(
+                "SELECT breakout_trap_status, breakout_trap_label FROM tw_full_market_snapshots WHERE symbol = '2330.TW'"
+            ).fetchone()
+            scorecard = build_breakout_trap_scorecard(conn)
+            rows = scorecard["windows"]["20"]["rows"]
+            by_status = {row["status"]: row for row in rows}
+
+            self.assertEqual(saved["breakout_trap_status"], "true_breakout")
+            self.assertEqual(saved["breakout_trap_label"], "真突破")
+            self.assertEqual(by_status["true_breakout"]["target_1_rate"], 100)
+            self.assertEqual(by_status["bull_trap_risk"]["pullback_rate"], 100)
+
+    def test_breakout_trap_observations_are_sample_safe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            conn = connect(default_db_path(Path(directory)))
+            scorecard = build_breakout_trap_scorecard(conn)
+            notes = build_breakout_trap_observations(scorecard)
+
+            self.assertIn("樣本不足", notes[0])
 
 
 if __name__ == "__main__":

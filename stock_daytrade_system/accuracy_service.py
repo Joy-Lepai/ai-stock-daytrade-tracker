@@ -7,6 +7,8 @@ from typing import Iterable
 
 from stock_daytrade_system.confidence_config import DEFAULT_CONFIDENCE_CONFIG, ConfidenceConfig
 from stock_daytrade_system.strategy_validation import (
+    build_breakout_trap_observations,
+    build_breakout_trap_scorecard,
     build_entry_radar_observations,
     build_entry_radar_scorecard,
     build_missed_rate_report,
@@ -32,10 +34,12 @@ def build_accuracy_dashboard_payload(
     summary = build_accuracy_summary(samples, config)
     strategy_scorecard = build_strategy_scorecard(conn)
     entry_radar_scorecard = build_entry_radar_scorecard(conn)
+    breakout_trap_scorecard = build_breakout_trap_scorecard(conn)
     missed_rate_report = build_missed_rate_report(conn)
     model_suggestions = _model_suggestions(samples, config)
     model_observations = build_model_observations(strategy_scorecard, missed_rate_report)
     entry_radar_observations = build_entry_radar_observations(entry_radar_scorecard)
+    breakout_trap_observations = build_breakout_trap_observations(breakout_trap_scorecard)
     data_completeness = _scorecard_data_completeness(samples, strategy_scorecard, missed_rate_report, config)
     return {
         "api_status": "ok",
@@ -49,6 +53,7 @@ def build_accuracy_dashboard_payload(
         "b_plus_lifecycle": _b_plus_lifecycle_stats(conn),
         "strategy_scorecard": strategy_scorecard,
         "entry_radar_scorecard": entry_radar_scorecard,
+        "breakout_trap_scorecard": breakout_trap_scorecard,
         "missed_rate_report": missed_rate_report,
         "review_tag_distribution": _paper_review_tag_distribution(conn, losing_only=False),
         "review_tag_loss_distribution": _paper_review_tag_distribution(conn, losing_only=True),
@@ -57,7 +62,11 @@ def build_accuracy_dashboard_payload(
             for code, label in REVIEW_TAG_LABELS.items()
         ],
         "model_suggestions": model_suggestions
-        + [item for item in model_observations + entry_radar_observations if item not in model_suggestions],
+        + [
+            item
+            for item in model_observations + entry_radar_observations + breakout_trap_observations
+            if item not in model_suggestions
+        ],
         "disclaimer": "本系統僅供資料整理、策略追蹤與回測，不構成投資建議，也不保證獲利。",
     }
 

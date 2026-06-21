@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional
 
 from stock_daytrade_system.b_plus_trigger_tracker import evaluate_b_plus_trigger
+from stock_daytrade_system.breakout_trap_diagnosis import build_breakout_trap_diagnosis
 
 
 SCHEMA = """
@@ -319,6 +320,14 @@ CREATE TABLE IF NOT EXISTS tw_full_market_snapshots (
   signal_grade TEXT,
   signal_entry_status TEXT,
   signal_reason_code TEXT,
+  breakout_trap_status TEXT,
+  breakout_trap_label TEXT,
+  breakout_trap_risk_level TEXT,
+  breakout_trap_summary TEXT,
+  breakout_trap_next_step TEXT,
+  breakout_trap_invalidation TEXT,
+  breakout_trap_evidence TEXT,
+  breakout_trap_warnings TEXT,
   post_scan_high REAL,
   post_scan_low REAL,
   post_scan_close REAL,
@@ -612,6 +621,7 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
         for item in rows:
             signal_text = _snapshot_signal_time(item, captured_text)
             date_text = _snapshot_date_text(signal_text, captured_at)
+            trap = _snapshot_breakout_trap_payload(item)
             conn.execute(
                 """
                 INSERT OR REPLACE INTO tw_full_market_snapshots (
@@ -620,9 +630,12 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
                   entered_candidate_pool, entered_ai_candidates, ai_grade, entry_status, trade_bias,
                   not_selected_reason, reason_code, data_status, signal_at, signal_price, signal_vwap,
                   signal_volume_ratio, signal_grade, signal_entry_status, signal_reason_code,
+                  breakout_trap_status, breakout_trap_label, breakout_trap_risk_level,
+                  breakout_trap_summary, breakout_trap_next_step, breakout_trap_invalidation,
+                  breakout_trap_evidence, breakout_trap_warnings,
                   max_gain_after_scan, max_drawdown_after_scan, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     captured_text,
@@ -655,6 +668,14 @@ def save_tw_full_market_snapshots(conn: sqlite3.Connection, captured_at: datetim
                     item.get("ai_grade"),
                     item.get("entry_status"),
                     item.get("reason_code"),
+                    trap.get("status"),
+                    trap.get("status_label"),
+                    trap.get("risk_level"),
+                    trap.get("summary"),
+                    trap.get("next_step"),
+                    trap.get("invalidation"),
+                    json.dumps(trap.get("evidence") or [], ensure_ascii=False),
+                    json.dumps(trap.get("warnings") or [], ensure_ascii=False),
                     None,
                     None,
                     captured_text,
@@ -680,6 +701,26 @@ def _snapshot_signal_time(item: dict, fallback: str) -> str:
     if value:
         return str(value)
     return fallback
+
+
+def _snapshot_breakout_trap_payload(item: dict) -> dict:
+    existing = item.get("breakout_trap_diagnosis") or item.get("breakout_trap")
+    if isinstance(existing, dict) and existing.get("status"):
+        return dict(existing)
+    data_error = str(item.get("data_error") or "").strip()
+    diagnosis = build_breakout_trap_diagnosis(
+        candidate=item,
+        intraday_bars=[],
+        entry_confirmation={},
+        data_health={
+            "is_live": not bool(data_error),
+            "can_use_for_intraday_signal": not bool(data_error),
+            "is_data_missing": bool(data_error) or item.get("latest_price") is None,
+        },
+        market_mode="intraday",
+        intraday=True,
+    )
+    return diagnosis.to_dict()
 
 
 def _snapshot_date_text(signal_text: str, captured_at: datetime) -> str:
@@ -1938,6 +1979,14 @@ def _ensure_tw_full_market_snapshot_columns(conn: sqlite3.Connection) -> None:
             "signal_grade": "TEXT",
             "signal_entry_status": "TEXT",
             "signal_reason_code": "TEXT",
+            "breakout_trap_status": "TEXT",
+            "breakout_trap_label": "TEXT",
+            "breakout_trap_risk_level": "TEXT",
+            "breakout_trap_summary": "TEXT",
+            "breakout_trap_next_step": "TEXT",
+            "breakout_trap_invalidation": "TEXT",
+            "breakout_trap_evidence": "TEXT",
+            "breakout_trap_warnings": "TEXT",
             "post_scan_high": "REAL",
             "post_scan_low": "REAL",
             "post_scan_close": "REAL",
