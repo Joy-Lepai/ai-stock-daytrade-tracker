@@ -50,8 +50,8 @@ class WebTests(unittest.TestCase):
           scoring model：long_model_v2_b_plus_practice_2026-06-13
           台股做多當沖追蹤器 v1
           今日決策摘要
-          最接近強烈做多 5 檔
-          做多觀察池 10 檔
+          最接近強烈買多 5 檔
+          買多觀察池 10 檔
           最大原因 / 最大卡關
           下一步
           失效條件
@@ -132,9 +132,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("精準分數", html)
         self.assertIn("失效條件", html)
         self.assertIn("entry_status", html)
-        self.assertIn("強烈做多 / 可執行判斷", html)
-        self.assertIn("強烈做多候選：值得盯盤", html)
-        self.assertIn("可執行才代表已觸發進場條件", html)
+        self.assertIn("強烈買多 / 進場確認", html)
+        self.assertIn("強烈買多候選：值得盯盤", html)
+        self.assertIn("通過進場確認才代表已觸發進場條件", html)
         self.assertIn("最新成交價", html)
         self.assertIn("資料可信度", html)
         self.assertIn("Yahoo 5分K", html)
@@ -159,7 +159,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("公開五檔", html)
         self.assertIn("進場確認雷達", html)
         self.assertIn("Fugle 逐筆成交", html)
-        self.assertIn("不會直接產生強烈做多，也不會自動下單", html)
+        self.assertIn("不會直接產生強烈買多，也不會自動下單", html)
         self.assertIn("停損距離合理", html)
         self.assertIn("缺 Tick / 五檔時不作高精準進場", html)
         self.assertIn("逐筆成交 Tick", html)

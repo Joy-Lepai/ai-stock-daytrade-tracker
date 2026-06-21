@@ -77,7 +77,7 @@ def evaluate_signal_guard(
     if data_missing or grade == "data_missing" or entry_status == "data_missing":
         blockers.append(SignalBlocker("data_missing", "核心資料缺漏，不能產生有效當沖判斷。"))
     if not allow_strong_long:
-        blockers.append(SignalBlocker("refresh_layer_stale", "分層刷新資料不完整，禁止顯示強烈做多。"))
+        blockers.append(SignalBlocker("refresh_layer_stale", "分層刷新資料不完整，禁止顯示強烈買多。"))
     if market_mode != "intraday":
         blockers.append(SignalBlocker("not_intraday_mode", "目前不是盤中模式，不提供即時進場判斷。"))
     if market_session is not None and market_session != "regular":

@@ -546,11 +546,11 @@ def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str
 
 def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None, price_status: Optional[dict] = None) -> str:
     if market_mode and market_mode.get("mode") != "intraday":
-        return str(market_mode.get("review_mode_message") or "目前不是盤中模式，禁止顯示即時強烈做多。")
+        return str(market_mode.get("review_mode_message") or "目前不是盤中模式，禁止顯示即時強烈買多。")
     if price_status and int(price_status.get("live_count", 0) or 0) <= 0:
-        return "目前沒有即時價格資料，禁止顯示強烈做多。"
+        return "目前沒有即時價格資料，禁止顯示強烈買多。"
     if layers["watchlist"]["is_stale"]:
-        return "watchlist 層資料過期，禁止顯示強烈做多。"
+        return "watchlist 層資料過期，禁止顯示強烈買多。"
     if layers["positions"]["is_stale"]:
         return "positions 層資料過期，禁止顯示停損停利觸發判斷。"
     return "資料層狀態不完整。"

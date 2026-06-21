@@ -622,8 +622,8 @@ def _tracker_html_needs_refresh(html: str) -> bool:
     required_markers = (
         "台股做多當沖追蹤器 v1",
         "今日決策摘要",
-        "最接近強烈做多 5 檔",
-        "做多觀察池 10 檔",
+        "最接近強烈買多 5 檔",
+        "買多觀察池 10 檔",
         "最大原因 / 最大卡關",
         "下一步",
         "失效條件",
@@ -1099,8 +1099,8 @@ def hotkeys_script() -> str:
           content.includes("已觸發") ||
           content.includes("executable") ||
           content.includes("可執行") ||
-          content.includes("強烈做多") ||
-          content.includes("做多") ||
+          content.includes("強烈買多") ||
+          content.includes("買多") ||
           content.includes("多頭動能")
         ) {
           return "triggered";
@@ -1855,7 +1855,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
           const payload = await response.json();
           const layers = payload.layers || {{}};
-          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈做多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
@@ -1870,7 +1870,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               sourceHealthHtml(payload),
             ].join("");
             if (!payload.allow_strong_long) {{
-              panel.innerHTML += `<div class="warn-mini">${{escapeHtml(payload.strong_long_block_reason || "資料層狀態不完整，禁止顯示強烈做多。")}}</div>`;
+              panel.innerHTML += `<div class="warn-mini">${{escapeHtml(payload.strong_long_block_reason || "資料層狀態不完整，禁止顯示強烈買多。")}}</div>`;
             }}
           }}
         }} catch (error) {{
@@ -2227,7 +2227,7 @@ def us_dashboard_script() -> str:
       }
 
       function signalCenterEmpty(key) {
-        if (key === "executable") return '<p class="muted">今日沒有可執行做多標的。</p>';
+        if (key === "executable") return '<p class="muted">今日沒有強烈買多標的。</p>';
         if (key === "practice_long") return '<p class="muted">目前沒有練習買多標的。</p>';
         return '<p class="muted">目前沒有標的。</p>';
       }
@@ -2663,7 +2663,7 @@ def tw_advisor_script() -> str:
           <article class="advisor-card">
             <h3>籌碼背景</h3>
             <p><strong>${escapeHtml(chip.institutional_label || "籌碼資料不足")}</strong></p>
-            <p class="muted">${escapeHtml(chip.institutional_reason || "目前沒有可用籌碼資料；籌碼只作背景，不作為強烈做多依據。")}</p>
+            <p class="muted">${escapeHtml(chip.institutional_reason || "目前沒有可用籌碼資料；籌碼只作背景，不作為強烈買多依據。")}</p>
             <div class="advisor-grid">
               ${metric("外資近一日", escapeHtml(number(chip.foreign_buy_sell)))}
               ${metric("投信近一日", escapeHtml(number(chip.investment_trust_buy_sell)))}
@@ -2677,7 +2677,7 @@ def tw_advisor_script() -> str:
               ${metric("資料狀態", escapeHtml(chip.institutional_data_status || "missing"))}
               ${metric("單位", escapeHtml(chip.unit || "依來源"))}
             </div>
-            <p class="warn-inline">法人買超不能取代 VWAP、量比、突破與風控；即使籌碼偏多，也不會直接產生強烈做多。</p>
+            <p class="warn-inline">法人買超不能取代 VWAP、量比、突破與風控；即使籌碼偏多，也不會直接產生強烈買多。</p>
           </article>
         `;
       };
@@ -2690,7 +2690,7 @@ def tw_advisor_script() -> str:
           <article class="advisor-card">
             <h3>族群狀態</h3>
             <p><strong>${escapeHtml(sector.sector_status_label || "暫無族群資料")}</strong></p>
-            <p class="muted">${escapeHtml(sector.sector_reason || "目前沒有足夠族群資料；族群強弱只作背景，不作為強烈做多依據。")}</p>
+            <p class="muted">${escapeHtml(sector.sector_reason || "目前沒有足夠族群資料；族群強弱只作背景，不作為強烈買多依據。")}</p>
             <div class="advisor-grid">
               ${metric("所屬族群", escapeHtml(sector.industry_label || sector.industry || "-"))}
               ${metric("族群排名", escapeHtml(sector.sector_rank || "-"))}
@@ -2737,7 +2737,7 @@ def tw_advisor_script() -> str:
             <p class="muted">${escapeHtml(trades.large_trade_summary || "目前缺逐筆成交資料，無法判斷大單敲進 / 敲出。")}</p>
             ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
             ${trades.error ? `<p class="warn-inline">${escapeHtml(trades.error)}</p>` : ""}
-            <p class="warn-inline">Fugle 逐筆成交只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+            <p class="warn-inline">Fugle 逐筆成交只作進場確認背景；不會直接產生強烈買多，也不會自動下單。</p>
           </article>
         `;
       };
@@ -2776,11 +2776,11 @@ def tw_advisor_script() -> str:
               ${metric("最後成交方向", escapeHtml(statusZh(quote.last_trade_side || "unknown")))}
             </div>
             <p class="muted">${escapeHtml(quote.last_trade_summary || "最新成交方向不足。")}</p>
-            ${(quote.is_limit_up_price || quote.is_limit_up_bid) ? `<p class="warn-inline">接近或處於漲停相關狀態，追價風險升高，不可直接視為強烈做多。</p>` : ""}
+            ${(quote.is_limit_up_price || quote.is_limit_up_bid) ? `<p class="warn-inline">接近或處於漲停相關狀態，追價風險升高，不可直接視為強烈買多。</p>` : ""}
             ${(quote.is_limit_down_price || quote.is_limit_down_ask) ? `<p class="warn-inline">接近或處於跌停相關狀態，不適合作為做多依據。</p>` : ""}
             ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
             ${quote.error ? `<p class="warn-inline">${escapeHtml(quote.error)}</p>` : ""}
-            <p class="warn-inline">Fugle Quote 只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+            <p class="warn-inline">Fugle Quote 只作進場確認背景；不會直接產生強烈買多，也不會自動下單。</p>
           </article>
         `;
       };
@@ -2803,7 +2803,7 @@ def tw_advisor_script() -> str:
             </div>
             ${warnings.length ? `<p class="warn-inline">${escapeHtml(warnings.join("；"))}</p>` : ""}
             ${candles.error ? `<p class="warn-inline">${escapeHtml(candles.error)}</p>` : ""}
-            <p class="warn-inline">Fugle 1分K 只作進場確認背景；不會直接產生強烈做多，也不會自動下單。</p>
+            <p class="warn-inline">Fugle 1分K 只作進場確認背景；不會直接產生強烈買多，也不會自動下單。</p>
           </article>
         `;
       };
@@ -2829,7 +2829,7 @@ def tw_advisor_script() -> str:
           ? "目前接近或處於漲停鎖住狀態，賣盤可能為空；這代表追價風險升高，不代表可以直接追高。"
           : quote.is_limit_down_locked
           ? "目前接近或處於跌停鎖住狀態，買盤可能為空；不適合作為做多依據。"
-          : "公開五檔只作盤口確認背景，不會直接產生強烈做多。";
+          : "公開五檔只作盤口確認背景，不會直接產生強烈買多。";
         return `
           <article class="advisor-card">
             <h3>TWSE MIS 公開五檔委買委賣</h3>
@@ -2906,7 +2906,7 @@ def tw_advisor_script() -> str:
               <section class="advisor-panel advisor-plan"><h3>下一步</h3><p>${escapeHtml(radar.next_step || "等待條件確認。")}</p></section>
               <section class="advisor-panel advisor-plan"><h3>失效條件</h3><p>${escapeHtml(radar.invalidation || "跌破 VWAP、量能退潮或資料延遲時失效。")}</p></section>
             </div>
-            <p class="warn-inline">進場確認雷達只做進場前檢查，不會調整 A / B+ / B 分級，也不會單獨產生強烈做多。</p>
+            <p class="warn-inline">進場確認雷達只做進場前檢查，不會調整 A / B+ / B 分級，也不會單獨產生強烈買多。</p>
           </article>
         `;
       };
@@ -2918,7 +2918,7 @@ def tw_advisor_script() -> str:
         const hasTick = precision.tick_data_status === "ok";
         const hasOrderbook = precision.orderbook_status === "ok" || precision.orderbook_status === "partial";
         const precisionWarning = hasTick && hasOrderbook
-          ? "Fugle 逐筆成交與 TWSE MIS 公開五檔已作為 MVP 進場確認背景；仍不會直接產生強烈做多或自動下單。"
+          ? "Fugle 逐筆成交與 TWSE MIS 公開五檔已作為 MVP 進場確認背景；仍不會直接產生強烈買多或自動下單。"
           : "缺少逐筆成交或五檔委買委賣時，系統不會把訊號視為高精準即時進場依據。";
         return `
           <article class="advisor-card">
@@ -3030,7 +3030,7 @@ def tw_advisor_script() -> str:
               ${metric("高精準資料", escapeHtml(hasTick && hasOrderbook ? "已具備" : "尚未具備"))}
             </div>
             <ul class="decision-list">${rows}</ul>
-            <p class="warn-inline">此檢查表只做進場前風控與資料完整度提醒，不會調整模型評級；資料延遲、使用上一筆、缺 VWAP、缺量比或缺停損價時，不顯示強烈做多。</p>
+            <p class="warn-inline">此檢查表只做進場前風控與資料完整度提醒，不會調整模型評級；資料延遲、使用上一筆、缺 VWAP、缺量比或缺停損價時，不顯示強烈買多。</p>
           </article>
         `;
       };
@@ -3043,22 +3043,22 @@ def tw_advisor_script() -> str:
         const safety = payload.safety || {};
         const category = frontTrade.category || "觀察";
         const subtitle = frontTrade.subtitle || "等待確認";
-        const isStrongCandidate = category === "強烈做多";
+        const isStrongCandidate = category === "強烈買多";
         const isExecutable = Boolean(safety.is_executable_allowed);
         const statusLabel = isExecutable
-          ? "可執行：已通過觸發與安全條件"
+          ? "進場確認：已通過觸發與安全條件"
           : isStrongCandidate
-          ? "強烈做多候選：值得盯盤，但尚未等於進場"
-          : "尚未達強烈做多：等待條件補齊";
+          ? "強烈買多候選：值得盯盤，但尚未等於進場"
+          : "尚未達強烈買多：等待條件補齊";
         const blockedMessages = (safety.blocked_reasons || [])
           .map((item) => item.message || item.code || String(item))
           .filter(Boolean);
         const notes = [];
         if (dataHealth.can_show_strong_long === false) {
-          notes.push(dataHealth.advice || "資料狀態未達即時強烈做多條件。");
+          notes.push(dataHealth.advice || "資料狀態未達即時強烈買多條件。");
         }
         if (isStrongCandidate && !isExecutable) {
-          notes.push("目前屬於強烈做多候選，仍需等待突破、量能、VWAP、停損距離或資料即時性確認。");
+          notes.push("目前屬於強烈買多候選，仍需等待突破、量能、VWAP、停損距離或資料即時性確認。");
         }
         if (!isStrongCandidate) {
           notes.push(frontTrade.reason || "等待 VWAP、量能、突破、風控或資料條件確認。");
@@ -3066,17 +3066,17 @@ def tw_advisor_script() -> str:
         const reasonCodes = frontTrade.reason_codes || safety.reason_codes || [];
         return `
           <article class="advisor-card strong-long-card">
-            <h3>強烈做多 / 可執行判斷</h3>
+            <h3>強烈買多 / 進場確認</h3>
             <p><strong>${escapeHtml(statusLabel)}</strong></p>
             <p class="muted">${escapeHtml(frontTrade.reason || "等待條件確認。")}</p>
             <div class="advisor-grid">
               ${metric("前台分類", escapeHtml(category))}
               ${metric("狀態說明", escapeHtml(subtitle))}
-              ${metric("強烈做多候選", escapeHtml(yesNo(isStrongCandidate)))}
-              ${metric("可執行 executable", escapeHtml(yesNo(isExecutable)))}
+              ${metric("強烈買多候選", escapeHtml(yesNo(isStrongCandidate)))}
+              ${metric("內部觸發狀態", escapeHtml(yesNo(isExecutable)))}
               ${metric("entry_status", escapeHtml(candidate.entry_status || scan.entry_status || "-"))}
               ${metric("effective entry", escapeHtml(safety.effective_entry_status || "-"))}
-              ${metric("資料允許強烈做多", escapeHtml(yesNo(dataHealth.can_show_strong_long)))}
+              ${metric("資料允許強烈買多", escapeHtml(yesNo(dataHealth.can_show_strong_long)))}
               ${metric("price_status", escapeHtml(dataHealth.price_status || dataHealth.quote_state || "-"))}
             </div>
             <div class="advisor-sections">
@@ -3085,7 +3085,7 @@ def tw_advisor_script() -> str:
                 <p>${escapeHtml(frontTrade.next_step || "等待條件確認。")}</p>
               </section>
               <section class="advisor-panel">
-                <h3>尚不可視為可執行原因</h3>
+                <h3>尚未通過進場確認原因</h3>
                 ${list(blockedMessages.length ? blockedMessages : notes)}
               </section>
               <section class="advisor-panel">
@@ -3093,7 +3093,7 @@ def tw_advisor_script() -> str:
                 ${list(reasonCodes.length ? reasonCodes : ["no_reason_code"])}
               </section>
             </div>
-            <p class="warn-inline">強烈做多代表盤中條件高度符合、值得立即盯盤；可執行才代表已觸發進場條件並通過資料與風控安全檢查。</p>
+            <p class="warn-inline">強烈買多代表盤中條件高度符合、值得立即盯盤；通過進場確認才代表已觸發進場條件並通過資料與風控安全檢查。</p>
           </article>
         `;
       };

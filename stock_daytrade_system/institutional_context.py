@@ -46,7 +46,7 @@ def evaluate_institutional_context(ranking) -> InstitutionalContext:
             dealer_5d_sum=None,
             institutional_trend="unknown",
             institutional_label="籌碼資料不足",
-            institutional_reason="目前沒有對應的法人排行資料；籌碼背景僅供參考，不影響強烈做多條件。",
+            institutional_reason="目前沒有對應的法人排行資料；籌碼背景僅供參考，不影響強烈買多條件。",
             institutional_data_date="",
             institutional_data_status="missing",
             source="CMoney institutional leaderboard",

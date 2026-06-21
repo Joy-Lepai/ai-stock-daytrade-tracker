@@ -39,7 +39,7 @@ class DecisionCenterTests(unittest.TestCase):
         )
 
         self.assertIn(payload["operation_tendency"], {"保守觀望", "等待確認"})
-        self.assertIn("今日沒有可執行做多標的", payload["no_trade_reason"])
+        self.assertIn("今日沒有強烈買多標的", payload["no_trade_reason"])
 
     def test_b_plus_generates_waiting_confirmation(self):
         payload = build_decision_center(

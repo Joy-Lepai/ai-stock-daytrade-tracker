@@ -44,19 +44,19 @@ def build_decision_center(
         )
     elif executable == 0:
         executable_summary = (
-            f"今日沒有可執行做多標的；目前有 {triggered} 檔 triggered、{practice_long} 檔練習買多，"
+            f"今日沒有強烈買多標的；目前有 {triggered} 檔 triggered、{practice_long} 檔練習買多，"
             "僅供觀察、虛擬交易與樣本累積。"
         )
     else:
         executable_summary = (
-            f"目前有 {executable} 檔 executable、{triggered} 檔 triggered、"
+            f"目前有 {executable} 檔進場雷達通過、{triggered} 檔 triggered、"
             f"{practice_long} 檔練習買多、{b_plus} 檔 B+ 練習觀察；等待量能 {counts.get('wait_volume', 0)} 檔、"
             f"等待 VWAP {counts.get('wait_vwap', 0)} 檔、等待突破 {counts.get('wait_breakout', 0)} 檔。"
         )
 
     no_trade_reason = ""
     if executable == 0:
-        no_trade_reason = "今日沒有可執行做多標的。主要原因是量能、VWAP、突破或風險條件尚未完整確認。此狀態下不建議為了交易而交易。"
+        no_trade_reason = "今日沒有強烈買多標的。主要原因是量能、VWAP、突破或風險條件尚未完整確認。此狀態下不建議為了交易而交易。"
         if practice_long > 0:
             no_trade_reason += " practice_long 僅供虛擬交易與樣本累積，不是正式可執行訊號。"
         if b_plus > 0:

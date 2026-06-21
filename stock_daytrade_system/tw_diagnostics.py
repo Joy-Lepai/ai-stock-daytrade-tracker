@@ -121,7 +121,7 @@ def model_conditions() -> dict:
             "突破昨高，或距離突破價 <= 0.5%",
             "停損距離合理，且距離 VWAP 不過遠",
             "不可 high_risk / avoid / data_missing，且不可有明顯長上影或假突破風險",
-            "強烈做多代表值得立即盯盤，不等於已經可以買。",
+            "強烈買多代表值得立即盯盤，不等於已經可以買。",
         ],
         "executable": [
             "executable 仍維持更嚴格：必須已觸發進場條件。",

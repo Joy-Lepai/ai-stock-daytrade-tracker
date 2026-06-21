@@ -577,7 +577,7 @@ def run_tracker(
         f"涵蓋 {official_institutional.symbols_count} 檔，"
         f"TWSE 日期 {official_institutional.latest_dates.get('twse') or '-'}，"
         f"TPEX 日期 {official_institutional.latest_dates.get('tpex') or '-'}；"
-        "僅作籌碼背景，不直接產生強烈做多。"
+        "僅作籌碼背景，不直接產生強烈買多。"
     )
     if official_status.get("used_cache"):
         data_status.append("官方三大法人資料部分使用 cache；籌碼背景可供觀察，但不作即時進場依據。")

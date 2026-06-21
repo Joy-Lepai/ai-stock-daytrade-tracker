@@ -102,14 +102,14 @@ def evaluate_strong_long_candidate(
 
     if is_executable:
         subtitle = "可執行"
-        reason = "強烈做多候選且已達 executable，可進一步檢查部位與風控。"
+        reason = "強烈買多候選且已達 executable，可進一步檢查部位與風控。"
         next_step = "確認停損、停利與部位大小後，再依紀律執行或做虛擬交易驗證。"
     elif is_candidate:
         subtitle = _candidate_waiting_subtitle(entry)
         reason = "盤中條件高度符合，值得立即盯盤，但尚未等同可執行進場。"
         next_step = _candidate_next_step(entry)
     else:
-        subtitle = "尚未達強烈做多"
+        subtitle = "尚未達強烈買多"
         reason = "、".join(blockers[:3]) or "條件尚未完整。"
         next_step = "等待 VWAP、量能、突破、風控與資料條件同時改善。"
 

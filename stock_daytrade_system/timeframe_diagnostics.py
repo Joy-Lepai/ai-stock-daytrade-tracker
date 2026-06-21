@@ -34,7 +34,7 @@ def build_timeframe_gap_report() -> dict:
         "known_gaps": [
             "主模型過去偏向單一時間點評分，較少呈現 5 / 15 / 30 分鐘曲線是否延續。",
             "high_risk 可能混合兩種情境：真正追高危險，以及趨勢延續但風險分數偏高。",
-            "資料延遲、快取或缺 VWAP / 量比時，不應被當成即時強烈做多。",
+            "資料延遲、快取或缺 VWAP / 量比時，不應被當成即時強烈買多。",
         ],
         "new_diagnostics": [
             "intraday_window：VWAP 上方停留、近 3 根 K 棒高低點、回檔深度、量能延續、上影線與盤中突破。",

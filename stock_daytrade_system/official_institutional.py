@@ -318,7 +318,7 @@ def _context_from_records(records: list[OfficialInstitutionalRecord]) -> Institu
         dealer_5d_sum=_sum(records[:5], "dealer_buy_sell", minimum=5),
         institutional_trend=trend,
         institutional_label=label,
-        institutional_reason=reason + " 單位為股，法人資料不會直接產生強烈做多。",
+        institutional_reason=reason + " 單位為股，法人資料不會直接產生強烈買多。",
         institutional_data_date=latest.trade_date,
         institutional_data_status="ok" if len(records) >= 5 else "partial",
         source=f"{latest.source} + official history",

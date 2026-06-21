@@ -310,7 +310,7 @@ def render_tracker_html(
         allow_strong_long=bool(mode_payload.get("allow_strong_long", True)),
         market_mode=str(mode_payload.get("mode", "intraday")),
     )["counts"]
-    header_strong_long = int(strong_funnel.get("strong_long_candidate_count", header_front.get("強烈做多", 0)) or 0)
+    header_strong_long = int(strong_funnel.get("strong_long_candidate_count", header_front.get("強烈買多", 0)) or 0)
     header_executable = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
 
     html = f"""<!doctype html>
@@ -537,11 +537,11 @@ def render_tracker_html(
     <h1>股票當沖追蹤器</h1>
     <div class="meta">產生時間：{escape(report_time.strftime('%Y-%m-%d %H:%M:%S'))} ｜ 市場背景：{escape(market_bias.direction)}（{market_bias.score:+.2f}）</div>
     <div class="summary">
-      {_metric('強烈做多', header_strong_long)}
-      {_metric('其中可執行', header_executable)}
-      {_metric('做多', int(header_front.get('做多', 0)))}
+      {_metric('強烈買多', header_strong_long)}
+      {_metric('進場雷達通過', header_executable)}
+      {_metric('買多', int(header_front.get('買多', 0)))}
       {_metric('觀察', int(header_front.get('觀察', 0)))}
-      {_metric('做空', int(header_front.get('做空', 0)))}
+      {_metric('看空', int(header_front.get('看空', 0)))}
       {_metric_text('模式', str(mode_payload.get('label', '未知')))}
     </div>
     {_data_status_block(statuses)}
@@ -571,7 +571,7 @@ def render_tracker_html(
     {_missed_stock_diagnostic_table(long_summary)}
     <h2>模型條件診斷</h2>
     {_model_diagnostic_panel(long_summary)}
-    <h2>強烈做多漏斗</h2>
+    <h2>強烈買多漏斗</h2>
     {_strong_long_funnel_panel(long_summary)}
     <h2>做多判斷時間框架診斷</h2>
     {_timeframe_gap_report_panel(long_summary)}
@@ -792,10 +792,10 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
         f'<section class="notice">{escape(str(mode.get("message", "")))}</section>'
         '<div class="summary">'
         f'{_metric_text("現在模式", str(mode.get("label", "未知")))}'
-        f'{_metric("強烈做多", int(front.get("強烈做多", 0)))}'
-        f'{_metric("做多", int(front.get("做多", 0)))}'
+        f'{_metric("強烈買多", int(front.get("強烈買多", 0)))}'
+        f'{_metric("買多", int(front.get("買多", 0)))}'
         f'{_metric("觀察", int(front.get("觀察", 0)))}'
-        f'{_metric("做空", int(front.get("做空", 0)))}'
+        f'{_metric("看空", int(front.get("看空", 0)))}'
         f'{_metric_text("資料可信度", confidence)}'
         f'{_metric_text("即時交易依據", can_trade)}'
         f'{_metric_text("market_mode", str(mode.get("mode") or "-"))}'
@@ -815,8 +815,8 @@ def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dic
         return "資料過期或缺漏嚴重，僅供參考。"
     if mode.get("mode") != "intraday":
         return "目前不是盤中模式，以下資料僅供復盤與下個交易日觀察。"
-    if int(front.get("強烈做多", 0)) > 0:
-        return "已有強烈做多候選，仍需依停損與部位風險控管。"
+    if int(front.get("強烈買多", 0)) > 0:
+        return "已有強烈買多候選，仍需依停損與部位風險控管。"
     waits = []
     for key, label in (("wait_volume", "等待量能"), ("wait_vwap", "等待站回 VWAP"), ("wait_breakout", "等待突破"), ("high_risk", "追價風險高")):
         count = int(checklist.get(key, 0) or 0)
@@ -824,7 +824,7 @@ def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dic
             waits.append(f"{label} {count} 檔")
     if health.get("status") not in {None, "", "正常"}:
         waits.append(f"資料狀態：{health.get('status')}")
-    return "今日沒有強烈做多標的；" + ("、".join(waits) if waits else "主要條件尚未完整確認。")
+    return "今日沒有強烈買多標的；" + ("、".join(waits) if waits else "主要條件尚未完整確認。")
 
 
 def _mode_aware_data_confidence(health: dict, mode: dict) -> str:
@@ -876,23 +876,23 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
     )
     front_counts = front["counts"]
     strong_funnel = (diagnostics or {}).get("strong_long_funnel") or {}
-    strong_long_count = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈做多", 0)) or 0)
+    strong_long_count = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈買多", 0)) or 0)
     executable_count = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
     tendency = data.get("operation_tendency") or "資料不足"
     confidence = _mode_aware_data_confidence(health, mode)
     if strong_long_count <= 0:
-        reminder = f"今日沒有強烈做多標的，主要原因：{_strong_long_blocker_summary(strong_funnel)}。建議保守觀望；做多與練習買多都必須等待條件確認。"
+        reminder = f"今日沒有強烈買多標的，主要原因：{_strong_long_blocker_summary(strong_funnel)}。建議保守觀望；買多與練習買多都必須等待條件確認。"
     else:
         reminder = (
-            f"目前有 {strong_long_count} 檔強烈做多候選，其中 {executable_count} 檔已達可執行條件；"
-            "強烈做多代表值得立即盯盤，可執行才代表進場條件更完整。"
+            f"目前有 {strong_long_count} 檔強烈買多候選，其中 {executable_count} 檔進場雷達通過；"
+            "強烈買多代表值得立即盯盤，進場雷達通過才代表進場條件更完整。"
         )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
-    closest_items = _top_decision_items(summary, front_context, categories={"強烈做多", "做多"}, limit=5)
+    closest_items = _top_decision_items(summary, front_context, categories={"強烈買多", "買多"}, limit=5)
     observation_items = _top_decision_items(summary, front_context, categories={"觀察"}, limit=10)
-    closest_html = "".join(_focus_card(item, front_context) for item in closest_items) or '<p class="muted">目前沒有接近強烈做多的標的。</p>'
-    observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or '<p class="muted">目前沒有做多觀察池標的。</p>'
+    closest_html = "".join(_focus_card(item, front_context) for item in closest_items) or '<p class="muted">目前沒有接近強烈買多的標的。</p>'
+    observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or '<p class="muted">目前沒有買多觀察池標的。</p>'
     sector_summary = _top_sector_summary(summary)
     institutional_summary = _institutional_background_summary(summary)
     return (
@@ -901,18 +901,18 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         '<div class="summary">'
         f'{_metric_text("今日市場狀態", str(tendency))}'
         f'{_metric_text("今日資料可信度", str(confidence))}'
-        f'{_metric("強烈做多", strong_long_count)}'
-        f'{_metric("其中可執行", executable_count)}'
-        f'{_metric("做多", int(front_counts.get("做多", 0)))}'
+        f'{_metric("強烈買多", strong_long_count)}'
+        f'{_metric("進場雷達通過", executable_count)}'
+        f'{_metric("買多", int(front_counts.get("買多", 0)))}'
         f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
-        f'{_metric("做空", int(front_counts.get("做空", 0)))}'
+        f'{_metric("看空", int(front_counts.get("看空", 0)))}'
         f'{_metric_text("今日強勢族群", sector_summary)}'
         f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
-        '<h3>最接近強烈做多 5 檔</h3>'
+        '<h3>最接近強烈買多 5 檔</h3>'
         f'<div class="signal-grid">{closest_html}</div>'
-        '<h3>做多觀察池 10 檔</h3>'
+        '<h3>買多觀察池 10 檔</h3>'
         f'<div class="signal-grid">{observation_html}</div>'
         '</section>'
     )
@@ -1507,16 +1507,16 @@ def _signal_center(summary: Optional[LongModelSummary]) -> str:
             "<section class=\"decision-center\"><h2>訊號中心</h2>"
             "<p class=\"muted\">目前沒有符合條件的候選股。</p></section>"
         )
-    buckets = {"強烈做多": [], "做多": [], "觀察": [], "做空": []}
+    buckets = {"強烈買多": [], "買多": [], "觀察": [], "看空": []}
     front_context = _front_context(summary)
     for item in summary.candidates:
         view = front_trade_view(item, **front_context)
         buckets.setdefault(view.category, []).append((item, view))
     columns = [
-        ("強烈做多", "強烈做多"),
-        ("做多", "做多"),
+        ("強烈買多", "強烈買多"),
+        ("買多", "買多"),
         ("觀察", "觀察"),
-        ("做空", "做空"),
+        ("看空", "看空"),
     ]
     html = []
     for key, title in columns:
@@ -1663,7 +1663,7 @@ def _signal_card(item: dict) -> str:
 
 def _signal_center_empty_message(key: str) -> str:
     if key == "executable":
-        return '<p class="muted">今日沒有可執行做多標的。</p>'
+        return '<p class="muted">今日沒有強烈買多標的。</p>'
     if key == "practice_long":
         return '<p class="muted">目前沒有練習買多標的。</p>'
     return '<p class="muted">目前沒有標的。</p>'
@@ -1676,20 +1676,20 @@ def _signal_center_column_note(key: str) -> str:
 
 
 def _front_signal_center_empty_message(key: str) -> str:
-    if key == "強烈做多":
-        return '<p class="muted">今日沒有強烈做多標的。</p>'
-    if key == "做多":
-        return '<p class="muted">目前沒有做多觀察標的。</p>'
-    if key == "做空":
-        return '<p class="muted">目前沒有做空觀察標的。</p>'
+    if key == "強烈買多":
+        return '<p class="muted">今日沒有強烈買多標的。</p>'
+    if key == "買多":
+        return '<p class="muted">目前沒有買多觀察標的。</p>'
+    if key == "看空":
+        return '<p class="muted">目前沒有看空觀察標的。</p>'
     return '<p class="muted">目前沒有觀察標的。</p>'
 
 
 def _front_signal_center_column_note(key: str) -> str:
-    if key == "強烈做多":
-        return '<p class="muted">只包含真正 executable，且資料安全規則通過的標的。</p>'
-    if key == "做多":
-        return '<p class="muted">包含練習買多與等待確認，不是正式可執行訊號。</p>'
+    if key == "強烈買多":
+        return '<p class="muted">多方條件完整，進入重點盯盤；仍需進場雷達與風控確認。</p>'
+    if key == "買多":
+        return '<p class="muted">方向偏多，但仍需量能、突破或進場雷達確認。</p>'
     if key == "觀察":
         return '<p class="muted">包含 high_risk、avoid、資料不足與風險觀察。</p>'
     return ""
@@ -1850,10 +1850,10 @@ def _review_mode_sections(summary: Optional[LongModelSummary], report_time: date
         f'<p class="muted">{escape(str(mode.get("review_mode_message", "")))}</p>'
         '<div class="summary">'
         f'{_metric_text("資料日期", str(mode.get("data_date", "-")))}'
-        f'{_metric("上一交易日強烈做多", int(front.get("強烈做多", 0)))}'
-        f'{_metric("上一交易日做多", int(front.get("做多", 0)))}'
+        f'{_metric("上一交易日強烈買多", int(front.get("強烈買多", 0)))}'
+        f'{_metric("上一交易日買多", int(front.get("買多", 0)))}'
         f'{_metric("上一交易日觀察", int(front.get("觀察", 0)))}'
-        f'{_metric("上一交易日做空", int(front.get("做空", 0)))}'
+        f'{_metric("上一交易日看空", int(front.get("看空", 0)))}'
         f'{_metric_text("資料可信度", confidence)}'
         f'{_metric("真漏抓", int(missed.get("missed_by_pool_count", missed.get("missed_count", 0)) or 0))}'
         f'{_metric("已看到但未推薦", int(missed.get("seen_but_filtered_count", 0) or 0))}'
@@ -1891,8 +1891,8 @@ def _review_mode_sections(summary: Optional[LongModelSummary], report_time: date
         '<h2>模型檢討</h2>'
         '<div class="summary">'
         f'{_metric("20日樣本", sample_size)}'
-        f'{_metric_text("強烈做多後表現", _review_group_text(groups.get("A")))}'
-        f'{_metric_text("做多後表現", _review_group_text(groups.get("B+")))}'
+        f'{_metric_text("強烈買多後表現", _review_group_text(groups.get("A")))}'
+        f'{_metric_text("買多後表現", _review_group_text(groups.get("B+")))}'
         f'{_metric_text("high_risk續漲", _review_group_text(groups.get("high_risk"), "continue_up_rate"))}'
         f'{_metric_text("avoid後大漲", _review_group_text(groups.get("avoid"), "big_up_rate"))}'
         f'{_metric_text("真漏抓率", f"{true_missed_rate:.2f}%")}'
@@ -2506,7 +2506,7 @@ def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:
         f'<div class="decision-panel"><strong>B 級條件</strong><ul class="decision-list">{condition_list("b")}</ul></div>'
         f'<div class="decision-panel"><strong>C / D 排除條件</strong><ul class="decision-list">{condition_list("c_d_exclusion")}</ul></div>'
         f'<div class="decision-panel"><strong>entry_status 條件</strong><ul class="decision-list">{condition_list("entry_status")}</ul></div>'
-        f'<div class="decision-panel"><strong>強烈做多候選條件</strong><ul class="decision-list">{condition_list("strong_long_candidate")}</ul></div>'
+        f'<div class="decision-panel"><strong>強烈買多候選條件</strong><ul class="decision-list">{condition_list("strong_long_candidate")}</ul></div>'
         f'<div class="decision-panel"><strong>可執行 executable 條件</strong><ul class="decision-list">{condition_list("executable")}</ul></div>'
         f'<div class="decision-panel"><strong>目前主要診斷</strong><ul class="decision-list">{cause_items}</ul></div>'
         '</div>'
@@ -2519,7 +2519,7 @@ def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:
 def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
     funnel = ((summary.diagnostics or {}).get("strong_long_funnel") if summary else None) or {}
     if not funnel:
-        return '<section class="notice">目前沒有強烈做多漏斗資料。</section>'
+        return '<section class="notice">目前沒有強烈買多漏斗資料。</section>'
     top_blockers = funnel.get("top_blockers") or []
     blocker_text = "、".join(
         f"{item.get('reason')} {int(item.get('count', 0))} 檔"
@@ -2545,7 +2545,7 @@ def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
         ("被 wait_volume 擋下", funnel.get("blocked_wait_volume_count")),
         ("被 wait_vwap 擋下", funnel.get("blocked_wait_vwap_count")),
         ("被 wait_breakout 擋下", funnel.get("blocked_wait_breakout_count")),
-        ("最後進入強烈做多", funnel.get("strong_long_candidate_count")),
+        ("最後進入強烈買多", funnel.get("strong_long_candidate_count")),
         ("最後進入 executable", funnel.get("executable_count")),
     ]
     metrics = "".join(_metric(str(label), int(value or 0)) for label, value in rows)
@@ -2555,7 +2555,7 @@ def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
     ) or '<tr><td colspan="2">目前沒有卡關資料。</td></tr>'
     return (
         '<section class="decision-center">'
-        '<section class="notice">強烈做多候選不等於可執行；可執行仍需通過更嚴格的觸發、風控與資料安全規則。</section>'
+        '<section class="notice">強烈買多候選不等於進場；仍需通過更嚴格的觸發、風控與資料安全規則。</section>'
         f'<div class="summary">{metrics}</div>'
         f'<p class="muted"><strong>主要卡關原因：</strong>{escape(blocker_text)}</p>'
         '<div class="table-wrap"><table><thead><tr><th>卡關原因</th><th>檔數</th></tr></thead><tbody>'
@@ -3337,7 +3337,7 @@ def _opening_sector_table(sectors: List[SectorOpeningStrength]) -> str:
     return (
         "<table class=\"sortable\"><thead><tr><th data-sort=\"text\">族群</th><th data-sort=\"text\">狀態</th>"
         "<th data-sort=\"number\">分數</th><th data-sort=\"number\">檔數</th>"
-        "<th data-sort=\"number\">做多</th><th data-sort=\"number\">做空</th><th data-sort=\"number\">觀望</th>"
+        "<th data-sort=\"number\">買多</th><th data-sort=\"number\">看空</th><th data-sort=\"number\">觀望</th>"
         "<th data-sort=\"number\">平均量比</th></tr></thead><tbody>"
         + ("".join(rows) or "<tr><td colspan=\"8\">無開盤族群資料。</td></tr>")
         + "</tbody></table>"
