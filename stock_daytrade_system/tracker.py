@@ -8,7 +8,7 @@ from typing import Dict, Iterable, List, Optional
 
 from stock_daytrade_system.cmoney import CMoneyRanking
 from stock_daytrade_system.breakout_trap_diagnosis import build_breakout_trap_diagnosis
-from stock_daytrade_system.frontend_language import front_trade_counts, front_trade_view
+from stock_daytrade_system.frontend_language import front_decision_card, front_trade_counts, front_trade_view
 from stock_daytrade_system.entry_radar_summary import build_entry_radar_summary
 from stock_daytrade_system.intraday import OpeningSignal
 from stock_daytrade_system.labels import sector_label, stock_label
@@ -889,8 +889,10 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
-    focus_items = _top_focus_items(summary)
-    focus_html = "".join(_focus_card(item, front_context) for item in focus_items) or '<p class="muted">目前沒有重點觀察股。</p>'
+    closest_items = _top_decision_items(summary, front_context, categories={"強烈做多", "做多"}, limit=5)
+    observation_items = _top_decision_items(summary, front_context, categories={"觀察"}, limit=10)
+    closest_html = "".join(_focus_card(item, front_context) for item in closest_items) or '<p class="muted">目前沒有接近強烈做多的標的。</p>'
+    observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or '<p class="muted">目前沒有做多觀察池標的。</p>'
     sector_summary = _top_sector_summary(summary)
     institutional_summary = _institutional_background_summary(summary)
     return (
@@ -904,18 +906,14 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric("做多", int(front_counts.get("做多", 0)))}'
         f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
         f'{_metric("做空", int(front_counts.get("做空", 0)))}'
-        f'{_metric("executable", int(counts.get("executable", checklist.get("executable", 0) or 0)))}'
-        f'{_metric("A 級", int(counts.get("grade_a", checklist.get("grade_a", 0) or 0)))}'
-        f'{_metric("B+", int(counts.get("grade_b_plus", checklist.get("grade_b_plus", 0) or 0)))}'
-        f'{_metric("B", int(counts.get("grade_b", checklist.get("grade_b", 0) or 0)))}'
-        f'{_metric("high_risk", int(counts.get("high_risk", checklist.get("high_risk", 0) or 0)))}'
-        f'{_metric("avoid", int(counts.get("avoid", checklist.get("avoid", 0) or 0)))}'
         f'{_metric_text("今日強勢族群", sector_summary)}'
         f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
-        '<h3>今日重點觀察股</h3>'
-        f'<div class="signal-grid">{focus_html}</div>'
+        '<h3>最接近強烈做多 5 檔</h3>'
+        f'<div class="signal-grid">{closest_html}</div>'
+        '<h3>做多觀察池 10 檔</h3>'
+        f'<div class="signal-grid">{observation_html}</div>'
         '</section>'
     )
 
@@ -1025,31 +1023,49 @@ def _top_focus_items(summary: Optional[LongModelSummary]) -> list[LongCandidate]
     return rows[:10]
 
 
+def _top_decision_items(
+    summary: Optional[LongModelSummary],
+    front_context: dict,
+    *,
+    categories: set[str],
+    limit: int,
+) -> list[LongCandidate]:
+    if summary is None:
+        return []
+    scored: list[tuple[float, float, str, LongCandidate]] = []
+    for item in summary.candidates:
+        if item.grade not in {"A", "B+", "B", "C"} and item.entry_status not in {"executable", "practice_long", "wait_breakout", "wait_vwap", "wait_volume", "high_risk"}:
+            continue
+        front = front_trade_view(item, **front_context)
+        radar = _dashboard_entry_radar(item, front_context)
+        decision = front_decision_card(item, front_view=front, entry_radar=radar, **front_context)
+        if decision.final_decision not in categories:
+            continue
+        scored.append((decision.precision_score, item.bullish_score, item.symbol, item))
+    scored.sort(key=lambda row: (-row[0], -row[1], row[2]))
+    return [item for *_rest, item in scored[:limit]]
+
+
 def _focus_card(item: LongCandidate, front_context: Optional[dict] = None) -> str:
-    invalidation = "跌破 VWAP、量能退潮或風險分數升高時失效。"
-    if item.entry_status == "high_risk":
-        invalidation = "若無法回測降溫，避免追價。"
-    conclusion = _display_conclusion_for_candidate(item)
     front = front_trade_view(item, **(front_context or {}))
     radar = _dashboard_entry_radar(item, front_context)
+    decision = front_decision_card(item, front_view=front, entry_radar=radar, **(front_context or {}))
     trap = _dashboard_breakout_trap(item, front_context)
     data_badge = _candidate_price_status_badge(item, front_context)
-    bullish_reason = _display_reason_for_candidate(item)
-    next_step = _next_step_for_entry(item.entry_status)
     risk_reason = "；".join(item.risk_reasons[:3]) or item.conflict_summary or item.confidence_adjustment_reason or "目前無額外風險提醒。"
-    display_label = _display_trade_bias_label(item.entry_status, item.trade_bias, item.trade_bias_label)
+    bullish_reason = _display_reason_for_candidate(item)
     background = f"{_institutional_badge(item)}｜{_sector_context_badge(item)}"
     return (
         '<div class="decision-panel">'
         f'<strong><a href="{_advisor_link(item.symbol)}">{escape(item.symbol)}｜{escape(item.name)}</a>{_position_size_tag(item.trigger_price or item.last_price, item.stop_loss)}</strong>'
-        f'<div>{escape(front.category)}｜{escape(front.subtitle)}｜{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{data_badge}</div>'
+        f'<div>{escape(decision.final_decision)}｜{escape(decision.entry_state)}｜{escape(decision.observation_type)}｜{data_badge}</div>'
         f'<p class="muted"><strong>背景：</strong>{background}</p>'
-        f'<p class="muted"><strong>結論：</strong>{escape(conclusion)}</p>'
-        f'<p class="muted"><strong>原因：</strong>{escape(bullish_reason)}</p>'
-        f'<p class="muted"><strong>最大卡關：</strong>{escape(radar.blocker_summary)}</p>'
+        f'<p class="muted"><strong>已有條件：</strong>{escape(bullish_reason)}</p>'
+        f'<p class="muted"><strong>最大原因 / 最大卡關：</strong>{escape(decision.top_reason)}</p>'
         f'<p class="muted"><strong>真假突破：</strong>{escape(trap.status_label)}｜{escape(trap.summary)}</p>'
-        f'<p class="muted"><strong>下一步：</strong>{escape(radar.next_trigger or next_step)}</p>'
-        f'<p class="muted"><strong>失效條件：</strong>{escape(invalidation)}</p>'
+        f'<p class="muted"><strong>下一步：</strong>{escape(decision.next_trigger)}</p>'
+        f'<p class="muted"><strong>失效條件：</strong>{escape(decision.invalid_condition)}</p>'
+        f'<p class="muted"><strong>精準分數：</strong>{decision.precision_score:.0f} / 100</p>'
         f'<p class="muted"><strong>風險提醒：</strong>{escape(risk_reason)}</p>'
         '</div>'
     )
@@ -1527,6 +1543,7 @@ def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] 
     data_badge = _candidate_price_status_badge(item, front_context)
     background = f"{_institutional_badge(item)}｜{_sector_context_badge(item)}"
     radar = _dashboard_entry_radar(item, front_context)
+    decision = front_decision_card(item, front_view=view, entry_radar=radar, **(front_context or {}))
     trap = _dashboard_breakout_trap(item, front_context)
     metrics = (
         f"現價 {_fmt(item.last_price)}｜VWAP {_fmt(item.vwap)}｜量比 {_fmt(item.volume_ratio)}x｜"
@@ -1535,15 +1552,14 @@ def _front_signal_card(item: LongCandidate, view, front_context: Optional[dict] 
     return (
         "<div class=\"signal-card\">"
         f"<div class=\"signal-title\"><a href=\"{_advisor_link(item.symbol)}\">{escape(item.symbol)}｜{escape(item.name)}</a>{_position_size_tag(item.trigger_price or item.last_price, item.stop_loss)}</div>"
-        f"<div class=\"signal-meta\">{escape(view.headline)}</div>"
-        f"<div class=\"signal-meta\">內部狀態：{escape(item.grade)}｜{escape(_entry_status_label(item.entry_status))}｜{escape(str(getattr(item, 'lifecycle_status', 'observed') or 'observed'))}</div>"
+        f"<div class=\"signal-meta\"><strong>{escape(decision.final_decision)}</strong>｜{escape(decision.entry_state)}｜{escape(decision.observation_type)}</div>"
         f"<div class=\"signal-meta\">{escape(metrics)}</div>"
         f"<div class=\"signal-meta\">背景：{background}</div>"
-        f"<div class=\"signal-meta\">信心：{escape(str(item.confidence_level_label or item.confidence_level or '-'))}</div>"
-        f"<div class=\"signal-meta\">{escape(view.reason)}</div>"
-        f"<div class=\"signal-meta\">最大卡關：{escape(radar.blocker_summary)}</div>"
+        f"<div class=\"signal-meta\">精準分數：{decision.precision_score:.0f} / 100</div>"
+        f"<div class=\"signal-meta\">最大原因 / 最大卡關：{escape(decision.top_reason)}</div>"
         f"<div class=\"signal-meta\">真假突破：{escape(trap.status_label)}｜{escape(trap.summary)}</div>"
-        f"<div class=\"signal-next\">下一步：{escape(radar.next_trigger or view.next_step)}</div>"
+        f"<div class=\"signal-next\">下一步：{escape(decision.next_trigger)}</div>"
+        f"<div class=\"signal-next\">失效：{escape(decision.invalid_condition)}</div>"
         "</div>"
     )
 

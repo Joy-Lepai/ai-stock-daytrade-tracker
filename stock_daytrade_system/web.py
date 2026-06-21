@@ -3076,6 +3076,7 @@ def tw_advisor_script() -> str:
         const sourceRanking = payload.source_ranking || {};
         const analysis = payload.advisor_analysis || {};
         const frontTrade = payload.front_trade || {};
+        const decisionCard = payload.decision_card || {};
         const precision = payload.precision_context || {};
         const entryConfirmation = payload.entry_confirmation || {};
         const entryRadarSummary = payload.entry_radar_summary || {};
@@ -3105,9 +3106,11 @@ def tw_advisor_script() -> str:
         const plan = analysis.action_plan || {};
         const effectiveEntry = safety.effective_entry_status || candidate.entry_status || scan.entry_status || "data_missing";
         const effectiveGrade = safety.effective_grade || candidate.grade || scan.ai_grade || "data_missing";
-        const conclusionState = positionAction ? positionAction.action : (frontTrade.category || safety.conclusion_state || statusZh(effectiveEntry));
+        const conclusionState = positionAction ? positionAction.action : (decisionCard.final_decision || frontTrade.category || safety.conclusion_state || statusZh(effectiveEntry));
         const conclusion = positionAction
           ? `目前已有持倉，持倉動作：${positionAction.action}。${positionAction.next_step || ""}`
+          : decisionCard.user_summary
+          ? decisionCard.user_summary
           : frontTrade.headline
           ? frontTrade.headline
           : conclusionState === "資料不足"
@@ -3167,14 +3170,16 @@ def tw_advisor_script() -> str:
             </div>
             <div class="advisor-decision">
               <strong>結論：${escapeHtml(conclusion)}</strong>
-              <span>${escapeHtml(positionAction ? positionAction.invalidation : (frontTrade.reason || analysis.action_summary || statusText || dataHealth.advice || ""))}</span>
-              ${renderReasonCodes(positionAction ? [positionAction.reason_code] : (frontTrade.reason_codes || safety.reason_codes))}
+              <span>${escapeHtml(positionAction ? positionAction.invalidation : (decisionCard.top_reason || frontTrade.reason || analysis.action_summary || statusText || dataHealth.advice || ""))}</span>
+              ${renderReasonCodes(positionAction ? [positionAction.reason_code] : (decisionCard.reason_codes || frontTrade.reason_codes || safety.reason_codes))}
             </div>
             <div class="advisor-grid">
-              ${metric("目前結論", escapeHtml(conclusionState))}
-              ${metric("分級", escapeHtml(effectiveGrade))}
-              ${metric("entry_status", escapeHtml(`${effectiveEntry}｜${statusZh(effectiveEntry)}`))}
-              ${metric("原始 entry_status", escapeHtml(safety.original_entry_status || candidate.entry_status || "-"))}
+              ${metric("目前結論", escapeHtml(decisionCard.final_decision || conclusionState))}
+              ${metric("進場狀態", escapeHtml(decisionCard.entry_state || entryRadarSummary.entry_state || "-"))}
+              ${metric("最大原因", escapeHtml(decisionCard.top_reason || entryRadarSummary.blocker_summary || "-"))}
+              ${metric("下一步", escapeHtml(decisionCard.next_trigger || entryRadarSummary.next_trigger || "-"))}
+              ${metric("失效條件", escapeHtml(decisionCard.invalid_condition || "跌破 VWAP、量能退潮或資料延遲時失效。"))}
+              ${metric("精準分數", `${escapeHtml(number(decisionCard.precision_score))} / 100`)}
               ${metric("最新成交價", escapeHtml(number(price)))}
               ${metric("漲跌幅", pct(changePct))}
               ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}

@@ -21,7 +21,7 @@ from stock_daytrade_system.db import (
 from stock_daytrade_system.entry_confirmation import build_entry_confirmation
 from stock_daytrade_system.entry_radar_summary import build_entry_radar_summary
 from stock_daytrade_system.breakout_trap_diagnosis import build_breakout_trap_diagnosis
-from stock_daytrade_system.frontend_language import front_trade_view
+from stock_daytrade_system.frontend_language import front_decision_card, front_trade_view
 from stock_daytrade_system.fugle_market_data import FugleMarketDataClient
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
@@ -194,6 +194,20 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         market_mode="intraday" if clock.session == "regular" else "closed_review",
         intraday=clock.session == "regular",
     ).to_dict()
+    decision_card_payload = front_decision_card(
+        candidate_payload or scan_payload,
+        front_view=front_trade_payload,
+        entry_radar=entry_radar_summary,
+        data_today=bool(data_health.get("is_today_data")),
+        intraday=bool(data_health.get("is_intraday_data")),
+        stale=bool(data_health.get("is_stale")),
+        data_missing=bool(data_health.get("is_data_missing")),
+        allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
+        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
+        uses_last_known=bool(data_health.get("uses_last_known") or data_health.get("uses_cache")),
+        is_delayed=bool(data_health.get("is_delayed")),
+    ).to_dict()
     breakout_trap_diagnosis = build_breakout_trap_diagnosis(
         candidate=candidate_payload or scan_payload,
         intraday_bars=effective_intraday_bars,
@@ -233,6 +247,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "data_health": data_health,
         "safety": safety_payload,
         "front_trade": front_trade_payload,
+        "decision_card": decision_card_payload,
         "position_action": position_payload,
         "key_metrics": key_metrics_payload,
         "reason_groups": reason_payload,
