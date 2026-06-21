@@ -48,11 +48,14 @@ class WebTests(unittest.TestCase):
         <html><body>
           app version / commit：{commit}
           scoring model：long_model_v2_b_plus_practice_2026-06-13
-          明日續強候選股
-          明日買多觀察池
-          AI 今日決策中心
-          訊號中心
           台股做多當沖追蹤器 v1
+          今日決策摘要
+          最接近強烈做多 5 檔
+          做多觀察池 10 檔
+          最大原因 / 最大卡關
+          下一步
+          失效條件
+          精準分數
           我的持倉作戰區
           上一交易日復盤
           下個交易日觀察清單
@@ -63,8 +66,6 @@ class WebTests(unittest.TestCase):
           漏抓股票診斷
           模型條件診斷
           B+ 觸發條件追蹤
-          進場前檢查表
-          B+可練習觀察數量
         </body></html>
         """
 

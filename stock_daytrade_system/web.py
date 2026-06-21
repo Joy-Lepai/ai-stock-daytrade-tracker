@@ -46,7 +46,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AUTH = PROJECT_ROOT / "config" / "auth.json"
 DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports"
 SESSION_COOKIE = "ai_stock_session"
-TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "45"))
+TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "180"))
 WEB_SCHEDULER_POLL_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_POLL_SECONDS", "30"))
 TW_PREMARKET_REFRESH_SECONDS = int(os.getenv("STOCK_TW_PREMARKET_REFRESH_SECONDS", "1800"))
 TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "900"))
@@ -67,6 +67,8 @@ class WebApp:
         )
         self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "0").lower() not in {"0", "false", "no"}
         self.scheduler_thread: Optional[threading.Thread] = None
+        self.background_refresh_threads: Dict[str, threading.Thread] = {}
+        self.background_refresh_lock = threading.Lock()
         self.last_scheduled_refresh_at: Optional[datetime] = None
         self.last_scheduled_refresh_status = "尚未執行"
 
@@ -104,6 +106,34 @@ class WebApp:
         if self.last_scheduled_refresh_at is None:
             return True
         return (now - self.last_scheduled_refresh_at).total_seconds() >= interval_seconds
+
+    def start_background_refresh(self, layer: str) -> bool:
+        with self.background_refresh_lock:
+            existing = self.background_refresh_threads.get(layer)
+            if existing and existing.is_alive():
+                return False
+            thread = threading.Thread(
+                target=self._run_background_refresh,
+                args=(layer,),
+                name=f"tw-refresh-{layer}",
+                daemon=True,
+            )
+            self.background_refresh_threads[layer] = thread
+            thread.start()
+            return True
+
+    def _run_background_refresh(self, layer: str) -> None:
+        coordinator = self.refresh_coordinator
+        if layer == "manual_full_refresh":
+            coordinator.refresh_manual_full()
+        elif layer == "full_market":
+            coordinator.refresh_full_market()
+        elif layer == "watchlist":
+            coordinator.refresh_watchlist()
+        elif layer == "positions":
+            coordinator.refresh_positions()
+        elif layer == "post_close_validation":
+            coordinator.refresh_post_close_validation()
 
 
 def serve(
@@ -338,6 +368,10 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self._send_html(render_login_page("帳號或密碼錯誤"), status=HTTPStatus.UNAUTHORIZED)
 
     def _handle_refresh(self) -> None:
+        if self.headers.get("X-Requested-With") != "fetch":
+            self.web_app.start_background_refresh("manual_full_refresh")
+            self._redirect("/dashboard")
+            return
         result = self.web_app.refresh_coordinator.refresh_manual_full()
         if self.headers.get("X-Requested-With") == "fetch":
             self._send_json(result.to_dict(), HTTPStatus.OK if result.status in {"success", "skipped"} else HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -345,6 +379,10 @@ class StockWebHandler(BaseHTTPRequestHandler):
         self._redirect("/dashboard")
 
     def _handle_layer_refresh(self, layer: str) -> None:
+        if self.headers.get("X-Requested-With") != "fetch":
+            self.web_app.start_background_refresh(layer)
+            self._redirect("/dashboard")
+            return
         coordinator = self.web_app.refresh_coordinator
         if layer == "full_market":
             result = coordinator.refresh_full_market()
@@ -582,11 +620,14 @@ def latest_tracker_file(report_dir: Path) -> Optional[Path]:
 def _tracker_html_needs_refresh(html: str) -> bool:
     current_commit = _current_commit_hash()
     required_markers = (
-        "明日續強候選股",
-        "明日買多觀察池",
-        "AI 今日決策中心",
-        "訊號中心",
         "台股做多當沖追蹤器 v1",
+        "今日決策摘要",
+        "最接近強烈做多 5 檔",
+        "做多觀察池 10 檔",
+        "最大原因 / 最大卡關",
+        "下一步",
+        "失效條件",
+        "精準分數",
         "我的持倉作戰區",
         "上一交易日復盤",
         "下個交易日觀察清單",
@@ -597,8 +638,6 @@ def _tracker_html_needs_refresh(html: str) -> bool:
         "漏抓股票診斷",
         "模型條件診斷",
         "B+ 觸發條件追蹤",
-        "進場前檢查表",
-        "B+可練習觀察數量",
     )
     if any(marker not in html for marker in required_markers):
         return True
