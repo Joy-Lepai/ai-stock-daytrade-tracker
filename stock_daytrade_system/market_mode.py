@@ -6,7 +6,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 
-MARKET_MODE_VERSION = "market_mode_v2_tw_holiday_review_2026-06-19"
+MARKET_MODE_VERSION = "market_mode_v3_tw_pre_open_prepare_2026-06-22"
 TW_TZ = ZoneInfo("Asia/Taipei")
 TW_MARKET_HOLIDAYS = {
     date(2026, 1, 1),
@@ -66,6 +66,7 @@ def evaluate_tw_market_mode(
     is_holiday = today in TW_MARKET_HOLIDAYS
     is_trading_day = _is_tw_trading_day(today)
     current = local_now.time()
+    is_pre_open = is_trading_day and current < time(9, 0)
     is_market_open = is_trading_day and time(9, 0) <= current < time(13, 30)
     is_post_close = is_trading_day and current >= time(13, 30)
     last_trading = _last_trading_date(local_now)
@@ -104,6 +105,17 @@ def evaluate_tw_market_mode(
             else "資料已過期或缺漏嚴重，僅供參考，不建議依此交易。"
         )
         reason = "post_close_review" if is_current else "post_close_data_missing"
+    elif is_pre_open:
+        expected = last_trading
+        is_current = parsed_data_date == expected and not severe_missing
+        mode = "pre_open_prepare" if is_current else "stale_data"
+        label = "開盤前準備模式" if is_current else "資料異常模式"
+        message = (
+            "目前為開盤前準備模式。以下使用上一交易日資料整理今日觀察清單；尚未有今日 VWAP、量比與盤中突破確認，不提供即時買多判斷。"
+            if is_current
+            else "開盤前資料不足或缺漏嚴重，僅供觀察，不建議依此交易。"
+        )
+        reason = "pre_open_prepare" if is_current else "pre_open_data_missing"
     else:
         expected = last_trading
         is_current = parsed_data_date <= today and parsed_data_date >= expected - timedelta(days=3) and not severe_missing

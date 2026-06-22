@@ -813,6 +813,8 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
 def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dict) -> str:
     if mode.get("mode") == "stale_data":
         return "資料過期或缺漏嚴重，僅供參考。"
+    if mode.get("mode") == "pre_open_prepare":
+        return "目前是開盤前準備模式，尚未有今日 VWAP、量比與盤中突破確認；只整理觀察清單，不產生即時買多判斷。"
     if mode.get("mode") != "intraday":
         return "目前不是盤中模式，以下資料僅供復盤與下個交易日觀察。"
     if int(front.get("強烈買多", 0)) > 0:
@@ -828,6 +830,11 @@ def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dic
 
 
 def _mode_aware_data_confidence(health: dict, mode: dict) -> str:
+    if mode.get("mode") == "pre_open_prepare" and mode.get("is_data_current_for_mode"):
+        status = str(health.get("status") or "").strip()
+        if status and status not in {"正常", "過期"}:
+            return f"開盤前準備：上一交易日資料完整度：{status}"
+        return "開盤前準備：使用上一交易日資料"
     if mode.get("mode") == "closed_review" and mode.get("is_data_current_for_mode"):
         status = str(health.get("status") or "").strip()
         if status and status not in {"正常", "過期"}:

@@ -63,6 +63,24 @@ class MarketModeTests(unittest.TestCase):
         self.assertFalse(mode.allow_intraday_signal)
         self.assertFalse(mode.allow_strong_long)
 
+    def test_trading_day_before_open_uses_pre_open_prepare(self):
+        mode = evaluate_tw_market_mode(
+            now=datetime(2026, 6, 22, 8, 57, tzinfo=ZoneInfo("Asia/Taipei")),
+            data_date="2026-06-18",
+            latest_data_at="2026-06-18T13:30:00+08:00",
+        )
+
+        self.assertEqual(mode.mode, "pre_open_prepare")
+        self.assertEqual(mode.label, "開盤前準備模式")
+        self.assertEqual(mode.last_trading_date, "2026-06-18")
+        self.assertEqual(mode.data_date, "2026-06-18")
+        self.assertTrue(mode.is_trading_day)
+        self.assertFalse(mode.is_holiday)
+        self.assertTrue(mode.is_data_current_for_mode)
+        self.assertFalse(mode.allow_intraday_signal)
+        self.assertFalse(mode.allow_strong_long)
+        self.assertIn("尚未有今日 VWAP", mode.review_mode_message)
+
     def test_intraday_stale_data_enters_stale_mode(self):
         mode = evaluate_tw_market_mode(
             now=datetime(2026, 6, 22, 9, 30, tzinfo=ZoneInfo("Asia/Taipei")),
