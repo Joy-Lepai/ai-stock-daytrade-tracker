@@ -259,6 +259,43 @@ class FrontendLanguageTests(unittest.TestCase):
 
         self.assertEqual(view.category, "看空")
 
+    def test_avoid_with_delayed_data_is_observation_not_bearish(self):
+        view = front_trade_view(
+            {
+                "grade": "D",
+                "entry_status": "avoid",
+                "last_price": 98,
+                "vwap": 100,
+                "above_vwap": False,
+                "volume_ratio": 1.2,
+                "stop_loss": 96,
+            },
+            price_status_label="delayed",
+            is_delayed=True,
+        )
+
+        self.assertEqual(view.category, "觀察")
+        self.assertIn("資料延遲", view.subtitle)
+
+    def test_avoid_outside_intraday_is_observation_not_bearish(self):
+        view = front_trade_view(
+            {
+                "grade": "D",
+                "entry_status": "avoid",
+                "last_price": 98,
+                "vwap": 100,
+                "above_vwap": False,
+                "volume_ratio": 1.2,
+                "stop_loss": 96,
+            },
+            intraday=False,
+            market_mode="pre_open_prepare",
+            data_today=True,
+        )
+
+        self.assertEqual(view.category, "觀察")
+        self.assertIn("不是盤中", view.subtitle)
+
 
 if __name__ == "__main__":
     unittest.main()

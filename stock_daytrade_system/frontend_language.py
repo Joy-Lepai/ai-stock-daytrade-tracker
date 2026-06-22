@@ -144,21 +144,6 @@ def build_frontend_trade_label(
             reason_codes=_dedupe((reason_codes or []) + (codes or [])),
         )
 
-    if long_failed:
-        top = "多方結構失效，暫不做多。"
-        if "failed_breakout" in conflicts or bool(_get(item, "failed_breakout")):
-            top = "假突破後跌回，多方結構轉弱。"
-        elif trade_bias == "short":
-            top = "價格結構偏弱，暫不做多。"
-        return label(
-            FRONT_CATEGORY_BEARISH,
-            "多方結構失效，暫不做多。",
-            top,
-            "等待重新站回 VWAP、量能轉強且突破失敗風險解除後再評估。",
-            "持續跌破 VWAP、開盤區間低點或低點下彎。",
-            codes=[entry or "bearish"],
-        )
-
     if missing_or_unusable or vwap is None or volume_ratio is None:
         if vwap is None:
             top = "缺 VWAP，不能產生做多判斷。"
@@ -215,6 +200,21 @@ def build_frontend_trade_label(
             "等下一個交易日盤中資料恢復即時後再評估。",
             "非盤中、休市或資料不是今天。",
             codes=["not_intraday_mode"],
+        )
+
+    if long_failed:
+        top = "多方結構失效，暫不做多。"
+        if "failed_breakout" in conflicts or bool(_get(item, "failed_breakout")):
+            top = "假突破後跌回，多方結構轉弱。"
+        elif trade_bias == "short":
+            top = "價格結構偏弱，暫不做多。"
+        return label(
+            FRONT_CATEGORY_BEARISH,
+            "多方結構失效，暫不做多。",
+            top,
+            "等待重新站回 VWAP、量能轉強且突破失敗風險解除後再評估。",
+            "持續跌破 VWAP、開盤區間低點或低點下彎。",
+            codes=[entry or "bearish"],
         )
 
     if chase_risk:
