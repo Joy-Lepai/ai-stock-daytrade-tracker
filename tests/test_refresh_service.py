@@ -5,7 +5,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
-from stock_daytrade_system.refresh_service import RefreshCoordinator
+from stock_daytrade_system.refresh_service import RefreshCoordinator, _layer_has_usable_fresh_success
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
 
@@ -259,6 +259,75 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertIn("避免資料庫寫入衝突", result.message)
         self.assertEqual(payload["layers"]["watchlist"]["status"], "skipped")
         self.assertEqual(payload["layers"]["watchlist"]["error"], "another_refresh_running")
+
+    def test_skipped_layer_keeps_fresh_previous_success_usable(self):
+        now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
+        fresh = datetime(2026, 6, 25, 9, 29, tzinfo=ZoneInfo("Asia/Taipei"))
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap,
+                      above_vwap, volume_ratio, opening_range_high, opening_range_low
+                    ) VALUES (?, '2026-06-25', '2330.TW', 100, 1000, 100000, 99.5, 1, 1.2, 101, 98)
+                    """,
+                    (fresh.isoformat(timespec="seconds"),),
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="watchlist",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=fresh,
+                    success_at=fresh,
+                    symbols_count=1,
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="positions",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=fresh,
+                    success_at=fresh,
+                    symbols_count=1,
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="watchlist",
+                    status="skipped",
+                    stale_after_seconds=300,
+                    started_at=now,
+                    error="another_refresh_running",
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        self.assertEqual(payload["layers"]["watchlist"]["status"], "success")
+        self.assertFalse(payload["layers"]["watchlist"]["is_stale"])
+        self.assertEqual(payload["market_mode"], "intraday")
+        self.assertTrue(payload["allow_strong_long"])
+        self.assertEqual(payload["refresh_guidance"]["severity"], "ok")
+
+    def test_layer_usable_fresh_success_accepts_skipped_or_running_with_previous_success(self):
+        self.assertTrue(
+            _layer_has_usable_fresh_success(
+                {"status": "skipped", "last_success_at": "2026-06-25T09:29:00+08:00", "is_stale": False}
+            )
+        )
+        self.assertTrue(
+            _layer_has_usable_fresh_success(
+                {"status": "running", "last_success_at": "2026-06-25T09:29:00+08:00", "is_stale": False}
+            )
+        )
+        self.assertFalse(
+            _layer_has_usable_fresh_success(
+                {"status": "failed", "last_success_at": "2026-06-25T09:29:00+08:00", "is_stale": False}
+            )
+        )
 
 
 if __name__ == "__main__":

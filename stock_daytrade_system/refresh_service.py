@@ -122,8 +122,8 @@ class RefreshCoordinator:
         source_health = health_status_snapshot()
         source_health_compact = health_status_compact()
         provider_status = get_market_data_provider_manager().status_payload()
-        watchlist_ok = not by_layer["watchlist"]["is_stale"] and by_layer["watchlist"]["status"] == "success"
-        positions_ok = not by_layer["positions"]["is_stale"] and by_layer["positions"]["status"] == "success"
+        watchlist_ok = _layer_has_usable_fresh_success(by_layer["watchlist"])
+        positions_ok = _layer_has_usable_fresh_success(by_layer["positions"])
         market_mode = evaluate_tw_market_mode(
             now=now,
             data_date=data_meta.get("data_date"),
@@ -638,6 +638,13 @@ def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str
     if state == "last_known":
         return "cached"
     return "missing"
+
+
+def _layer_has_usable_fresh_success(layer: dict) -> bool:
+    status = str(layer.get("status") or "")
+    if status in {"failed", "stale", "idle"}:
+        return False
+    return bool(layer.get("last_success_at")) and not bool(layer.get("is_stale"))
 
 
 def _required_refresh_layers_for_mode(mode: str) -> list[str]:
