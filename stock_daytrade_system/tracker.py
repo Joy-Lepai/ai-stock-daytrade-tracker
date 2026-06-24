@@ -1248,6 +1248,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
     acceptance_html = _fugle_acceptance_checklist(pool, rows)
     quick_read_html = _fugle_quick_read_panel(rows)
+    standby_html = _fugle_standby_panel(list(pool.get("standby") or []))
     if not rows:
         return (
             '<section class="decision-center">'
@@ -1264,6 +1265,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
             f'{acceptance_html}'
             f'{quick_read_html}'
+            f'{standby_html}'
             '</section>'
         )
     body = "".join(
@@ -1304,12 +1306,40 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         f'{acceptance_html}'
         f'{quick_read_html}'
+        f'{standby_html}'
         '<div class="table-wrap"><table><thead><tr>'
         '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
         '</section>'
+    )
+
+
+def _fugle_standby_panel(rows: list[dict]) -> str:
+    if not rows:
+        return (
+            '<section class="notice">'
+            '<strong>Fugle 名額外候補：</strong>目前沒有候補標的。'
+            '</section>'
+        )
+    items = []
+    for item in rows[:10]:
+        symbol = str(item.get("symbol") or "")
+        name = str(item.get("name") or "")
+        reason = str(item.get("not_selected_reason") or "Fugle 基本用戶 5 檔名額已滿。")
+        priority = _fmt(item.get("priority_score"))
+        purpose = str(item.get("tracking_purpose") or "")
+        items.append(
+            f'<li><a href="{_advisor_link(symbol)}">{escape(symbol)}｜{escape(name)}</a>'
+            f'｜順位分 {priority}｜{escape(purpose)}<br><span class="muted">{escape(reason)} {escape(str(item.get("priority_reason") or ""))}</span></li>'
+        )
+    return (
+        '<details class="developer-info">'
+        '<summary>Fugle 名額外候補</summary>'
+        '<p class="muted">這些股票有進入即時追蹤候補，但基本用戶 5 檔名額已滿；不代表模型排除，只是即時 API 資源不足。</p>'
+        f'<ul class="compact-list">{"".join(items)}</ul>'
+        '</details>'
     )
 
 

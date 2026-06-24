@@ -66,16 +66,25 @@ def build_fugle_priority_pool(
     scored = [item for item in scored if item.priority_score > 0]
     scored.sort(key=lambda item: (-item.priority_score, item.risk_score, item.symbol))
     selected = scored[:limit]
+    standby = scored[limit : limit + 10]
     return {
         "version": FUGLE_PRIORITY_POOL_VERSION,
         "mode": "basic_user_5_symbols",
         "max_symbols": limit,
         "enabled": bool(enabled) if enabled is not None else _env_bool("FUGLE_ENABLED"),
         "configured": bool(configured) if configured is not None else bool(os.environ.get("FUGLE_API_KEY")),
+        "considered_count": len(scored),
         "selected_count": len(selected),
         "excluded_count": max(len(scored) - len(selected), 0),
         "pinned_symbols": sorted(pinned),
         "selected": [item.to_dict() for item in selected],
+        "standby": [
+            {
+                **item.to_dict(),
+                "not_selected_reason": f"Fugle 基本用戶名額 {limit} 檔已滿，目前列為候補。",
+            }
+            for item in standby
+        ],
         "selection_policy": [
             "優先追蹤 executable / practice_long / B+ / 等待突破 / 等待 VWAP / 等待量能。",
             "Fugle 基本用戶最多追 5 檔，避免全市場打 API 或超過訂閱限制。",
@@ -142,23 +151,24 @@ def _score_candidate(item: Any, trigger: Optional[dict], *, pinned: bool = False
         priority = priority if pinned else 0
         reasons.append("avoid 僅作指定觀察，不作進場")
 
-    priority += min(max(bullish_score, 0), 100) * 0.8
-    priority += min(max(confidence_score, 0), 100) * 0.4
-    priority += max(0, 70 - min(max(risk_score, 0), 100)) * 0.8
-    if volume_ratio is not None:
-        priority += min(volume_ratio, 3.0) * 18
-    if trigger_readiness == "near":
-        priority += 80
-        reasons.append("接近觸發")
-    if _near_level(last_price, trigger_price, pct=0.5):
-        priority += 70
-        reasons.append("接近觸發價")
-    if _near_level(last_price, vwap, pct=0.35):
-        priority += 55
-        reasons.append("接近 VWAP 關鍵位")
-    if risk_score > 70:
-        priority -= 120
-        reasons.append("風險過高，降低即時追蹤順位")
+    if entry_status != "avoid" or pinned:
+        priority += min(max(bullish_score, 0), 100) * 0.8
+        priority += min(max(confidence_score, 0), 100) * 0.4
+        priority += max(0, 70 - min(max(risk_score, 0), 100)) * 0.8
+        if volume_ratio is not None:
+            priority += min(volume_ratio, 3.0) * 18
+        if trigger_readiness == "near":
+            priority += 80
+            reasons.append("接近觸發")
+        if _near_level(last_price, trigger_price, pct=0.5):
+            priority += 70
+            reasons.append("接近觸發價")
+        if _near_level(last_price, vwap, pct=0.35):
+            priority += 55
+            reasons.append("接近 VWAP 關鍵位")
+        if risk_score > 70:
+            priority -= 120
+            reasons.append("風險過高，降低即時追蹤順位")
 
     can_confirm = entry_status in {
         "executable",

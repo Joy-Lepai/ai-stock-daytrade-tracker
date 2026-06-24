@@ -45,7 +45,11 @@ class FuglePriorityPoolTests(unittest.TestCase):
         symbols = [row["symbol"] for row in selected]
         self.assertEqual(payload["mode"], "basic_user_5_symbols")
         self.assertEqual(payload["max_symbols"], 5)
+        self.assertEqual(payload["considered_count"], 6)
         self.assertEqual(len(selected), 5)
+        self.assertEqual(len(payload["standby"]), 1)
+        self.assertEqual(payload["standby"][0]["symbol"], "2330.TW")
+        self.assertIn("名額 5 檔已滿", payload["standby"][0]["not_selected_reason"])
         self.assertEqual(symbols[0], "6919.TW")
         self.assertIn("使用者指定即時追蹤", selected[0]["priority_reason"])
         self.assertFalse(selected[0]["can_use_for_entry_confirmation"])

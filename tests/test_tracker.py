@@ -753,6 +753,17 @@ class TrackerStatusTests(unittest.TestCase):
                     "actual_api_calls": 6,
                     "pinned_symbols": ["6919.TW"],
                     "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
+                    "standby": [
+                        {
+                            "symbol": "2330.TW",
+                            "name": "台積電",
+                            "entry_status": "wait_breakout",
+                            "tracking_purpose": "確認是否突破觸發價",
+                            "priority_score": 720,
+                            "priority_reason": "等待突破，需追蹤觸發價",
+                            "not_selected_reason": "Fugle 基本用戶名額 5 檔已滿，目前列為候補。",
+                        }
+                    ],
                     "selected": [
                         {
                             "symbol": "2884.TW",
@@ -814,6 +825,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("指定追蹤已入池：6919.TW", html)
         self.assertIn("風險防線正常：6919.TW", html)
         self.assertIn("Fugle 雷達速讀", html)
+        self.assertIn("Fugle 名額外候補", html)
+        self.assertIn("2330.TW｜台積電", html)
+        self.assertIn("即時 API 資源不足", html)
         self.assertIn("2884.TW｜玉山金", html)
         self.assertIn("可做進場前確認", html)
         self.assertIn("6919.TW｜康霈生技", html)
