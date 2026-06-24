@@ -137,6 +137,13 @@ class RefreshCoordinator:
         required_stale_layers = [layer for layer in required_layers if by_layer.get(layer, {}).get("is_stale")]
         any_layer_stale = bool(stale_layers)
         any_required_stale = bool(required_stale_layers)
+        refresh_guidance = _refresh_guidance(
+            by_layer,
+            market_mode.to_dict(),
+            price_status,
+            required_layers=required_layers,
+            required_stale_layers=required_stale_layers,
+        )
         return {
             "api_status": "ok",
             "generated_at": now.isoformat(timespec="seconds"),
@@ -172,6 +179,7 @@ class RefreshCoordinator:
             "required_stale_layers": required_stale_layers,
             "any_layer_stale": any_layer_stale,
             "any_stale": any_required_stale,
+            "refresh_guidance": refresh_guidance,
             "can_show_any_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
             "allow_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
             "reason_if_blocked": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
@@ -622,6 +630,91 @@ def _required_refresh_layers_for_mode(mode: str) -> list[str]:
     if mode == "stale_data":
         return ["full_market", "watchlist"]
     return ["full_market", "watchlist"]
+
+
+def _refresh_guidance(
+    layers: dict[str, dict],
+    market_mode: dict,
+    price_status: dict,
+    *,
+    required_layers: list[str],
+    required_stale_layers: list[str],
+) -> dict:
+    mode = str(market_mode.get("mode") or "")
+    live_count = int(price_status.get("live_count", 0) or 0)
+    action_label = "不需手動更新"
+    action_endpoint = ""
+    severity = "ok"
+    can_use_dashboard = True
+    summary = "必要資料層正常，可依目前頁面作為追蹤與復盤參考。"
+
+    if "watchlist" in required_stale_layers:
+        action_label = "更新重點觀察"
+        action_endpoint = "/refresh_watchlist"
+        severity = "block" if mode == "intraday" else "warn"
+        can_use_dashboard = mode != "intraday"
+        summary = "重點觀察資料已過期，盤中不要依此進場；請先更新重點觀察。"
+    elif "positions" in required_stale_layers:
+        action_label = "更新持倉/觸發"
+        action_endpoint = "/refresh_positions"
+        severity = "block" if mode == "intraday" else "warn"
+        can_use_dashboard = mode != "intraday"
+        summary = "持倉與觸發資料已過期，停損停利與觸發判斷需先更新。"
+    elif "full_market" in required_stale_layers:
+        action_label = "更新全市場"
+        action_endpoint = "/refresh_full_market"
+        severity = "warn"
+        summary = "全市場掃描已過期，既有重點股可觀察，但不應新增全市場強烈買多。"
+    elif "post_close_validation" in required_stale_layers:
+        action_label = "更新盤後驗證"
+        action_endpoint = "/refresh_post_close_validation"
+        severity = "warn"
+        summary = "盤後驗證尚未更新，策略成績單可能還不是最新。"
+    elif mode == "intraday" and live_count <= 0:
+        action_label = "更新重點觀察"
+        action_endpoint = "/refresh_watchlist"
+        severity = "block"
+        can_use_dashboard = False
+        summary = "盤中目前沒有 live 價格資料，禁止顯示強烈買多；請先更新重點觀察。"
+    elif mode == "intraday":
+        summary = "盤中必要資料層正常，可追蹤重點股；是否進場仍需看進場雷達與風控。"
+    elif mode == "pre_open_prepare":
+        summary = "開盤前準備模式：可查看上一交易日觀察池與今日準備資料，開盤前不顯示即時強烈買多。"
+    elif mode == "post_close_review":
+        summary = "收盤後復盤模式：用於驗證今日訊號與整理下個交易日觀察清單。"
+    elif mode == "closed_review":
+        summary = str(market_mode.get("review_mode_message") or "休市復盤模式：顯示上一交易日資料，僅供復盤與下個交易日觀察。")
+    elif mode == "stale_data":
+        action_label = "完整刷新"
+        action_endpoint = "/refresh"
+        severity = "block"
+        can_use_dashboard = False
+        summary = "資料日期或新鮮度異常，僅供檢查，不建議依此交易；請先完整刷新。"
+
+    if required_stale_layers and not action_endpoint:
+        first = required_stale_layers[0]
+        action_label = {
+            "full_market": "更新全市場",
+            "watchlist": "更新重點觀察",
+            "positions": "更新持倉/觸發",
+            "post_close_validation": "更新盤後驗證",
+        }.get(first, "完整刷新")
+        action_endpoint = {
+            "full_market": "/refresh_full_market",
+            "watchlist": "/refresh_watchlist",
+            "positions": "/refresh_positions",
+            "post_close_validation": "/refresh_post_close_validation",
+        }.get(first, "/refresh")
+
+    return {
+        "severity": severity,
+        "summary": summary,
+        "action_label": action_label,
+        "action_endpoint": action_endpoint,
+        "can_use_dashboard": can_use_dashboard,
+        "required_layers": required_layers,
+        "required_stale_layers": required_stale_layers,
+    }
 
 
 def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None, price_status: Optional[dict] = None) -> str:

@@ -1856,6 +1856,14 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const price = payload.price_status_summary || {{}};
         return `<span class="refresh-layer-item"><strong>價格資料品質：</strong>${{escapeHtml(price.status || "-")}}｜live=${{escapeHtml(price.live_count || 0)}}｜delayed=${{escapeHtml(price.delayed_count || 0)}}｜cached=${{escapeHtml(price.cached_count || 0)}}｜missing=${{escapeHtml(price.missing_count || 0)}}｜missing ratio=${{escapeHtml(price.missing_ratio || 0)}}%</span>`;
       }};
+      const refreshGuidanceHtml = (payload) => {{
+        const guidance = payload.refresh_guidance || {{}};
+        const severity = guidance.severity || "ok";
+        const cls = severity === "ok" ? "health-ok" : severity === "block" ? "health-bad" : "health-warn";
+        const action = escapeHtml(guidance.action_label || "不需手動更新");
+        const endpointHint = guidance.action_endpoint ? `｜請用右上「手動更新」執行${{escapeHtml(guidance.action_label || "更新")}}` : "";
+        return `<span class="refresh-layer-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}</span>`;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1866,6 +1874,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
+              refreshGuidanceHtml(payload),
               `<span class="refresh-layer-item"><strong>必要刷新層：</strong>${{escapeHtml((payload.required_refresh_layers || []).join("、") || "-")}}｜必要層過期=${{payload.any_stale ? "是" : "否"}}｜全部過期層=${{escapeHtml((payload.stale_layers || []).join("、") || "無")}}</span>`,
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
@@ -1959,6 +1968,7 @@ def base_css() -> str:
     .refresh-layer-item { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
     .health-ok { color:#067647; font-weight:750; }
     .health-warn { color:#8a5a00; font-weight:750; }
+    .health-bad { color:#b42318; font-weight:750; }
     .warn-mini { flex-basis:100%; color:#7c2d12; font-weight:700; }
     button, .topbar a { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:6px 10px; font:inherit; text-decoration:none; cursor:pointer; }
     button:hover, .topbar a:hover { border-color:var(--accent); color:var(--accent); }

@@ -241,6 +241,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("market_mode_label", html)
         self.assertIn("provider_status", html)
         self.assertIn("行情 provider", html)
+        self.assertIn("refresh_guidance", html)
+        self.assertIn("建議動作", html)
         self.assertIn("WebSocket", html)
         self.assertIn("deployment_status", html)
         self.assertIn("signal_guard", html)

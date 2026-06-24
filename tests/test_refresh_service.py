@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price
+from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
 from stock_daytrade_system.refresh_service import RefreshCoordinator
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
@@ -184,6 +184,55 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertFalse(payload["any_stale"])
         self.assertIn("positions", payload["stale_layers"])
         self.assertNotIn("positions", payload["required_stale_layers"])
+        self.assertEqual(payload["refresh_guidance"]["severity"], "ok")
+        self.assertEqual(payload["refresh_guidance"]["action_label"], "不需手動更新")
+        self.assertIn("開盤前準備模式", payload["refresh_guidance"]["summary"])
+
+    def test_intraday_stale_watchlist_guides_watchlist_refresh(self):
+        now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
+        old = datetime(2026, 6, 25, 9, 20, tzinfo=ZoneInfo("Asia/Taipei"))
+        fresh = datetime(2026, 6, 25, 9, 29, tzinfo=ZoneInfo("Asia/Taipei"))
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap,
+                      above_vwap, volume_ratio, opening_range_high, opening_range_low
+                    ) VALUES (?, '2026-06-25', '2330.TW', 100, 1000, 100000, 99.5, 1, 1.2, 101, 98)
+                    """,
+                    (fresh.isoformat(timespec="seconds"),),
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="watchlist",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=old,
+                    success_at=old,
+                    symbols_count=1,
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="positions",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=fresh,
+                    success_at=fresh,
+                    symbols_count=1,
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        self.assertEqual(payload["market_mode"], "intraday")
+        self.assertIn("watchlist", payload["required_stale_layers"])
+        self.assertTrue(payload["any_stale"])
+        self.assertEqual(payload["refresh_guidance"]["severity"], "block")
+        self.assertEqual(payload["refresh_guidance"]["action_endpoint"], "/refresh_watchlist")
+        self.assertFalse(payload["refresh_guidance"]["can_use_dashboard"])
 
 
 if __name__ == "__main__":
