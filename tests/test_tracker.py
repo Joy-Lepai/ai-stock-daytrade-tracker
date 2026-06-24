@@ -851,6 +851,47 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("主要缺口：缺逐筆、追價風險高", html)
         self.assertIn("可</td>", html)
 
+    def test_fugle_priority_pool_warns_when_api_is_not_configured(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "fugle_priority_pool": {
+                    "enabled": False,
+                    "configured": False,
+                    "entry_radar_status": "waiting",
+                    "max_symbols": 5,
+                    "selected_count": 1,
+                    "selected": [
+                        {
+                            "symbol": "2884.TW",
+                            "name": "玉山金",
+                            "grade": "B+",
+                            "entry_status": "practice_long",
+                            "last_price": 32.1,
+                            "vwap": 31.9,
+                            "volume_ratio": 1.1,
+                            "priority_score": 900,
+                            "tracking_purpose": "虛擬交易練習觀察",
+                            "priority_reason": "練習買多，適合即時觀察",
+                            "can_use_for_entry_confirmation": True,
+                        }
+                    ],
+                }
+            },
+        )
+
+        html = _fugle_priority_pool_panel(summary)
+
+        self.assertIn("Fugle 尚未完整啟用或 API Key 未設定", html)
+        self.assertIn("尚未取得即時五檔 / 逐筆成交確認", html)
+        self.assertIn("不可當成進場依據", html)
+
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])
 

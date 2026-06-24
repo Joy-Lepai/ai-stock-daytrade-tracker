@@ -1246,6 +1246,14 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     configured_text = "API Key 已設定" if pool.get("configured") else "API Key 未設定"
     radar_status_text = _fugle_radar_status_label(str(pool.get("entry_radar_status") or "waiting"))
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
+    service_warning = ""
+    if not pool.get("enabled") or not pool.get("configured"):
+        service_warning = (
+            '<section class="warn">'
+            'Fugle 尚未完整啟用或 API Key 未設定；以下只代表「應該優先追蹤的 5 檔名單」，'
+            '尚未取得即時五檔 / 逐筆成交確認，不可當成進場依據。'
+            '</section>'
+        )
     acceptance_html = _fugle_acceptance_checklist(pool, rows)
     quick_read_html = _fugle_quick_read_panel(rows)
     standby_html = _fugle_standby_panel(list(pool.get("standby") or []))
@@ -1262,6 +1270,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
             f'{_metric("已選標的", 0)}'
             '</div>'
+            f'{service_warning}'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
             f'{acceptance_html}'
             f'{quick_read_html}'
@@ -1303,6 +1312,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("雷達不足", int(pool.get("confirmation_failed_count", 0) or 0))}'
         f'{_metric("實際 API 呼叫", int(pool.get("actual_api_calls", 0) or 0))}'
         '</div>'
+        f'{service_warning}'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         f'{acceptance_html}'
         f'{quick_read_html}'
