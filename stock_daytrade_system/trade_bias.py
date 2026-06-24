@@ -57,7 +57,7 @@ def evaluate_trade_bias(
         and risk_score <= 55
         and confidence >= 60
     ):
-        return TradeBias("long", "可執行", "站上 VWAP、量能達標且訊號可執行。")
+        return TradeBias("long", "進場雷達通過", "站上 VWAP、量能達標且進場雷達通過。")
 
     if (
         grade == "A"
@@ -67,7 +67,7 @@ def evaluate_trade_bias(
         and risk_score <= 40
         and confidence >= 70
     ):
-        return TradeBias("long", "可執行", "A 級多方結構完整，可列入可執行觀察。")
+        return TradeBias("long", "進場雷達通過", "A 級多方結構完整，可列入進場雷達通過觀察。")
 
     if _short_conditions(
         above_vwap=above_vwap,

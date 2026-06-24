@@ -68,7 +68,7 @@ class LongModelTests(unittest.TestCase):
         self.assertEqual(candidates[0].grade, "A")
         self.assertEqual(candidates[0].entry_status, "executable")
         self.assertEqual(candidates[0].trade_bias, "long")
-        self.assertEqual(candidates[0].trade_bias_label, "可執行")
+        self.assertEqual(candidates[0].trade_bias_label, "進場雷達通過")
         self.assertGreaterEqual(candidates[0].bullish_score, 60)
         self.assertTrue(candidates[0].above_vwap)
         self.assertIn("intraday_window", candidates[0].timeframe_diagnostics)

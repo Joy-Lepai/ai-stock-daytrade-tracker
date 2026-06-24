@@ -196,7 +196,7 @@ class TrackerStatusTests(unittest.TestCase):
         html = _recommendation_checklist_table(summary)
 
         self.assertIn("今日候選股總數", html)
-        self.assertIn("executable 可執行", html)
+        self.assertIn("進場雷達通過", html)
         self.assertIn("wait_volume 等量能", html)
         self.assertIn("high_risk 風險過高", html)
         self.assertIn("avoid 暫不追蹤", html)
@@ -1139,7 +1139,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("long_model_v2_volume_vwap_2026-06-12", html)
         self.assertIn("session_policy_v1_time_gated_entry_2026-06-18", html)
         self.assertIn("recommendations count from DB", html)
-        self.assertIn("executable 可執行", html)
+        self.assertIn("進場雷達通過", html)
         self.assertIn("wait_volume 等量能", html)
         self.assertNotIn("舊版參考：今日看漲焦點", html)
         self.assertNotIn("舊版參考：系統自動選股", html)

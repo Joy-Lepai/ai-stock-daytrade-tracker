@@ -1634,7 +1634,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
     <section class="advisor-hero">
       <div>
         <h1>個股當沖作戰卡</h1>
-        <p class="muted">輸入股票代號後，系統會檢查這檔股票目前是否符合當沖追蹤條件，包括 VWAP、量比、突破、追價風險、資料可信度與歷史驗證。本系統不是報明牌，而是協助判斷目前應該可執行、觀察、等待、避開或資料不足，並保留買多、賣空、觀察的當下偏向。</p>
+        <p class="muted">輸入股票代號後，系統會檢查這檔股票目前是否符合當沖追蹤條件，包括 VWAP、量比、突破、追價風險、資料可信度與歷史驗證。本系統不是報明牌，而是協助判斷目前是強烈買多、買多、觀察、看空或資料不足。</p>
         <div class="advisor-examples" aria-label="範例股票">
           <button type="button" data-symbol="2330">台積電</button>
           <button type="button" data-symbol="1301">台塑</button>
@@ -2150,7 +2150,7 @@ def us_dashboard_script() -> str:
           metric("A級", summary.grade_a || 0),
           metric("B+練習觀察", summary.grade_b_plus || 0),
           metric("B級", summary.grade_b || 0),
-          metric("executable 可執行", summary.executable || 0),
+          metric("進場雷達通過", summary.executable || 0),
           metric("practice_long 練習買多", summary.practice_long || 0),
           metric("當下買多", summary.trade_long || 0),
           metric("當下賣空", summary.trade_short || 0),
@@ -2211,7 +2211,7 @@ def us_dashboard_script() -> str:
         const confidence = data.confidence_summary || {};
         const panels = [
           ["今日操作傾向", data.operation_tendency, data.summary_text],
-          ["可執行訊號摘要", `${counts.executable || 0} 檔 executable`, data.executable_summary],
+          ["進場雷達通過摘要", `${counts.executable || 0} 檔通過`, data.executable_summary],
           ["主要等待條件", (data.main_waiting_conditions || []).join("、") || "無明顯等待條件", data.main_waiting_summary],
           ["主要風險", (data.major_risks || []).join("、") || "無明顯集中風險", data.major_risk_summary],
           ["今日建議動作", "策略追蹤與虛擬交易", data.action_suggestion],
@@ -2239,7 +2239,7 @@ def us_dashboard_script() -> str:
 
       function renderSignalCenter(center) {
         const columns = [
-          ["executable", "可執行 executable"],
+          ["executable", "進場雷達通過"],
           ["practice_long", "練習買多 practice_long"],
           ["b_plus", "B+ 練習觀察"],
           ["waiting", "等待確認"],
@@ -2253,7 +2253,7 @@ def us_dashboard_script() -> str:
       }
 
       function signalCenterEmpty(key) {
-        if (key === "executable") return '<p class="muted">今日沒有強烈買多標的。</p>';
+        if (key === "executable") return '<p class="muted">今日沒有進場雷達通過標的。</p>';
         if (key === "practice_long") return '<p class="muted">目前沒有練習買多標的。</p>';
         return '<p class="muted">目前沒有標的。</p>';
       }
@@ -2395,7 +2395,7 @@ def tw_advisor_script() -> str:
         return Math.round(n).toLocaleString();
       };
       const statusZh = (entry) => ({
-        executable: "可執行",
+        executable: "進場雷達通過",
         practice_long: "練習買多",
         wait_volume: "等待量能",
         wait_vwap: "等待 VWAP",
@@ -2451,10 +2451,10 @@ def tw_advisor_script() -> str:
         const label = item?.trade_bias_label || "";
         if (entry === "high_risk") return "方向偏多";
         if (entry === "practice_long") return "練習買多";
-        if (entry === "executable") return "可執行";
+        if (entry === "executable") return "進場雷達通過";
         if (label === "強烈" + "看漲") return "方向偏多";
         if (label === "看漲") return "偏多";
-        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多" + "確認")) return "可執行";
+        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多" + "確認")) return "進場雷達通過";
         return label || item?.trade_bias || "觀察";
       };
       const displayTradeReason = (item) => {
@@ -2463,7 +2463,7 @@ def tw_advisor_script() -> str:
         if (entry === "practice_long") return "可作為練習買多觀察，不是正式可執行。";
         return item?.trade_bias_reason || "";
       };
-      const conclusionClass = (state) => state === "可執行" ? "conclusion-ok" : state === "資料不足" ? "conclusion-missing" : state === "避開" ? "conclusion-risk" : "conclusion-watch";
+      const conclusionClass = (state) => state === "進場雷達通過" || state === "強烈買多" || state === "買多" ? "conclusion-ok" : state === "資料不足" ? "conclusion-missing" : state === "避開" || state === "看空" ? "conclusion-risk" : "conclusion-watch";
       const advisorLink = (symbol) => `/tw/advisor?symbol=${encodeURIComponent(symbol || "")}`;
       const renderReasonCodes = (codes) => {
         const rows = Array.isArray(codes) && codes.length ? codes : ["no_reason_code"];

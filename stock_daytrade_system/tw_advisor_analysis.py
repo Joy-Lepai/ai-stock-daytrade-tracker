@@ -307,7 +307,7 @@ def _risk_summary(chase_risk_score: float, vwap_distance: Optional[float], chang
 
 def _action_summary(action_label: str, technical_score: float, volume_score: float, chase_risk_score: float, confidence_score: float) -> str:
     if action_label == "可執行":
-        return "技術結構、量能與風險條件相對配合，可列入可執行觀察。"
+        return "技術結構、量能與風險條件相對配合，可列入進場雷達通過觀察。"
     if action_label == "練習買多":
         return "條件接近，但尚未等同正式可執行，可用虛擬交易練習觀察。"
     if action_label == "賣空":
@@ -368,7 +368,7 @@ def _action_plan(
             stop_loss=plan_stop,
             target_price=plan_target,
             wait_condition="若拉回 VWAP 不破，可用虛擬交易練習分批觀察。",
-            invalidation_condition="跌破 VWAP 或量能快速萎縮，取消可執行觀察。",
+            invalidation_condition="跌破 VWAP 或量能快速萎縮，取消進場雷達通過觀察。",
             no_chase_reason="若距離 VWAP 超過 3% 或出現長上影，不直接追價。",
         )
     if action_label == "賣空":

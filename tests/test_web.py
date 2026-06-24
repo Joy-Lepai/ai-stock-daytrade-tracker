@@ -121,7 +121,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("/api/tw/scan/symbol", html)
         self.assertIn("/tw/advisor?symbol=", html)
         self.assertIn("買多", html)
-        self.assertIn("賣空", html)
+        self.assertIn("看空", html)
         self.assertIn("觀察", html)
         self.assertIn("作戰速讀", html)
         self.assertIn("renderAdvisorQuickReadCard", html)

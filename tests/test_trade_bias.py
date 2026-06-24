@@ -21,7 +21,7 @@ class TradeBiasTests(unittest.TestCase):
         )
 
         self.assertEqual(result.bias, "long")
-        self.assertEqual(result.label, "可執行")
+        self.assertEqual(result.label, "進場雷達通過")
 
     def test_practice_long_is_counted_as_long_even_when_volume_is_practice_threshold(self):
         result = evaluate_trade_bias(

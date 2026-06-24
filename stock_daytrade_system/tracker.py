@@ -2675,7 +2675,7 @@ def _model_diagnostic_panel(summary: Optional[LongModelSummary]) -> str:
         f'<div class="decision-panel"><strong>C / D 排除條件</strong><ul class="decision-list">{condition_list("c_d_exclusion")}</ul></div>'
         f'<div class="decision-panel"><strong>entry_status 條件</strong><ul class="decision-list">{condition_list("entry_status")}</ul></div>'
         f'<div class="decision-panel"><strong>強烈買多候選條件</strong><ul class="decision-list">{condition_list("strong_long_candidate")}</ul></div>'
-        f'<div class="decision-panel"><strong>可執行 executable 條件</strong><ul class="decision-list">{condition_list("executable")}</ul></div>'
+        f'<div class="decision-panel"><strong>進場雷達通過條件</strong><ul class="decision-list">{condition_list("executable")}</ul></div>'
         f'<div class="decision-panel"><strong>目前主要診斷</strong><ul class="decision-list">{cause_items}</ul></div>'
         '</div>'
         f'<section class="notice">回測診斷：{escape(str(backtest.get("message", "目前樣本不足時不硬算勝率。")))}'
@@ -2955,7 +2955,7 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('B級等待確認數量', int(data.get('grade_b', 0)))}"
         f"{_metric('C/D避開數量', int(data.get('grade_cd', 0)))}"
         f"{_metric('今日可虛擬交易觀察數量', int(data.get('paper_practice_observable', 0)))}"
-        f"{_metric('executable 可執行', int(data.get('executable', 0)))}"
+        f"{_metric('進場雷達通過', int(data.get('executable', 0)))}"
         f"{_metric('practice_long 練習買多', int(data.get('practice_long', 0)))}"
         f"{_metric('當下買多', int(data.get('trade_long', 0)))}"
         f"{_metric('當下賣空', int(data.get('trade_short', 0)))}"
@@ -3143,7 +3143,7 @@ def _grade_backtest_table(rows: List[dict]) -> str:
 
 def _entry_status_label(value: str) -> str:
     return {
-        "executable": "executable 可執行觀察",
+        "executable": "進場雷達通過",
         "practice_long": "practice_long 練習買多",
         "wait_volume": "wait_volume 等待量能確認",
         "wait_vwap": "wait_vwap 等待站回VWAP",
@@ -3221,12 +3221,12 @@ def _display_trade_bias_label(entry_status: str, value: str, label: str) -> str:
     if entry_status == "practice_long":
         return "練習買多"
     if entry_status == "executable":
-        return "可執行"
+        return "進場雷達通過"
     if label in {"強烈" + "看漲", "看漲"}:
         return _safe_bullish_label(label)
     if value == "long" and label in {"買多", "做多" + "確認"}:
-        return "可執行"
-    return label or {"long": "可執行", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
+        return "進場雷達通過"
+    return label or {"long": "買多", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
 
 
 def _display_trade_bias_reason(entry_status: str, reason: str) -> str:
