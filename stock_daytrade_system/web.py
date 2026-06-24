@@ -1765,19 +1765,26 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       {position_sizing_controls_html()}
       {file_text}
       <span id="refresh-status" class="refresh-status" data-interval="{refresh_interval_seconds}" data-session="{_escape(clock.session)}">準備讀取分層更新狀態</span>
-      <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
-      <form method="post" action="/refresh_full_market" title="更新 TWSE + TPEX 全市場異動候選池。"><button type="submit">更新全市場</button></form>
-      <form method="post" action="/refresh_watchlist" title="只更新 A/B+/B、等待條件、手動加入與今日重點觀察股。"><button type="submit">更新重點觀察</button></form>
-      <form method="post" action="/refresh_positions" title="只更新 B+ 觸發、虛擬交易持倉與停損停利狀態。"><button type="submit">更新持倉/觸發</button></form>
-      <form method="post" action="/refresh_post_close_validation" title="只更新盤後驗證與策略成績單基礎資料。"><button type="submit">更新盤後驗證</button></form>
+      <details class="manual-refresh-menu">
+        <summary>手動更新</summary>
+        <div class="manual-refresh-panel">
+          <p class="muted">盤中優先用「重點觀察」或「持倉/觸發」；完整刷新會重跑全市場。</p>
+          <form method="post" action="/refresh_watchlist" title="只更新 A/B+/B、等待條件、手動加入與今日重點觀察股。"><button type="submit">更新重點觀察</button></form>
+          <form method="post" action="/refresh_positions" title="只更新 B+ 觸發、虛擬交易持倉與停損停利狀態。"><button type="submit">更新持倉/觸發</button></form>
+          <form method="post" action="/refresh_full_market" title="更新 TWSE + TPEX 全市場異動候選池。"><button type="submit">更新全市場</button></form>
+          <form method="post" action="/refresh_post_close_validation" title="只更新盤後驗證與策略成績單基礎資料。"><button type="submit">更新盤後驗證</button></form>
+          <form method="post" action="/refresh" title="完整刷新會重跑全市場掃描與 tracker。"><button type="submit">完整刷新</button></form>
+        </div>
+      </details>
       {logout_link}
     </div>
   </nav>
-  <section class="refresh-layer-panel" aria-label="分層更新狀態">
+  <details class="refresh-layer-panel" aria-label="分層更新狀態">
+    <summary>系統狀態與資料來源</summary>
     <div id="system-version-status" class="refresh-layer-status">正在讀取部署驗收狀態...</div>
     <div id="refresh-layer-status" class="refresh-layer-status">正在讀取分層更新狀態...</div>
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
-  </section>
+  </details>
   {content}
   <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
@@ -1932,12 +1939,20 @@ def base_css() -> str:
     .position-size-ok { border-color:#bbf7d0; background:#f0fdf4; color:#067647; }
     .position-size-danger { border-color:#fecdd3; background:#fff1f2; color:#b42318; }
     .position-size-muted { color:var(--muted); font-weight:650; }
+    .manual-refresh-menu { position:relative; }
+    .manual-refresh-menu summary { list-style:none; border:1px solid var(--line); background:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; white-space:nowrap; color:var(--ink); }
+    .manual-refresh-menu summary::-webkit-details-marker { display:none; }
+    .manual-refresh-panel { position:absolute; right:0; top:calc(100% + 6px); z-index:45; width:260px; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fff; box-shadow:0 16px 36px rgba(16,24,40,.14); display:grid; gap:8px; }
+    .manual-refresh-panel p { margin:0; font-size:12px; }
+    .manual-refresh-panel button { width:100%; text-align:left; }
     .nav-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .nav-links a { color:var(--muted); text-decoration:none; padding:5px 8px; border-radius:6px; }
     .nav-links a:hover { color:var(--accent); background:#eef4ff; }
     .topbar form { margin:0; }
     .refresh-status { white-space:nowrap; font-size:13px; color:var(--muted); }
     .refresh-layer-panel { padding:10px 18px; background:#f8fafc; border-bottom:1px solid var(--line); }
+    .refresh-layer-panel summary { cursor:pointer; font-weight:800; color:#344054; }
+    .refresh-layer-panel[open] summary { margin-bottom:8px; }
     .refresh-layer-panel p { margin:6px 0 0; font-size:12px; }
     .refresh-layer-status { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; color:#344054; font-size:13px; }
     .refresh-layer-item { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
@@ -1977,7 +1992,7 @@ def base_css() -> str:
     .signal-title { font-weight:750; }
     .signal-meta { color:var(--muted); font-size:12px; white-space:normal; }
     .signal-next { margin-top:6px; color:var(--accent); font-weight:700; }
-    @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } .refresh-layer-item { white-space:normal; } }
+    @media (max-width:760px) { .topbar { align-items:flex-start; flex-direction:column; } .topbar-actions { flex-wrap:wrap; } .manual-refresh-panel { left:0; right:auto; } .refresh-layer-item { white-space:normal; } }
     """
 
 

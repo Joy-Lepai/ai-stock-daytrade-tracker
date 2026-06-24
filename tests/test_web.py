@@ -212,6 +212,9 @@ class WebTests(unittest.TestCase):
 
         self.assertIn("/api/refresh/status", html)
         self.assertIn("/api/system/version", html)
+        self.assertIn("手動更新", html)
+        self.assertIn("系統狀態與資料來源", html)
+        self.assertIn("manual-refresh-menu", html)
         self.assertIn("版本驗收", html)
         self.assertIn("資料新鮮度", html)
         self.assertIn("/api/notification/signals", html)
