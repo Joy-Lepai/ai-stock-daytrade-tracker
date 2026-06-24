@@ -5,6 +5,9 @@ __pycache__/
 .taifex_*.html
 config/auth.json
 data/*.db
+data/*.db-shm
+data/*.db-wal
+data/cache/
 reports/*.html
 reports/*.md
 reports/*.json
