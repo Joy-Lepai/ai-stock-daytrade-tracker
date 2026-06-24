@@ -21,22 +21,31 @@ jobs:
     steps:
       - name: Trigger layered Render refresh
         run: |
-          set -euo pipefail
+          set -uo pipefail
           minute="$(date -u +%M)"
           hour="$(date -u +%H)"
+          failures=0
 
           call_endpoint() {
             endpoint="$1"
-            curl --fail --show-error --silent --max-time 240 \
+            echo "Calling ${DASHBOARD_URL}${endpoint}"
+            if curl --fail --show-error --silent --max-time 240 \
               -X POST \
-              "${DASHBOARD_URL}${endpoint}"
+              "${DASHBOARD_URL}${endpoint}"; then
+              echo
+              echo "OK ${endpoint}"
+            else
+              echo
+              echo "FAILED ${endpoint}"
+              failures=$((failures + 1))
+            fi
           }
 
           # Post-close verification windows.
           if [ "$hour" = "06" ] || [ "$hour" = "07" ]; then
             call_endpoint "/refresh_full_market"
             call_endpoint "/refresh_post_close_validation"
-            exit 0
+            exit "$failures"
           fi
 
           # 08:30 pre-open and 15-minute marks during regular session.
@@ -47,3 +56,4 @@ jobs:
           # Lightweight layers for regular-session tracking.
           call_endpoint "/refresh_watchlist"
           call_endpoint "/refresh_positions"
+          exit "$failures"
