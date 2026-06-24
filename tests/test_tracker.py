@@ -1094,6 +1094,9 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("今日推薦檢查表", html)
         self.assertIn("精準資料缺口總覽", html)
+        self.assertIn("候選股怎麼選出來", html)
+        self.assertIn("決策附錄", html)
+        self.assertNotIn("AI 今日決策中心", html)
         self.assertIn("缺逐筆 Tick", html)
         self.assertIn("缺五檔委買委賣", html)
         self.assertIn("不會調整 A / B+ / B 條件", html)

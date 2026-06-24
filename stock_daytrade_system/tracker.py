@@ -1587,17 +1587,17 @@ def _timeframe_gap_report_panel(summary: Optional[LongModelSummary]) -> str:
 def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
     if summary is None or not summary.decision_center:
         return (
-            '<section class="decision-center"><h2>AI 今日決策中心</h2>'
+            '<details class="decision-center selection-explainer"><summary>決策附錄</summary>'
             '<p class="muted">目前資料不足，系統僅能提供有限判斷。</p>'
             '<section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>'
-            "</section>"
+            "</details>"
         )
     data = summary.decision_center
     counts = data.get("counts", {})
     confidence = data.get("confidence_summary", {})
     panels = [
         ("今日操作傾向", data.get("operation_tendency", "保守觀望"), data.get("summary_text", "")),
-        ("可執行訊號摘要", f"{int(counts.get('executable', 0))} 檔 executable", data.get("executable_summary", "")),
+        ("進場雷達摘要", f"{int(counts.get('executable', 0))} 檔進場雷達通過", data.get("executable_summary", "")),
         ("主要等待條件", "、".join(data.get("main_waiting_conditions", [])) or "無明顯等待條件", data.get("main_waiting_summary", "")),
         ("主要風險", "、".join(data.get("major_risks", [])) or "無明顯集中風險", data.get("major_risk_summary", "")),
         ("今日建議動作", "策略追蹤與虛擬交易", data.get("action_suggestion", "")),
@@ -1629,13 +1629,13 @@ def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
         "</div>"
     )
     return (
-        "<section class=\"decision-center\">"
-        "<h2>AI 今日決策中心</h2>"
+        "<details class=\"decision-center selection-explainer\">"
+        "<summary>決策附錄</summary>"
         f"{radar}"
         f"<div class=\"decision-grid\">{panel_html}</div>"
         f"{no_trade}"
         f"<section class=\"notice\">{escape(data.get('disclaimer', '本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。'))}</section>"
-        "</section>"
+        "</details>"
     )
 
 
