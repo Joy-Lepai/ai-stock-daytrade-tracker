@@ -40,6 +40,31 @@ def fetch_json(base_url: str, path: str, timeout: float = 15.0) -> dict[str, Any
     return payload
 
 
+def post_json(base_url: str, path: str, payload: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+    url = base_url.rstrip("/") + path
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=body,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            response_body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{url} returned HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{url} failed: {exc.reason}") from exc
+    try:
+        result = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"{url} returned non-JSON response") from exc
+    if not isinstance(result, dict):
+        raise RuntimeError(f"{url} returned unexpected JSON type")
+    return result
+
+
 def fetch_text(base_url: str, path: str, timeout: float = 15.0) -> str:
     url = base_url.rstrip("/") + path
     request = urllib.request.Request(url, headers={"Accept": "text/html"})
@@ -231,6 +256,47 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
     return checks
 
 
+def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "") -> list[Check]:
+    symbol = str(payload.get("symbol") or "")
+    expected = str(expected_symbol or "").upper().replace(".TWO", ".TWO").replace(".TW", ".TW")
+    front_trade = payload.get("front_trade") or {}
+    decision_card = payload.get("decision_card") or {}
+    radar = payload.get("entry_radar_summary") or {}
+    health = payload.get("data_health") or {}
+    forbidden_categories = {"強烈看漲", "做多確認", "買多推薦", "可執行做多", "強勢做多觀察"}
+    category = str(front_trade.get("category") or decision_card.get("final_decision") or "")
+    checks = [
+        Check("advisor scan returned symbol", bool(symbol), f"symbol={symbol or '-'}"),
+        Check(
+            "advisor scan symbol matches request",
+            (not expected) or symbol.upper().startswith(expected.split(".")[0]),
+            f"symbol={symbol or '-'} expected={expected or '-'}",
+        ),
+        Check("advisor scan has data health", bool(health), f"price_status={health.get('price_status', '-') if isinstance(health, dict) else '-'}"),
+        Check(
+            "advisor scan has front category",
+            category in {"強烈買多", "買多", "觀察", "看空", "資料不足"},
+            f"category={category or '-'}",
+        ),
+        Check(
+            "advisor scan has decision card",
+            bool(decision_card.get("top_reason") or decision_card.get("user_summary")),
+            f"top_reason={decision_card.get('top_reason', '-') if isinstance(decision_card, dict) else '-'}",
+        ),
+        Check(
+            "advisor scan has entry radar summary",
+            bool(radar.get("blocker_summary") or radar.get("next_trigger")),
+            f"blocker={radar.get('blocker_summary', '-') if isinstance(radar, dict) else '-'}",
+        ),
+        Check(
+            "advisor scan has no legacy misleading category",
+            category not in forbidden_categories,
+            f"category={category or '-'}",
+        ),
+    ]
+    return checks
+
+
 def print_checks(title: str, checks: list[Check]) -> int:
     print(f"\n{title}")
     failures = 0
@@ -246,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify public dashboard deployment and refresh health.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--expected-commit", default=local_git_commit())
+    parser.add_argument("--advisor-symbol", default="", help="Optionally smoke-test /api/tw/scan/symbol for one symbol.")
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args(argv)
 
@@ -258,6 +325,17 @@ def main(argv: list[str] | None = None) -> int:
     failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
+    if args.advisor_symbol:
+        advisor_payload = post_json(
+            args.base_url,
+            "/api/tw/scan/symbol",
+            {"symbol": args.advisor_symbol},
+            timeout=max(args.timeout, 30.0),
+        )
+        failures += print_checks(
+            f"TW Advisor API ({args.advisor_symbol})",
+            validate_tw_advisor_scan(advisor_payload, args.advisor_symbol),
+        )
     print()
     if failures:
         print(f"Deployment verification failed: {failures} check(s) need attention.")

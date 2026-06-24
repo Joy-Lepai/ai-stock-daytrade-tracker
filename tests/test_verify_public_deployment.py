@@ -4,6 +4,7 @@ from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_refresh_status,
     validate_system_version,
+    validate_tw_advisor_scan,
     validate_tw_advisor_html,
 )
 
@@ -140,6 +141,36 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("advisor has combat-card entry copy", failed)
+
+    def test_tw_advisor_scan_requires_core_payload(self):
+        payload = {
+            "symbol": "6919.TW",
+            "front_trade": {"category": "觀察"},
+            "decision_card": {"top_reason": "追價風險高"},
+            "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
+            "data_health": {"price_status": "live"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "6919")
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_tw_advisor_scan_detects_missing_radar_and_legacy_category(self):
+        payload = {
+            "symbol": "6919.TW",
+            "front_trade": {"category": "買多推薦"},
+            "decision_card": {},
+            "entry_radar_summary": {},
+            "data_health": {},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "6919")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor scan has front category", failed)
+        self.assertIn("advisor scan has decision card", failed)
+        self.assertIn("advisor scan has entry radar summary", failed)
+        self.assertIn("advisor scan has no legacy misleading category", failed)
 
 
 if __name__ == "__main__":
