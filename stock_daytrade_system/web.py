@@ -1862,10 +1862,11 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
           const payload = await response.json();
           const layers = payload.layers || {{}};
-          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜分層狀態：${{payload.any_stale ? "部分過期" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜必要資料層：${{payload.any_stale ? "需更新" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
+              `<span class="refresh-layer-item"><strong>必要刷新層：</strong>${{escapeHtml((payload.required_refresh_layers || []).join("、") || "-")}}｜必要層過期=${{payload.any_stale ? "是" : "否"}}｜全部過期層=${{escapeHtml((payload.stale_layers || []).join("、") || "無")}}</span>`,
               layerHtml(layers.full_market),
               layerHtml(layers.watchlist),
               layerHtml(layers.positions),

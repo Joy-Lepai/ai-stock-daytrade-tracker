@@ -146,6 +146,45 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(layers["watchlist"]["status"], "success")
         self.assertEqual(layers["watchlist"]["symbols_count"], 1)
 
+    def test_pre_open_status_ignores_optional_position_staleness(self):
+        now = datetime(2026, 6, 25, 8, 50, tzinfo=ZoneInfo("Asia/Taipei"))
+        captured = "2026-06-25T08:48:00+08:00"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, price, change_pct, volume,
+                      turnover, volume_ratio, vwap, above_vwap, break_prev_high,
+                      break_5d_high, entered_candidate_pool, entered_ai_candidates,
+                      ai_grade, entry_status, trade_bias, data_status, created_at
+                    ) VALUES (?, '2026-06-25', '2330.TW', '台積電', 100, 1, 1000,
+                      100000, 1.2, 99.5, 1, 1, 1, 1, 1,
+                      'A', 'wait_breakout', 'long', 'ok', ?)
+                    """,
+                    (captured, captured),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap,
+                      above_vwap, volume_ratio, opening_range_high, opening_range_low
+                    ) VALUES (?, '2026-06-25', '2330.TW', 100, 1000, 100000, 99.5, 1, 1.2, 101, 98)
+                    """,
+                    (captured,),
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        self.assertEqual(payload["market_mode"], "pre_open_prepare")
+        self.assertEqual(payload["required_refresh_layers"], ["full_market", "watchlist"])
+        self.assertFalse(payload["any_stale"])
+        self.assertIn("positions", payload["stale_layers"])
+        self.assertNotIn("positions", payload["required_stale_layers"])
+
 
 if __name__ == "__main__":
     unittest.main()

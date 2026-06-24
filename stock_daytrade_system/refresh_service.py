@@ -104,21 +104,20 @@ class RefreshCoordinator:
     def refresh_post_close_validation(self) -> RefreshResult:
         return self._run_tracked_layer("post_close_validation", self._run_post_close_validation)
 
-    def status_payload(self) -> dict:
+    def status_payload(self, now: Optional[datetime] = None) -> dict:
+        now = now or datetime.now(ZoneInfo("Asia/Taipei"))
         db_path = default_db_path(self.project_root)
         with connect(db_path) as conn:
             rows = [dict(row) for row in refresh_state_rows(conn)]
             data_meta = _latest_data_meta(conn)
             inferred_layers = _latest_layer_data_meta(conn)
-            price_status = _price_status_summary(conn, now=datetime.now(ZoneInfo("Asia/Taipei")))
-        now = datetime.now(ZoneInfo("Asia/Taipei"))
+            price_status = _price_status_summary(conn, now=now)
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
             layer = row["layer"]
             if layer in by_layer:
                 by_layer[layer] = _layer_status(row, now)
         _apply_inferred_layer_statuses(by_layer, inferred_layers, now)
-        any_stale = any(item["is_stale"] for item in by_layer.values())
         source_health = health_status_snapshot()
         source_health_compact = health_status_compact()
         provider_status = get_market_data_provider_manager().status_payload()
@@ -133,6 +132,11 @@ class RefreshCoordinator:
             watchlist_fresh=watchlist_ok,
             positions_fresh=positions_ok,
         )
+        required_layers = _required_refresh_layers_for_mode(market_mode.mode)
+        stale_layers = [layer for layer, item in by_layer.items() if item["is_stale"]]
+        required_stale_layers = [layer for layer in required_layers if by_layer.get(layer, {}).get("is_stale")]
+        any_layer_stale = bool(stale_layers)
+        any_required_stale = bool(required_stale_layers)
         return {
             "api_status": "ok",
             "generated_at": now.isoformat(timespec="seconds"),
@@ -163,7 +167,11 @@ class RefreshCoordinator:
                 item.get("status") in {"ERROR", "PARTIAL"}
                 for item in source_health.values()
             ),
-            "any_stale": any_stale,
+            "required_refresh_layers": required_layers,
+            "stale_layers": stale_layers,
+            "required_stale_layers": required_stale_layers,
+            "any_layer_stale": any_layer_stale,
+            "any_stale": any_required_stale,
             "can_show_any_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
             "allow_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
             "reason_if_blocked": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
@@ -600,6 +608,20 @@ def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str
     if state == "last_known":
         return "cached"
     return "missing"
+
+
+def _required_refresh_layers_for_mode(mode: str) -> list[str]:
+    if mode == "intraday":
+        return ["watchlist", "positions"]
+    if mode == "pre_open_prepare":
+        return ["full_market", "watchlist"]
+    if mode == "post_close_review":
+        return ["full_market", "post_close_validation"]
+    if mode == "closed_review":
+        return ["full_market"]
+    if mode == "stale_data":
+        return ["full_market", "watchlist"]
+    return ["full_market", "watchlist"]
 
 
 def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None, price_status: Optional[dict] = None) -> str:
