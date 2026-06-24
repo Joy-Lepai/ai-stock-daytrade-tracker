@@ -1866,7 +1866,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const cls = severity === "ok" ? "health-ok" : severity === "block" ? "health-bad" : "health-warn";
         const action = escapeHtml(guidance.action_label || "不需手動更新");
         const endpointHint = guidance.action_endpoint ? `｜請用右上「手動更新」執行${{escapeHtml(guidance.action_label || "更新")}}` : "";
-        return `<span class="refresh-layer-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}</span>`;
+        const actionButton = guidance.action_endpoint
+          ? `<form class="refresh-guidance-action" method="post" action="${{escapeHtml(guidance.action_endpoint)}}"><button type="submit">立即執行：${{action}}</button></form>`
+          : "";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}${{actionButton}}</span>`;
       }};
       const loadRefreshStatus = async () => {{
         try {{
@@ -1970,6 +1973,9 @@ def base_css() -> str:
     .refresh-layer-panel p { margin:6px 0 0; font-size:12px; }
     .refresh-layer-status { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; color:#344054; font-size:13px; }
     .refresh-layer-item { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
+    .refresh-guidance-item { white-space:normal; }
+    .refresh-guidance-action { display:inline-flex; margin-left:6px; }
+    .refresh-guidance-action button { border:1px solid var(--blue); background:var(--blue); color:#fff; border-radius:6px; padding:4px 8px; font:inherit; cursor:pointer; }
     .health-ok { color:#067647; font-weight:750; }
     .health-warn { color:#8a5a00; font-weight:750; }
     .health-bad { color:#b42318; font-weight:750; }
