@@ -11,6 +11,9 @@ class WorkflowTests(unittest.TestCase):
         text = workflow.read_text(encoding="utf-8")
 
         self.assertIn("timeout-minutes: 10", text)
+        self.assertIn("concurrency:", text)
+        self.assertIn("stock-dashboard-refresh", text)
+        self.assertIn("cancel-in-progress: false", text)
         self.assertIn("vars.STOCK_DASHBOARD_URL", text)
         self.assertIn("https://stock.letslepai.com", text)
         self.assertIn("/refresh_full_market", text)
