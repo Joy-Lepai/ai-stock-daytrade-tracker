@@ -17,6 +17,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("/refresh_watchlist", text)
         self.assertIn("/refresh_positions", text)
         self.assertIn("/refresh_post_close_validation", text)
+        self.assertIn('X-Requested-With: fetch', text)
+        self.assertIn("Accept: application/json", text)
         self.assertIn("print_refresh_status", text)
         self.assertIn("/api/refresh/status", text)
         self.assertIn("python3 -m json.tool", text)
