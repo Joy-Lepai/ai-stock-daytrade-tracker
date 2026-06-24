@@ -11,6 +11,10 @@ on:
         description: "Expected deployed commit. Leave blank to use this workflow commit."
         required: false
         default: ""
+      advisor_symbol:
+        description: "Optional TW symbol for /tw/advisor API smoke test, e.g. 6919 or 2330.TW."
+        required: false
+        default: ""
 
 jobs:
   verify:
@@ -30,4 +34,5 @@ jobs:
           python3 scripts/verify_public_deployment.py \
             --base-url "${{ github.event.inputs.base_url }}" \
             --expected-commit "$expected" \
+            --advisor-symbol "${{ github.event.inputs.advisor_symbol }}" \
             --timeout 20
