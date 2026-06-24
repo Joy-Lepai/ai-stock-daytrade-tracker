@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
 from stock_daytrade_system.refresh_service import (
+    DEFAULT_TRACKER_TIMEOUT_SECONDS,
     RefreshCoordinator,
     _layer_has_usable_fresh_success,
     _refresh_operation_summary,
@@ -16,6 +17,13 @@ from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 class RefreshServiceTests(unittest.TestCase):
     def tearDown(self):
         GLOBAL_HEALTH.reset()
+
+    def test_default_tracker_timeout_allows_render_full_market_refresh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            coordinator = RefreshCoordinator(Path(directory), Path(directory) / "reports")
+
+        self.assertEqual(DEFAULT_TRACKER_TIMEOUT_SECONDS, 180)
+        self.assertEqual(coordinator.tracker_timeout_seconds, 180)
 
     def test_status_payload_returns_market_mode_without_triggering_scan(self):
         with tempfile.TemporaryDirectory() as directory:

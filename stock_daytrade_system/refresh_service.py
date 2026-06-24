@@ -43,6 +43,8 @@ REFRESH_LAYER_STALE_SECONDS = {
     "manual_full_refresh": 15 * 60,
 }
 
+DEFAULT_TRACKER_TIMEOUT_SECONDS = 180
+
 _REFRESH_LAYER_LABELS = {
     "full_market": "全市場掃描",
     "watchlist": "重點觀察",
@@ -88,7 +90,7 @@ class RefreshCoordinator:
         project_root: Path,
         report_dir: Path,
         *,
-        tracker_timeout_seconds: int = 45,
+        tracker_timeout_seconds: int = DEFAULT_TRACKER_TIMEOUT_SECONDS,
         config_path: Optional[Path] = None,
     ) -> None:
         self.project_root = project_root
