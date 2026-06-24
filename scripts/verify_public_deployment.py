@@ -263,6 +263,7 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
     decision_card = payload.get("decision_card") or {}
     radar = payload.get("entry_radar_summary") or {}
     health = payload.get("data_health") or {}
+    market_mode = payload.get("market_mode") or {}
     forbidden_categories = {"強烈看漲", "做多確認", "買多推薦", "可執行做多", "強勢做多觀察"}
     category = str(front_trade.get("category") or decision_card.get("final_decision") or "")
     checks = [
@@ -273,6 +274,11 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
             f"symbol={symbol or '-'} expected={expected or '-'}",
         ),
         Check("advisor scan has data health", bool(health), f"price_status={health.get('price_status', '-') if isinstance(health, dict) else '-'}"),
+        Check(
+            "advisor scan has market mode",
+            bool(market_mode.get("mode")),
+            f"market_mode={market_mode.get('mode', '-') if isinstance(market_mode, dict) else '-'}",
+        ),
         Check(
             "advisor scan has front category",
             category in {"強烈買多", "買多", "觀察", "看空", "資料不足"},
@@ -294,6 +300,15 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
             f"category={category or '-'}",
         ),
     ]
+    mode = str(market_mode.get("mode") or "") if isinstance(market_mode, dict) else ""
+    if mode and mode != "intraday":
+        checks.append(
+            Check(
+                "non-intraday advisor scan blocks strong buy",
+                category != "強烈買多",
+                f"mode={mode} category={category or '-'}",
+            )
+        )
     return checks
 
 

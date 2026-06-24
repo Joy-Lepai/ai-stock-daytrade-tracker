@@ -149,6 +149,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "decision_card": {"top_reason": "追價風險高"},
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
             "data_health": {"price_status": "live"},
+            "market_mode": {"mode": "intraday"},
         }
 
         checks = validate_tw_advisor_scan(payload, "6919")
@@ -162,15 +163,32 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "decision_card": {},
             "entry_radar_summary": {},
             "data_health": {},
+            "market_mode": {},
         }
 
         checks = validate_tw_advisor_scan(payload, "6919")
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("advisor scan has front category", failed)
+        self.assertIn("advisor scan has market mode", failed)
         self.assertIn("advisor scan has decision card", failed)
         self.assertIn("advisor scan has entry radar summary", failed)
         self.assertIn("advisor scan has no legacy misleading category", failed)
+
+    def test_tw_advisor_scan_blocks_non_intraday_strong_buy(self):
+        payload = {
+            "symbol": "2330.TW",
+            "front_trade": {"category": "強烈買多"},
+            "decision_card": {"top_reason": "多方條件完整"},
+            "entry_radar_summary": {"blocker_summary": "非盤中", "next_trigger": "等開盤"},
+            "data_health": {"price_status": "delayed"},
+            "market_mode": {"mode": "pre_open_prepare"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "2330")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("non-intraday advisor scan blocks strong buy", failed)
 
 
 if __name__ == "__main__":
