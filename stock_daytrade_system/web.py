@@ -3248,6 +3248,7 @@ def tw_advisor_script() -> str:
         const fugleQuote = payload.fugle_quote || {};
         const fugleTrades = payload.fugle_trades || {};
         const fugleCandles = payload.fugle_candles || {};
+        const marketMode = payload.market_mode || {};
         const positionAction = payload.position_action || null;
         const symbol = candidate.symbol || payload.symbol || scan.symbol || "";
         const name = candidate.name || payload.name || scan.name || "";
@@ -3348,6 +3349,7 @@ def tw_advisor_script() -> str:
               ${metric("最新成交價", escapeHtml(number(price)))}
               ${metric("漲跌幅", pct(changePct))}
               ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}
+              ${metric("目前模式", escapeHtml(marketMode.label || dataHealth.market_mode_label || safety.market_mode_label || "-"))}
               ${metric("行情狀態", escapeHtml(dataHealth.quote_state_label || dataHealth.quote_state || "-"))}
               ${metric("可用於當沖判斷", escapeHtml(dataHealth.can_use_for_daytrade && safety.is_executable_allowed ? "是" : "否"))}
             </div>
@@ -3360,6 +3362,10 @@ def tw_advisor_script() -> str:
           <article class="advisor-card">
             <h3>資料可信度</h3>
             <div class="advisor-grid">
+              ${metric("market_mode", escapeHtml(marketMode.mode || dataHealth.market_mode || safety.market_mode || "-"))}
+              ${metric("模式說明", escapeHtml(marketMode.review_mode_message || dataHealth.review_mode_message || safety.market_mode_message || "-"))}
+              ${metric("資料符合模式", escapeHtml(yesNo(marketMode.is_data_current_for_mode ?? dataHealth.is_data_current_for_mode)))}
+              ${metric("允許即時進場", escapeHtml(yesNo(marketMode.allow_intraday_signal)))}
               ${metric("是否今天資料", escapeHtml(yesNo(dataHealth.is_today_data)))}
               ${metric("是否盤中資料", escapeHtml(yesNo(dataHealth.is_intraday_data)))}
               ${metric("最後更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
