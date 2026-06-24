@@ -1291,7 +1291,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'<td>{escape(_large_trade_label(str(item.get("large_trade_status", ""))))}<br><span class="muted">{escape(str(item.get("large_trade_summary") or "缺逐筆成交資料"))}</span></td>'
         f'<td>{escape(_price_tick_label(str(item.get("price_tick_trend", ""))))}<br><span class="muted">{escape(str(item.get("price_tick_summary") or "最新價快照不足"))}</span></td>'
         f'<td class="notes"><strong>{escape(str(item.get("entry_confirmation_status_label") or "等待確認"))}</strong><br>{escape(str(item.get("entry_confirmation_summary") or "等待 Fugle 更新進場雷達。"))}<br><span class="muted">下一步：{escape(str(item.get("entry_confirmation_next_step") or "等待下一次重點追蹤刷新。"))}</span></td>'
-        f'<td>{escape("可" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
+        f'<td>{escape("可做盤口確認" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
         f'<td class="notes">{escape(str(item.get("priority_reason", "")))}</td>'
         '</tr>'
         for item in rows

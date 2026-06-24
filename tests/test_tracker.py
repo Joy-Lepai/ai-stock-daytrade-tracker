@@ -849,7 +849,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("6919.TW｜康霈生技", html)
         self.assertIn("僅作風險觀察", html)
         self.assertIn("主要缺口：缺逐筆、追價風險高", html)
-        self.assertIn("可</td>", html)
+        self.assertIn("可做盤口確認", html)
 
     def test_fugle_priority_pool_warns_when_api_is_not_configured(self):
         summary = LongModelSummary(
