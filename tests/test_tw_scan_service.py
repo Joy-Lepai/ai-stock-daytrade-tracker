@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar
 from stock_daytrade_system.tw_scan_service import (
+    _advisor_market_mode_payload,
     _bars_from_fugle_candles,
     _data_health_payload,
     _fugle_quote_as_realtime,
@@ -221,6 +222,64 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertEqual(payload["fugle_quote_five_level_status"], "available")
         self.assertEqual(payload["fugle_candles_count"], 30)
         self.assertNotIn("shioaji_status", payload)
+
+    def test_pre_open_previous_trading_day_data_is_prepare_mode_not_stale(self):
+        captured_at = datetime(2026, 6, 22, 8, 55, tzinfo=ZoneInfo("Asia/Taipei"))
+        payload = _data_health_payload(
+            captured_at,
+            {
+                "current_price": 100,
+                "quote_time": "2026-06-18T13:30:00+08:00",
+            },
+            {},
+            {},
+            {},
+            "2330.TW",
+        )
+        mode = _advisor_market_mode_payload(captured_at, payload)
+
+        self.assertEqual(payload["market_mode"], "pre_open_prepare")
+        self.assertEqual(mode["mode"], "pre_open_prepare")
+        self.assertEqual(payload["status"], "正常")
+        self.assertFalse(payload["is_stale"])
+        self.assertFalse(payload["can_show_strong_long"])
+        self.assertTrue(mode["is_data_current_for_mode"])
+
+    def test_pre_open_safety_uses_prepare_mode(self):
+        captured_at = datetime(2026, 6, 22, 8, 55, tzinfo=ZoneInfo("Asia/Taipei"))
+        data_health = _data_health_payload(
+            captured_at,
+            {
+                "current_price": 101,
+                "quote_time": "2026-06-18T13:30:00+08:00",
+            },
+            {},
+            {},
+            {},
+            "2330.TW",
+        )
+        mode = _advisor_market_mode_payload(captured_at, data_health)
+        payload = _safety_payload(
+            {
+                "entry_status": "executable",
+                "grade": "A",
+                "vwap": 100,
+                "volume_ratio": 1.2,
+                "stop_loss": 99,
+                "last_price": 101,
+                "risk_score": 30,
+            },
+            {"vwap": 100, "volume_ratio": 1.2, "latest_price": 101, "change_pct": 1.5},
+            data_health,
+            {"action_plan": {"stop_loss": 99}},
+            captured_at,
+            market_mode_payload=mode,
+        )
+
+        self.assertEqual(payload["market_mode"], "pre_open_prepare")
+        self.assertFalse(payload["is_executable_allowed"])
+        self.assertIn("not_intraday_mode", payload["reason_codes"])
+        self.assertIn("market_not_regular", payload["reason_codes"])
 
 
 if __name__ == "__main__":

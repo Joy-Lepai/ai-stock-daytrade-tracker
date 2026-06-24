@@ -28,6 +28,7 @@ from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
+from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_signal_guard
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
@@ -166,22 +167,27 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         history_payload = _historical_validation_payload(conn, item.symbol)
         source_payload = _source_ranking_payload(conn, item.symbol)
         position_payload = position_action_for_symbol(conn, item.symbol, market="TW")
+    market_mode_payload = _advisor_market_mode_payload(captured_at, data_health)
+    market_mode_name = str(market_mode_payload.get("mode") or "closed_review")
+    advisor_intraday = bool(market_mode_payload.get("allow_intraday_signal"))
+    stale_for_mode = bool(market_mode_name == "stale_data" or (advisor_intraday and data_health.get("is_stale")))
+    data_current_for_mode = bool(market_mode_payload.get("is_data_current_for_mode", data_health.get("is_today_data")))
     safety_payload = _safety_payload(
         candidate_payload,
         scan_payload,
         data_health,
         analysis_payload,
         captured_at,
+        market_mode_payload=market_mode_payload,
     )
-    clock = taiwan_market_session(captured_at)
     front_trade_payload = front_trade_view(
         candidate_payload or scan_payload,
-        data_today=bool(data_health.get("is_today_data")),
-        intraday=bool(data_health.get("is_intraday_data")),
-        stale=bool(data_health.get("is_stale")),
+        data_today=data_current_for_mode,
+        intraday=advisor_intraday,
+        stale=stale_for_mode,
         data_missing=bool(data_health.get("is_data_missing")),
         allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
-        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        market_mode=market_mode_name,
         price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
         uses_last_known=bool(data_health.get("uses_last_known") or data_health.get("uses_cache")),
         is_delayed=bool(data_health.get("is_delayed")),
@@ -191,19 +197,19 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         data_health=data_health,
         entry_confirmation=entry_confirmation_payload,
         safety=safety_payload,
-        market_mode="intraday" if clock.session == "regular" else "closed_review",
-        intraday=clock.session == "regular",
+        market_mode=market_mode_name,
+        intraday=advisor_intraday,
     ).to_dict()
     decision_card_payload = front_decision_card(
         candidate_payload or scan_payload,
         front_view=front_trade_payload,
         entry_radar=entry_radar_summary,
-        data_today=bool(data_health.get("is_today_data")),
-        intraday=bool(data_health.get("is_intraday_data")),
-        stale=bool(data_health.get("is_stale")),
+        data_today=data_current_for_mode,
+        intraday=advisor_intraday,
+        stale=stale_for_mode,
         data_missing=bool(data_health.get("is_data_missing")),
         allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
-        market_mode="intraday" if clock.session == "regular" else "closed_review",
+        market_mode=market_mode_name,
         price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
         uses_last_known=bool(data_health.get("uses_last_known") or data_health.get("uses_cache")),
         is_delayed=bool(data_health.get("is_delayed")),
@@ -213,8 +219,8 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         intraday_bars=effective_intraday_bars,
         entry_confirmation=entry_confirmation_payload,
         data_health=data_health,
-        market_mode="intraday" if clock.session == "regular" else "closed_review",
-        intraday=clock.session == "regular",
+        market_mode=market_mode_name,
+        intraday=advisor_intraday,
     ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
     reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
@@ -245,6 +251,7 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         "realtime_quote": realtime_payload,
         "display": display_payload,
         "data_health": data_health,
+        "market_mode": market_mode_payload,
         "safety": safety_payload,
         "front_trade": front_trade_payload,
         "decision_card": decision_card_payload,
@@ -487,18 +494,33 @@ def _data_health_payload(
     fugle_candles = fugle_candles or {}
     quote_time = str(display.get("quote_time") or "")
     quote_dt = _parse_quote_time(quote_time)
+    mode_preview = evaluate_tw_market_mode(
+        now=captured_at,
+        data_date=quote_dt.date() if quote_dt else None,
+        latest_data_at=quote_dt,
+        data_stale=False,
+        severe_missing=False,
+        watchlist_fresh=True,
+        positions_fresh=True,
+    )
+    mode_name = mode_preview.mode
+    review_mode_current = (
+        quote_dt is not None
+        and mode_name in {"pre_open_prepare", "closed_review", "post_close_review"}
+        and mode_preview.is_data_current_for_mode
+    )
     age_minutes = None
     if quote_dt is not None:
         age_minutes = max((captured_at.astimezone(ZoneInfo("Asia/Taipei")) - quote_dt).total_seconds() / 60, 0.0)
     is_today = bool(quote_dt and quote_dt.date() == captured_at.astimezone(ZoneInfo("Asia/Taipei")).date())
-    stale = bool(age_minutes is not None and age_minutes > 15)
+    stale = bool((mode_name == "intraday" and age_minutes is not None and age_minutes > 15) or mode_name == "stale_data")
     has_error = symbol in daily_errors or symbol in intraday_errors
     freshness = evaluate_data_freshness(
         now=captured_at,
         latest_at=quote_dt,
         source_failed=has_error,
         partial=bool(symbol in quote_intraday_errors),
-        is_market_open=True,
+        is_market_open=mode_name == "intraday",
     )
     if has_error and freshness.uses_last_known:
         status = "部分缺漏"
@@ -508,7 +530,11 @@ def _data_health_payload(
         status = "異常"
         credibility = "資料不足 / 不可信"
         advice = "資料不足：缺少核心行情資料，不能產生做多判斷"
-    elif stale or (quote_dt is not None and not is_today):
+    elif review_mode_current:
+        status = "正常"
+        credibility = "中"
+        advice = mode_preview.review_mode_message
+    elif stale or (mode_name == "intraday" and quote_dt is not None and not is_today):
         status = "過期"
         credibility = "低"
         advice = "資料過期，暫停產生當沖建議"
@@ -569,6 +595,10 @@ def _data_health_payload(
         "fugle_candles_count": fugle_candles.get("candles_count") or 0,
         "uses_cache": freshness.uses_last_known,
         "is_data_missing": has_error,
+        "market_mode": mode_preview.mode,
+        "market_mode_label": mode_preview.label,
+        "review_mode_message": mode_preview.review_mode_message,
+        "is_data_current_for_mode": mode_preview.is_data_current_for_mode,
         "can_use_for_daytrade": status == "正常" and freshness.state == "live",
         "can_use_for_intraday_signal": status == "正常" and freshness.state == "live",
         "can_show_strong_long": status == "正常" and freshness.state == "live",
@@ -596,17 +626,42 @@ def _price_status_from_freshness(state: str) -> str:
     return "missing" if state == "missing" else state
 
 
+def _advisor_market_mode_payload(captured_at: datetime, data_health: dict) -> dict:
+    quote_time = str(data_health.get("quote_time") or "")
+    session = taiwan_market_session(captured_at).session
+    status = str(data_health.get("status") or "")
+    severe_missing = status in {"異常", "嚴重缺漏"} or (
+        bool(data_health.get("is_data_missing")) and not quote_time
+    )
+    data_stale = bool(data_health.get("is_stale")) if session == "regular" else False
+    return evaluate_tw_market_mode(
+        now=captured_at,
+        data_date=quote_time[:10] if quote_time else None,
+        latest_data_at=quote_time or None,
+        data_stale=data_stale,
+        severe_missing=severe_missing,
+        watchlist_fresh=True,
+        positions_fresh=True,
+    ).to_dict()
+
+
 def _safety_payload(
     candidate: Optional[dict],
     scan: dict,
     data_health: dict,
     analysis: dict,
     captured_at: datetime,
+    market_mode_payload: Optional[dict] = None,
 ) -> dict:
     candidate = candidate or {}
     entry_status = str(candidate.get("entry_status") or scan.get("entry_status") or "data_missing")
     grade = str(candidate.get("grade") or scan.get("ai_grade") or "data_missing")
     clock = taiwan_market_session(captured_at)
+    mode_payload = market_mode_payload or _advisor_market_mode_payload(captured_at, data_health)
+    market_mode = str(mode_payload.get("mode") or ("intraday" if clock.session == "regular" else "closed_review"))
+    intraday_allowed = bool(mode_payload.get("allow_intraday_signal", clock.session == "regular"))
+    data_current_for_mode = bool(mode_payload.get("is_data_current_for_mode", data_health.get("is_today_data")))
+    stale_for_mode = bool(market_mode == "stale_data" or (intraday_allowed and data_health.get("is_stale")))
     vwap = _num(scan.get("vwap"), candidate.get("vwap"))
     volume_ratio = _num(scan.get("volume_ratio"), candidate.get("volume_ratio"))
     stop_loss = _num(candidate.get("stop_loss"), (analysis.get("action_plan") or {}).get("stop_loss"))
@@ -623,12 +678,12 @@ def _safety_payload(
     }
     guard = evaluate_signal_guard(
         guard_input,
-        data_today=bool(data_health.get("is_today_data")),
-        intraday=bool(data_health.get("is_intraday_data", True)),
-        stale=bool(data_health.get("is_stale")),
+        data_today=data_current_for_mode,
+        intraday=intraday_allowed,
+        stale=stale_for_mode,
         data_missing=bool(data_health.get("is_data_missing")),
         allow_strong_long=bool(data_health.get("can_show_strong_long", True)),
-        market_mode="intraday" if clock.session == "regular" else "closed",
+        market_mode=market_mode,
         market_session=clock.session,
         current_price=current_price,
         change_pct=guard_input["change_pct"],
@@ -660,6 +715,9 @@ def _safety_payload(
         "reason_codes": reason_codes,
         "vwap_distance_pct": guard.vwap_distance_pct,
         "risk_score": round(risk_score, 2),
+        "market_mode": market_mode,
+        "market_mode_label": mode_payload.get("label") or "",
+        "market_mode_message": mode_payload.get("message") or "",
         "signal_guard_version": SIGNAL_GUARD_VERSION,
     }
 
