@@ -237,6 +237,28 @@ SHIOAJI_HTTP_BASE_URL=https://你的內部報價服務
 - 第一版顯示 snapshot / top-of-book，不把它當完整五檔串流。
 - Shioaji 報價只作背景確認，不會直接產生強烈做多，也不會自動下單。
 
+### Fugle 5 檔進場雷達（基本用戶）
+
+Fugle 基本用戶即時行情 WebSocket 最多 5 檔訂閱。本系統不會拿 Fugle 掃全市場，而是先用既有模型挑出最接近進場的 5 檔，再把 Fugle 用在「進場前確認」：
+
+- 五檔買賣盤差
+- 委買量是否增加
+- 委賣量是否減少
+- 最新價是否連續墊高
+- 是否有大單敲進 / 敲出
+- 是否仍站上 VWAP
+- 停損距離是否合理
+
+若要固定指定某檔進入 Fugle 追蹤池，請編輯 `config/watchlist.json`：
+
+```json
+{
+  "fugle_priority_symbols": ["6919.TW"]
+}
+```
+
+注意：指定追蹤只代表「優先拿 Fugle 做盤口確認」，不會直接升級成強烈買多，也不會改 A / B+ / B 條件。
+
 ## 建議排程
 
 公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：
