@@ -1844,7 +1844,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       const layerHtml = (layer) => {{
         const state = layer || {{}};
         const stale = state.is_stale ? "已過期" : "正常";
-        const cls = state.is_stale ? "health-warn" : "health-ok";
+        const statusValue = String(state.status || "");
+        const cls = state.is_stale || statusValue === "failed" ? "health-bad"
+          : statusValue === "running" || statusValue === "skipped" ? "health-warn"
+          : "health-ok";
         const nextDue = state.next_due_at ? timeText(state.next_due_at) : "尚未排定";
         const secondsUntilStale = state.seconds_until_stale == null ? "-" : `${{Math.round(Number(state.seconds_until_stale) || 0)}} 秒`;
         const errorText = state.error ? `｜原因 ${{escapeHtml(state.error)}}` : "";

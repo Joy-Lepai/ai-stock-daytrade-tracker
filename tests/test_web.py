@@ -248,6 +248,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("seconds_until_stale", html)
         self.assertIn("下次到期", html)
         self.assertIn("距離過期", html)
+        self.assertIn("statusValue", html)
+        self.assertIn('statusValue === "failed"', html)
         self.assertIn("state.error", html)
         self.assertIn("原因", html)
         self.assertIn("refresh-guidance-action", html)
