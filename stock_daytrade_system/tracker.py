@@ -2115,14 +2115,14 @@ def _tomorrow_long_watch_pool(summary: Optional[LongModelSummary]) -> str:
             "<table><tbody><tr><td>目前沒有足夠資料建立明日買多觀察池。"
             "明天開盤後請先等待 VWAP、量比與突破條件確認。</td></tr></tbody></table>"
         )
-    official = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "正式買多")
+    priority = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "明日優先觀察")
     practice = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "練習買多")
     waiting = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "盤中等待確認")
     risky = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "強勢但高風險")
     metrics = (
         "<div class=\"summary\">"
         f"{_metric('明日觀察池', len(pool))}"
-        f"{_metric('正式買多', official)}"
+        f"{_metric('明日優先觀察', priority)}"
         f"{_metric('練習買多', practice)}"
         f"{_metric('盤中等待確認', waiting)}"
         f"{_metric('強勢但高風險', risky)}"
@@ -2369,7 +2369,7 @@ def _tomorrow_pool_items(items: List[dict], limit: int = 50) -> List[dict]:
 
 def _tomorrow_pool_sort_key(item: dict) -> tuple:
     status_order = {
-        "正式買多": 0,
+        "明日優先觀察": 0,
         "練習買多": 1,
         "盤中等待確認": 2,
         "強勢但高風險": 3,
@@ -2397,7 +2397,7 @@ def _tomorrow_pool_status(item: dict) -> tuple[str, str]:
     break_5d_high = bool(item.get("break_5d_high"))
     high_risk = entry_status == "high_risk" or "風險高" in str(item.get("not_selected_reason", ""))
     if trade_bias == "long" and entry_status == "executable":
-        return "正式買多", "明天開盤後若仍站上 VWAP、量比維持 1.0x 以上且未追價過熱，可列入盤中可執行觀察。"
+        return "明日優先觀察", "明天開盤後若仍站上 VWAP、量比維持 1.0x 以上且未追價過熱，可列入盤中重點盯盤。"
     if entry_status == "practice_long" or grade == "B+":
         return "練習買多", "明天開盤後若站穩 VWAP，量比放大到 0.8x～1.0x 以上，可用虛擬交易練習追蹤。"
     if entry_status == "wait_volume":

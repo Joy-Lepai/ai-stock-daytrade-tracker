@@ -364,7 +364,8 @@ class TrackerStatusTests(unittest.TestCase):
         html = _tomorrow_long_watch_pool(summary)
 
         self.assertIn("明日觀察池", html)
-        self.assertIn("正式買多", html)
+        self.assertIn("明日優先觀察", html)
+        self.assertNotIn("正式買多", html)
         self.assertIn("練習買多", html)
         self.assertIn("盤中等待確認", html)
         self.assertIn("強勢但高風險", html)
