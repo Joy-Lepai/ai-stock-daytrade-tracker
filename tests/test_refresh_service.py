@@ -46,6 +46,8 @@ class RefreshServiceTests(unittest.TestCase):
             self.assertIn("price_status_summary", payload)
             self.assertIn("live_count", payload)
             self.assertIn("can_show_any_strong_long", payload)
+            self.assertIn("refresh_operation_summary", payload)
+            self.assertIn("message", payload["refresh_operation_summary"])
 
     def test_status_payload_includes_data_source_health(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -238,6 +240,9 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["refresh_guidance"]["severity"], "block")
         self.assertEqual(payload["refresh_guidance"]["action_endpoint"], "/refresh_watchlist")
         self.assertFalse(payload["refresh_guidance"]["can_use_dashboard"])
+        self.assertEqual(payload["refresh_operation_summary"]["severity"], "block")
+        self.assertIn("重點觀察", payload["refresh_operation_summary"]["message"])
+        self.assertIn("重點觀察", payload["refresh_operation_summary"]["blocking_layer_labels"])
 
     def test_refresh_layers_skip_when_another_layer_is_running(self):
         with tempfile.TemporaryDirectory() as directory:

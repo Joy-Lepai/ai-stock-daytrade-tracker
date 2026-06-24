@@ -43,6 +43,14 @@ REFRESH_LAYER_STALE_SECONDS = {
     "manual_full_refresh": 15 * 60,
 }
 
+_REFRESH_LAYER_LABELS = {
+    "full_market": "全市場掃描",
+    "watchlist": "重點觀察",
+    "positions": "交易觸發",
+    "post_close_validation": "盤後驗證",
+    "manual_full_refresh": "手動完整刷新",
+}
+
 WATCHLIST_ENTRY_STATUSES = {
     "executable",
     "practice_long",
@@ -138,6 +146,12 @@ class RefreshCoordinator:
         required_stale_layers = [layer for layer in required_layers if by_layer.get(layer, {}).get("is_stale")]
         any_layer_stale = bool(stale_layers)
         any_required_stale = bool(required_stale_layers)
+        operation_summary = _refresh_operation_summary(
+            by_layer,
+            required_layers=required_layers,
+            required_stale_layers=required_stale_layers,
+            market_mode=market_mode.to_dict(),
+        )
         refresh_guidance = _refresh_guidance(
             by_layer,
             market_mode.to_dict(),
@@ -178,6 +192,7 @@ class RefreshCoordinator:
             "required_refresh_layers": required_layers,
             "stale_layers": stale_layers,
             "required_stale_layers": required_stale_layers,
+            "refresh_operation_summary": operation_summary,
             "any_layer_stale": any_layer_stale,
             "any_stale": any_required_stale,
             "refresh_guidance": refresh_guidance,
@@ -744,6 +759,64 @@ def _refresh_guidance(
         "required_layers": required_layers,
         "required_stale_layers": required_stale_layers,
     }
+
+
+def _refresh_operation_summary(
+    layers: dict[str, dict],
+    *,
+    required_layers: list[str],
+    required_stale_layers: list[str],
+    market_mode: dict,
+) -> dict:
+    running_layers = [layer for layer, item in layers.items() if item.get("status") == "running"]
+    failed_layers = [layer for layer, item in layers.items() if item.get("status") == "failed"]
+    skipped_layers = [layer for layer, item in layers.items() if item.get("status") == "skipped"]
+    required_failed = [layer for layer in required_layers if layer in failed_layers]
+    required_running = [layer for layer in required_layers if layer in running_layers]
+    required_skipped = [layer for layer in required_layers if layer in skipped_layers]
+    blocking_layers = list(dict.fromkeys(required_stale_layers + required_failed))
+    can_use_dashboard = not blocking_layers and str(market_mode.get("mode") or "") != "stale_data"
+
+    if blocking_layers:
+        message = f"必要資料層需處理：{_layer_labels(blocking_layers)}。先更新後再判斷。"
+        severity = "block"
+    elif required_running:
+        message = f"必要資料層更新中：{_layer_labels(required_running)}。請等待完成。"
+        severity = "warn"
+    elif required_skipped:
+        message = f"必要資料層剛略過重複更新：{_layer_labels(required_skipped)}。若最後成功時間仍新鮮，可繼續觀察。"
+        severity = "warn"
+    elif failed_layers:
+        message = f"非必要資料層有失敗：{_layer_labels(failed_layers)}。目前核心判斷仍可觀察，但需留意資料缺口。"
+        severity = "warn"
+    else:
+        message = "必要資料層正常，dashboard 可作為追蹤與復盤參考。"
+        severity = "ok"
+
+    return {
+        "severity": severity,
+        "message": message,
+        "can_use_dashboard": can_use_dashboard,
+        "running_layers": running_layers,
+        "failed_layers": failed_layers,
+        "skipped_layers": skipped_layers,
+        "required_running_layers": required_running,
+        "required_skipped_layers": required_skipped,
+        "blocking_layers": blocking_layers,
+        "running_layer_labels": _layer_label_list(running_layers),
+        "failed_layer_labels": _layer_label_list(failed_layers),
+        "skipped_layer_labels": _layer_label_list(skipped_layers),
+        "blocking_layer_labels": _layer_label_list(blocking_layers),
+    }
+
+
+def _layer_label_list(layers: list[str]) -> list[str]:
+    return [_REFRESH_LAYER_LABELS.get(layer, layer) for layer in layers]
+
+
+def _layer_labels(layers: list[str]) -> str:
+    labels = _layer_label_list(layers)
+    return "、".join(labels) if labels else "無"
 
 
 def _strong_long_block_reason(layers: dict[str, dict], market_mode: Optional[dict] = None, price_status: Optional[dict] = None) -> str:

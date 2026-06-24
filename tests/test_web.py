@@ -244,6 +244,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("行情 provider", html)
         self.assertIn("refresh_guidance", html)
         self.assertIn("建議動作", html)
+        self.assertIn("refresh_operation_summary", html)
+        self.assertIn("刷新摘要", html)
         self.assertIn("next_due_at", html)
         self.assertIn("seconds_until_stale", html)
         self.assertIn("下次到期", html)

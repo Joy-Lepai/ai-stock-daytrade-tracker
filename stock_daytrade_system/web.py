@@ -1905,6 +1905,12 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           : "";
         return `<span class="refresh-layer-item refresh-guidance-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}${{actionButton}}</span>`;
       }};
+      const operationSummaryHtml = (payload) => {{
+        const summary = payload.refresh_operation_summary || {{}};
+        const severity = summary.severity || "ok";
+        const cls = severity === "ok" ? "health-ok" : severity === "block" ? "health-bad" : "health-warn";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>刷新摘要：</strong><span class="${{cls}}">${{escapeHtml(summary.message || "必要資料層正常。")}}</span></span>`;
+      }};
       const loadRefreshStatus = async () => {{
         try {{
           const response = await fetch("/api/refresh/status", {{ credentials: "same-origin" }});
@@ -1915,6 +1921,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
+              operationSummaryHtml(payload),
               refreshGuidanceHtml(payload),
               `<span class="refresh-layer-item"><strong>必要刷新層：</strong>${{escapeHtml((payload.required_refresh_layers || []).join("、") || "-")}}｜必要層過期=${{payload.any_stale ? "是" : "否"}}｜全部過期層=${{escapeHtml((payload.stale_layers || []).join("、") || "無")}}</span>`,
               layerHtml(layers.full_market),
