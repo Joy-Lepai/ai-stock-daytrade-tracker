@@ -90,6 +90,20 @@ class EntryRadarSummaryTests(unittest.TestCase):
         self.assertEqual(payload["blocker_code"], "missing_orderbook")
         self.assertIn("缺五檔", payload["blocker_summary"])
 
+    def test_multiple_confirmation_gaps_are_summarized_without_downgrade(self):
+        payload = build_entry_radar_summary(
+            candidate=base_candidate(entry_status="executable"),
+            data_health={"is_live": True, "can_use_for_intraday_signal": True},
+            entry_confirmation={"large_trade_status": "missing", "orderbook_status": "missing"},
+        ).to_dict()
+
+        self.assertEqual(payload["entry_state"], "可進場觀察")
+        self.assertEqual(payload["blocker_code"], "missing_tick")
+        self.assertIn("缺逐筆成交", payload["blocker_summary"])
+        self.assertIn("缺五檔委買委賣", payload["blocker_summary"])
+        self.assertIn("缺逐筆成交", payload["confirmation_note"])
+        self.assertIn("缺五檔委買委賣", payload["confirmation_note"])
+
     def test_closed_review_does_not_show_intraday_entry(self):
         payload = build_entry_radar_summary(
             candidate=base_candidate(entry_status="executable"),

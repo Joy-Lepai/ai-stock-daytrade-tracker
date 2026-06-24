@@ -42,6 +42,8 @@ def build_entry_radar_summary(
     entry_state = _entry_state(candidate, data_health, entry_confirmation, safety, top, market_mode=market_mode, intraday=intraday)
     confirmation_note = _confirmation_note(confirmation_reasons)
     blocker_summary = str(top.get("message") or "核心條件大致接近，仍需等待盤中確認。")
+    if bool(top.get("confirmation_only")) and confirmation_note:
+        blocker_summary = confirmation_note
     if confirmation_note and confirmation_note not in blocker_summary and _entry_status(candidate) in {"high_risk", "avoid"}:
         blocker_summary = f"{blocker_summary}，且{confirmation_note}"
     return EntryRadarSummary(
