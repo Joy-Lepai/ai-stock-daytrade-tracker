@@ -15,9 +15,9 @@ on:
 jobs:
   layered-refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
-      DASHBOARD_URL: https://stock.letslepai.com
+      DASHBOARD_URL: ${{ vars.STOCK_DASHBOARD_URL || 'https://stock.letslepai.com' }}
     steps:
       - name: Trigger layered Render refresh
         run: |
@@ -41,10 +41,23 @@ jobs:
             fi
           }
 
+          print_refresh_status() {
+            echo
+            echo "Refresh status snapshot"
+            if curl --fail --show-error --silent --max-time 30 \
+              "${DASHBOARD_URL}/api/refresh/status" | python3 -m json.tool; then
+              echo "OK /api/refresh/status"
+            else
+              echo "FAILED /api/refresh/status"
+              failures=$((failures + 1))
+            fi
+          }
+
           # Post-close verification windows.
           if [ "$hour" = "06" ] || [ "$hour" = "07" ]; then
             call_endpoint "/refresh_full_market"
             call_endpoint "/refresh_post_close_validation"
+            print_refresh_status
             exit "$failures"
           fi
 
@@ -56,4 +69,5 @@ jobs:
           # Lightweight layers for regular-session tracking.
           call_endpoint "/refresh_watchlist"
           call_endpoint "/refresh_positions"
+          print_refresh_status
           exit "$failures"
