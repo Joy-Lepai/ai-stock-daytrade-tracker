@@ -196,6 +196,41 @@ def validate_dashboard_html(html: str) -> list[Check]:
     return checks
 
 
+def validate_tw_advisor_html(html: str) -> list[Check]:
+    required_markers = [
+        "個股當沖作戰卡",
+        "輸入股票代號後",
+        "本系統不是報明牌",
+        "強烈買多、買多、觀察、看空或資料不足",
+        "台積電",
+        "兆豐金",
+        "本系統僅供資料整理",
+    ]
+    forbidden_terms = [
+        "強烈看漲",
+        "做多確認",
+        "買多推薦",
+        "可執行做多",
+        "強勢做多觀察",
+    ]
+    missing_markers = [marker for marker in required_markers if marker not in html]
+    found_forbidden = [term for term in forbidden_terms if term in html]
+    checks = [
+        Check("advisor HTML loaded", bool(html.strip()), f"length={len(html)}"),
+        Check(
+            "advisor has combat-card entry copy",
+            not missing_markers,
+            f"missing={', '.join(missing_markers) if missing_markers else '-'}",
+        ),
+        Check(
+            "advisor has no legacy misleading wording",
+            not found_forbidden,
+            f"found={', '.join(found_forbidden) if found_forbidden else '-'}",
+        ),
+    ]
+    return checks
+
+
 def print_checks(title: str, checks: list[Check]) -> int:
     print(f"\n{title}")
     failures = 0
@@ -217,10 +252,12 @@ def main(argv: list[str] | None = None) -> int:
     system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
     refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
     dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
+    advisor_html = fetch_text(args.base_url, "/tw/advisor", timeout=args.timeout)
     failures = 0
     failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
     failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
+    failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
     print()
     if failures:
         print(f"Deployment verification failed: {failures} check(s) need attention.")

@@ -4,6 +4,7 @@ from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_refresh_status,
     validate_system_version,
+    validate_tw_advisor_html,
 )
 
 
@@ -118,6 +119,27 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("dashboard has core decision sections", failed)
+
+    def test_tw_advisor_html_requires_entry_copy_and_blocks_legacy_words(self):
+        required_html = """
+        個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
+        強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
+        本系統僅供資料整理
+        """
+
+        checks = validate_tw_advisor_html(required_html + " 買多推薦")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor has no legacy misleading wording", failed)
+
+        checks = validate_tw_advisor_html(required_html)
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_tw_advisor_html_detects_missing_entry_copy(self):
+        checks = validate_tw_advisor_html("個股當沖作戰卡")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor has combat-card entry copy", failed)
 
 
 if __name__ == "__main__":
