@@ -239,6 +239,27 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["refresh_guidance"]["action_endpoint"], "/refresh_watchlist")
         self.assertFalse(payload["refresh_guidance"]["can_use_dashboard"])
 
+    def test_refresh_layers_skip_when_another_layer_is_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)):
+                pass
+            coordinator = RefreshCoordinator(project, reports)
+            coordinator._global_refresh_lock.acquire()
+            try:
+                result = coordinator.refresh_watchlist()
+            finally:
+                coordinator._global_refresh_lock.release()
+
+            payload = coordinator.status_payload()
+
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(result.error, "another_refresh_running")
+        self.assertIn("避免資料庫寫入衝突", result.message)
+        self.assertEqual(payload["layers"]["watchlist"]["status"], "skipped")
+        self.assertEqual(payload["layers"]["watchlist"]["error"], "another_refresh_running")
+
 
 if __name__ == "__main__":
     unittest.main()

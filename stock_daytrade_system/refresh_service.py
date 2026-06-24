@@ -88,6 +88,7 @@ class RefreshCoordinator:
         self.tracker_timeout_seconds = tracker_timeout_seconds
         self.config_path = config_path or project_root / "config" / "watchlist.json"
         self._locks = {layer: threading.Lock() for layer in REFRESH_LAYER_STALE_SECONDS}
+        self._global_refresh_lock = threading.Lock()
 
     def refresh_manual_full(self) -> RefreshResult:
         return self._run_tracked_layer("manual_full_refresh", lambda started_at: self._run_full_tracker("manual_full_refresh"))
@@ -191,6 +192,10 @@ class RefreshCoordinator:
         if not lock.acquire(blocking=False):
             self._write_state(layer, status="skipped", error="already_running")
             return RefreshResult(layer, "skipped", "同一層刷新正在執行中，已略過本次請求。", 0.0, error="already_running")
+        if not self._global_refresh_lock.acquire(blocking=False):
+            lock.release()
+            self._write_state(layer, status="skipped", error="another_refresh_running")
+            return RefreshResult(layer, "skipped", "其他刷新層正在執行中，已略過本次請求，避免資料庫寫入衝突。", 0.0, error="another_refresh_running")
         started_at = datetime.now(ZoneInfo("Asia/Taipei"))
         monotonic_start = time.monotonic()
         self._write_state(layer, status="running", started_at=started_at, error="")
@@ -218,6 +223,7 @@ class RefreshCoordinator:
             self._write_state(layer, status="failed", started_at=started_at, duration_seconds=duration, error=str(exc))
             return RefreshResult(layer, "failed", "刷新失敗，已保留上一筆可用資料。", duration, error=str(exc))
         finally:
+            self._global_refresh_lock.release()
             lock.release()
 
     def _run_full_tracker(self, layer: str) -> tuple[int, str]:
