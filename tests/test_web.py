@@ -3,11 +3,13 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.web import (
+    WebApp,
     _current_commit_hash,
     _extract_body,
     _extract_style,
     _notification_signals_payload,
     _refresh_redirect_location,
+    _scheduled_refresh_layers,
     _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
     latest_tracker_file,
@@ -212,6 +214,69 @@ class WebTests(unittest.TestCase):
             _scheduled_tracker_interval(datetime(2026, 6, 20, 9, 30, tzinfo=tw)),
             (None, "週末休市"),
         )
+
+    def test_scheduled_refresh_layers_use_layered_intraday_plan(self):
+        tw = ZoneInfo("Asia/Taipei")
+
+        self.assertEqual(
+            _scheduled_refresh_layers(datetime(2026, 6, 17, 8, 30, tzinfo=tw)),
+            [("full_market", 1800, "開盤前觀察池")],
+        )
+        self.assertEqual(
+            _scheduled_refresh_layers(datetime(2026, 6, 17, 9, 30, tzinfo=tw)),
+            [
+                ("full_market", 900, "台股盤中全市場慢掃"),
+                ("watchlist", 300, "台股盤中重點觀察快追"),
+                ("positions", 300, "台股盤中持倉與觸發控風險"),
+            ],
+        )
+        self.assertEqual(
+            _scheduled_refresh_layers(datetime(2026, 6, 17, 13, 45, tzinfo=tw)),
+            [
+                ("full_market", 900, "收盤後全市場整理"),
+                ("post_close_validation", 900, "收盤後盤後驗證"),
+            ],
+        )
+        self.assertEqual(_scheduled_refresh_layers(datetime(2026, 6, 20, 9, 30, tzinfo=tw)), [])
+
+    def test_web_scheduler_runs_due_layers_without_repeating_fresh_layer(self):
+        import tempfile
+        from pathlib import Path
+
+        tw = ZoneInfo("Asia/Taipei")
+        with tempfile.TemporaryDirectory() as directory:
+            app = WebApp(None, report_dir=Path(directory))
+            calls = []
+
+            class FakeResult:
+                message = "ok"
+
+            class FakeCoordinator:
+                def refresh_full_market(self):
+                    calls.append("full_market")
+                    return FakeResult()
+
+                def refresh_watchlist(self):
+                    calls.append("watchlist")
+                    return FakeResult()
+
+                def refresh_positions(self):
+                    calls.append("positions")
+                    return FakeResult()
+
+                def refresh_post_close_validation(self):
+                    calls.append("post_close_validation")
+                    return FakeResult()
+
+            app.refresh_coordinator = FakeCoordinator()
+            first = app._run_scheduled_refresh_once(datetime(2026, 6, 17, 9, 30, tzinfo=tw))
+            second = app._run_scheduled_refresh_once(datetime(2026, 6, 17, 9, 31, tzinfo=tw))
+            third = app._run_scheduled_refresh_once(datetime(2026, 6, 17, 9, 36, tzinfo=tw))
+
+            self.assertEqual(first, ["full_market", "watchlist", "positions"])
+            self.assertEqual(second, [])
+            self.assertEqual(third, ["watchlist", "positions"])
+            self.assertEqual(calls, ["full_market", "watchlist", "positions", "watchlist", "positions"])
 
     def test_dashboard_shell_polls_refresh_status_without_auto_refresh(self):
         html = render_shell("<main>ok</main>", active_file="today.html")

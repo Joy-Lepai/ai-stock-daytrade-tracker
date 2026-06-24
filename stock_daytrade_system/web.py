@@ -50,6 +50,8 @@ TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_S
 WEB_SCHEDULER_POLL_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_POLL_SECONDS", "30"))
 TW_PREMARKET_REFRESH_SECONDS = int(os.getenv("STOCK_TW_PREMARKET_REFRESH_SECONDS", "1800"))
 TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "900"))
+TW_WATCHLIST_REFRESH_SECONDS = int(os.getenv("STOCK_TW_WATCHLIST_REFRESH_SECONDS", "300"))
+TW_POSITIONS_REFRESH_SECONDS = int(os.getenv("STOCK_TW_POSITIONS_REFRESH_SECONDS", "300"))
 TW_AFTER_CLOSE_REFRESH_SECONDS = int(os.getenv("STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS", "900"))
 
 
@@ -70,6 +72,7 @@ class WebApp:
         self.background_refresh_threads: Dict[str, threading.Thread] = {}
         self.background_refresh_lock = threading.Lock()
         self.last_scheduled_refresh_at: Optional[datetime] = None
+        self.last_scheduled_refresh_at_by_layer: Dict[str, datetime] = {}
         self.last_scheduled_refresh_status = "尚未執行"
 
     def create_session(self, username: str) -> str:
@@ -95,17 +98,38 @@ class WebApp:
     def _scheduler_loop(self) -> None:
         while True:
             now = datetime.now(ZoneInfo("Asia/Taipei"))
-            interval, label = _scheduled_tracker_interval(now)
-            if interval is not None and self._scheduled_refresh_due(now, interval):
-                self.last_scheduled_refresh_at = now
-                result = self.refresh_coordinator.refresh_full_market()
-                self.last_scheduled_refresh_status = result.message or f"{label} 更新完成"
+            self._run_scheduled_refresh_once(now)
             time_module.sleep(max(WEB_SCHEDULER_POLL_SECONDS, 5))
 
-    def _scheduled_refresh_due(self, now: datetime, interval_seconds: int) -> bool:
-        if self.last_scheduled_refresh_at is None:
+    def _run_scheduled_refresh_once(self, now: datetime) -> list[str]:
+        executed: list[str] = []
+        for layer, interval_seconds, label in _scheduled_refresh_layers(now):
+            if not self._scheduled_refresh_due(now, interval_seconds, layer):
+                continue
+            self.last_scheduled_refresh_at = now
+            self.last_scheduled_refresh_at_by_layer[layer] = now
+            result = self._run_scheduled_layer(layer)
+            self.last_scheduled_refresh_status = result.message or f"{label} 更新完成"
+            executed.append(layer)
+        return executed
+
+    def _scheduled_refresh_due(self, now: datetime, interval_seconds: int, layer: str = "full_market") -> bool:
+        last_run = self.last_scheduled_refresh_at_by_layer.get(layer)
+        if last_run is None:
             return True
-        return (now - self.last_scheduled_refresh_at).total_seconds() >= interval_seconds
+        return (now - last_run).total_seconds() >= interval_seconds
+
+    def _run_scheduled_layer(self, layer: str):
+        coordinator = self.refresh_coordinator
+        if layer == "full_market":
+            return coordinator.refresh_full_market()
+        if layer == "watchlist":
+            return coordinator.refresh_watchlist()
+        if layer == "positions":
+            return coordinator.refresh_positions()
+        if layer == "post_close_validation":
+            return coordinator.refresh_post_close_validation()
+        return coordinator.refresh_full_market()
 
     def start_background_refresh(self, layer: str) -> bool:
         with self.background_refresh_lock:
@@ -670,6 +694,31 @@ def _scheduled_tracker_interval(now: Optional[datetime] = None) -> tuple[Optiona
     if dt_time(13, 30) <= current < dt_time(14, 30):
         return TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後回測"
     return None, "非排程更新時段"
+
+
+def _scheduled_refresh_layers(now: Optional[datetime] = None) -> list[tuple[str, int, str]]:
+    local_now = now or datetime.now(ZoneInfo("Asia/Taipei"))
+    if local_now.tzinfo is None:
+        local_now = local_now.replace(tzinfo=ZoneInfo("Asia/Taipei"))
+    else:
+        local_now = local_now.astimezone(ZoneInfo("Asia/Taipei"))
+    if local_now.weekday() >= 5:
+        return []
+    current = local_now.time()
+    if dt_time(7, 0) <= current < dt_time(9, 0):
+        return [("full_market", TW_PREMARKET_REFRESH_SECONDS, "開盤前觀察池")]
+    if dt_time(9, 0) <= current < dt_time(13, 30):
+        return [
+            ("full_market", TW_INTRADAY_REFRESH_SECONDS, "台股盤中全市場慢掃"),
+            ("watchlist", TW_WATCHLIST_REFRESH_SECONDS, "台股盤中重點觀察快追"),
+            ("positions", TW_POSITIONS_REFRESH_SECONDS, "台股盤中持倉與觸發控風險"),
+        ]
+    if dt_time(13, 30) <= current < dt_time(14, 30):
+        return [
+            ("full_market", TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後全市場整理"),
+            ("post_close_validation", TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後盤後驗證"),
+        ]
+    return []
 
 
 def _safe_refresh_tracker(report_dir: Path, refresh_lock: Optional[threading.Lock] = None, wait: bool = True) -> str:

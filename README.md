@@ -242,7 +242,7 @@ SHIOAJI_HTTP_BASE_URL=https://你的內部報價服務
 公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：
 
 - 台股交易日 07:00-09:00：每 30 分鐘更新開盤前觀察池。
-- 台股交易日 09:00-13:30：每 5 分鐘更新盤中 VWAP、量比、突破、B+ 觸發與回測狀態。
+- 台股交易日 09:00-13:30：全市場慢掃每 15 分鐘；重點觀察與持倉 / 觸發控風險每 5 分鐘。
 - 台股交易日 13:30-14:30：每 15 分鐘更新收盤後回測與明日觀察池。
 
 可用環境變數調整：
@@ -250,7 +250,9 @@ SHIOAJI_HTTP_BASE_URL=https://你的內部報價服務
 ```text
 STOCK_ENABLE_WEB_SCHEDULER=1
 STOCK_TW_PREMARKET_REFRESH_SECONDS=1800
-STOCK_TW_INTRADAY_REFRESH_SECONDS=300
+STOCK_TW_INTRADAY_REFRESH_SECONDS=900
+STOCK_TW_WATCHLIST_REFRESH_SECONDS=300
+STOCK_TW_POSITIONS_REFRESH_SECONDS=300
 STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS=900
 ```
 
