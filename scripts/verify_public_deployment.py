@@ -40,6 +40,18 @@ def fetch_json(base_url: str, path: str, timeout: float = 15.0) -> dict[str, Any
     return payload
 
 
+def fetch_text(base_url: str, path: str, timeout: float = 15.0) -> str:
+    url = base_url.rstrip("/") + path
+    request = urllib.request.Request(url, headers={"Accept": "text/html"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"{url} returned HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"{url} failed: {exc.reason}") from exc
+
+
 def local_git_commit() -> str:
     try:
         return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -144,6 +156,46 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
     return checks
 
 
+def validate_dashboard_html(html: str) -> list[Check]:
+    required_markers = [
+        "今日決策摘要",
+        "今日資料可信度",
+        "最接近強烈買多",
+        "買多觀察池",
+        "進場雷達成績單",
+        "資料健康度",
+        "台股全市場異動掃描池",
+        "漏抓股票診斷",
+        "強烈買多漏斗",
+        "系統狀態與資料來源",
+    ]
+    forbidden_terms = [
+        "強烈看漲",
+        "做多確認",
+        "買多推薦",
+        "可執行做多",
+        "強勢做多觀察",
+        "舊版參考：今日看漲焦點",
+        "舊版參考：系統自動選股",
+    ]
+    missing_markers = [marker for marker in required_markers if marker not in html]
+    found_forbidden = [term for term in forbidden_terms if term in html]
+    checks = [
+        Check("dashboard HTML loaded", bool(html.strip()), f"length={len(html)}"),
+        Check(
+            "dashboard has core decision sections",
+            not missing_markers,
+            f"missing={', '.join(missing_markers) if missing_markers else '-'}",
+        ),
+        Check(
+            "dashboard has no legacy misleading wording",
+            not found_forbidden,
+            f"found={', '.join(found_forbidden) if found_forbidden else '-'}",
+        ),
+    ]
+    return checks
+
+
 def print_checks(title: str, checks: list[Check]) -> int:
     print(f"\n{title}")
     failures = 0
@@ -164,9 +216,11 @@ def main(argv: list[str] | None = None) -> int:
 
     system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
     refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
+    dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
     failures = 0
     failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
     failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
+    failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     print()
     if failures:
         print(f"Deployment verification failed: {failures} check(s) need attention.")

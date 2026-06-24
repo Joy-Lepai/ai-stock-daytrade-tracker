@@ -1,6 +1,7 @@
 import unittest
 
 from scripts.verify_public_deployment import (
+    validate_dashboard_html,
     validate_refresh_status,
     validate_system_version,
 )
@@ -96,6 +97,27 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("stale market mode blocks operation summary", failed)
+
+    def test_dashboard_html_requires_core_sections_and_blocks_legacy_words(self):
+        required_html = """
+        今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        """
+
+        checks = validate_dashboard_html(required_html + " 做多確認")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("dashboard has no legacy misleading wording", failed)
+
+        checks = validate_dashboard_html(required_html)
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_dashboard_html_detects_missing_core_sections(self):
+        checks = validate_dashboard_html("今日決策摘要")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("dashboard has core decision sections", failed)
 
 
 if __name__ == "__main__":
