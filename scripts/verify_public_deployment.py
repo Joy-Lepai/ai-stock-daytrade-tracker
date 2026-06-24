@@ -94,6 +94,8 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
     required_layers = list(payload.get("required_refresh_layers") or [])
     required_stale = list(payload.get("required_stale_layers") or [])
     price = payload.get("price_status_summary") or {}
+    operation = payload.get("refresh_operation_summary") or {}
+    operation_severity = str(operation.get("severity") or "")
     allow_strong = bool(payload.get("allow_strong_long"))
     checks = [
         Check("refresh API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
@@ -109,7 +111,28 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             bool(price),
             f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}",
         ),
+        Check(
+            "refresh operation summary present",
+            bool(operation.get("message")),
+            f"severity={operation_severity or '-'} message={operation.get('message') or '-'}",
+        ),
     ]
+    if required_stale:
+        checks.append(
+            Check(
+                "required stale layers block operation summary",
+                operation_severity == "block",
+                f"required_stale={', '.join(required_stale)} operation_severity={operation_severity or '-'}",
+            )
+        )
+    if mode == "stale_data":
+        checks.append(
+            Check(
+                "stale market mode blocks operation summary",
+                operation_severity == "block",
+                f"market_mode={mode} operation_severity={operation_severity or '-'}",
+            )
+        )
     if mode != "intraday":
         checks.append(
             Check(
