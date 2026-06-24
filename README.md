@@ -169,12 +169,32 @@ python3 -m py_compile stock_daytrade_system/*.py
 python3 scripts/verify_public_deployment.py --base-url https://stock.letslepai.com
 ```
 
+若要同時驗證單檔個股作戰卡 API，例如康霈 `6919`：
+
+```bash
+python3 scripts/verify_public_deployment.py \
+  --base-url https://stock.letslepai.com \
+  --advisor-symbol 6919
+```
+
 若要指定應該部署的 commit：
 
 ```bash
 python3 scripts/verify_public_deployment.py \
   --base-url https://stock.letslepai.com \
   --expected-commit 你的_git_commit
+```
+
+也可以用一鍵檢查腳本，預設檢查 `https://stock.letslepai.com` 與 `6919`：
+
+```bash
+./scripts/check_public_readiness.sh
+```
+
+參數順序為 `公開網址 個股代號 預期commit`：
+
+```bash
+./scripts/check_public_readiness.sh https://stock.letslepai.com 6919 你的_git_commit
 ```
 
 驗收會檢查：
@@ -184,8 +204,10 @@ python3 scripts/verify_public_deployment.py \
 - 需要的刷新層是否新鮮
 - 非盤中 / 開盤前 / 休市是否禁止顯示即時強烈買多
 - `/api/system/version` 與 `/api/refresh/status` 是否正常回傳
+- `/tw/advisor` 是否顯示個股當沖作戰卡入口
+- 指定個股的 `/api/tw/scan/symbol` 是否回傳資料健康度、市場模式、四分類與進場雷達
 
-也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址與預期 commit，即可在 Actions 裡看到 PASS / FAIL。
+也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址、預期 commit 與 advisor symbol，即可在 Actions 裡看到 PASS / FAIL。
 
 ### Shioaji 永豐金報價接入（選用）
 
