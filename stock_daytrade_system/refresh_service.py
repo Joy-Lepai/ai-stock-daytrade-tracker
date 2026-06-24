@@ -780,6 +780,9 @@ def _refresh_operation_summary(
     if blocking_layers:
         message = f"必要資料層需處理：{_layer_labels(blocking_layers)}。先更新後再判斷。"
         severity = "block"
+    elif str(market_mode.get("mode") or "") == "stale_data":
+        message = "目前市場模式為資料異常，dashboard 僅供檢查，不應作為盤中進場依據。"
+        severity = "block"
     elif required_running:
         message = f"必要資料層更新中：{_layer_labels(required_running)}。請等待完成。"
         severity = "warn"

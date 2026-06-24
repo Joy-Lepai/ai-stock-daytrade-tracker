@@ -5,7 +5,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
-from stock_daytrade_system.refresh_service import RefreshCoordinator, _layer_has_usable_fresh_success
+from stock_daytrade_system.refresh_service import (
+    RefreshCoordinator,
+    _layer_has_usable_fresh_success,
+    _refresh_operation_summary,
+)
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
 
@@ -333,6 +337,24 @@ class RefreshServiceTests(unittest.TestCase):
                 {"status": "failed", "last_success_at": "2026-06-25T09:29:00+08:00", "is_stale": False}
             )
         )
+
+    def test_refresh_operation_summary_blocks_stale_market_mode_even_when_layers_look_ok(self):
+        layers = {
+            "full_market": {"status": "success", "is_stale": False},
+            "watchlist": {"status": "success", "is_stale": False},
+            "positions": {"status": "success", "is_stale": False},
+        }
+
+        summary = _refresh_operation_summary(
+            layers,
+            required_layers=["full_market", "watchlist"],
+            required_stale_layers=[],
+            market_mode={"mode": "stale_data"},
+        )
+
+        self.assertEqual(summary["severity"], "block")
+        self.assertFalse(summary["can_use_dashboard"])
+        self.assertIn("資料異常", summary["message"])
 
 
 if __name__ == "__main__":
