@@ -549,6 +549,7 @@ def render_tracker_html(
   </header>
   <main>
     {_market_mode_panel(long_summary, report_time)}
+    {_today_playbook_panel(long_summary, report_time)}
     {_decision_overview(long_summary, report_time)}
     {_precision_gap_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
@@ -829,6 +830,61 @@ def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dic
     return "今日沒有強烈買多標的；" + ("、".join(waits) if waits else "主要條件尚未完整確認。")
 
 
+def _today_playbook_panel(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    mode = _dashboard_market_mode(summary, report_time)
+    front_context = _front_context(summary, mode)
+    front_counts = front_trade_counts(list(summary.candidates) if summary else [], **front_context)["counts"]
+    checklist = summary.recommendation_checklist if summary else {}
+    strong = int(front_counts.get("強烈買多", 0) or 0)
+    buy = int(front_counts.get("買多", 0) or 0)
+    watch = int(front_counts.get("觀察", 0) or 0)
+    bearish = int(front_counts.get("看空", 0) or 0)
+    radar_passed = int(checklist.get("executable", 0) or 0)
+    mode_name = str(mode.get("mode") or "")
+
+    if mode_name == "intraday":
+        headline = "盤中作戰：只盯通過資料與風控的標的"
+        step_one = f"先看強烈買多 {strong} 檔、買多 {buy} 檔；進場雷達通過 {radar_passed} 檔才進入下一步。"
+        step_two = "每檔都要確認 VWAP、量比、突破、停損距離與資料狀態；high_risk 只觀察，不追價。"
+        step_three = "若資料轉 delayed / cached / missing，立刻降為觀察；持倉只依停損、停利與失效條件處理。"
+    elif mode_name == "pre_open_prepare":
+        headline = "開盤前作戰：先挑清單，不提前進場"
+        step_one = f"目前只整理上一交易日觀察池：觀察 {watch} 檔、看空 {bearish} 檔；不顯示即時買多。"
+        step_two = "09:00 後先等 5 到 10 分鐘，確認今日 VWAP、量比、開盤區間與是否突破。"
+        step_three = "只把最接近條件的 5 檔放進重點盯盤；資料沒有 live 前，不做強烈買多判斷。"
+    elif mode_name == "closed_review":
+        headline = "休市作戰：復盤與準備下個交易日"
+        step_one = "檢查上一交易日哪些股票有動能，但不要把它當成即時訊號。"
+        step_two = "優先看下個交易日觀察清單、真假突破結果與 high_risk 是否過度保守。"
+        step_three = "下個交易日開盤後，再用 VWAP、量比與進場雷達重新確認。"
+    elif mode_name == "post_close_review":
+        headline = "盤後作戰：驗證今天，整理明天"
+        step_one = "檢查今日強烈買多、買多與觀察股後續表現。"
+        step_two = "看停利 / 停損 / 最大回撤，找出模型太嚴或太鬆的地方。"
+        step_three = "只把盤後驗證後仍有結構的股票放入明日觀察，不追高。"
+    else:
+        headline = "資料防呆：目前不適合交易"
+        step_one = "資料過期、缺漏或刷新狀態不一致時，不產生即時買多。"
+        step_two = "先按「更新重點觀察」或等待自動刷新；確認資料狀態恢復 live。"
+        step_three = "資料沒有恢復前，只能復盤與觀察，不能作為進場依據。"
+
+    rows = "".join(
+        f'<div class="decision-panel"><strong>{escape(title)}</strong><p class="muted">{escape(text)}</p></div>'
+        for title, text in (
+            ("1. 現在先做", step_one),
+            ("2. 等待確認", step_two),
+            ("3. 風控底線", step_three),
+        )
+    )
+    return (
+        '<section class="decision-center">'
+        '<h2>今日作戰流程</h2>'
+        f'<section class="notice"><strong>{escape(headline)}</strong></section>'
+        f'<div class="decision-grid">{rows}</div>'
+        '</section>'
+    )
+
+
 def _mode_aware_data_confidence(health: dict, mode: dict) -> str:
     if mode.get("mode") == "pre_open_prepare" and mode.get("is_data_current_for_mode"):
         status = str(health.get("status") or "").strip()
@@ -887,7 +943,13 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
     executable_count = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
     tendency = data.get("operation_tendency") or "資料不足"
     confidence = _mode_aware_data_confidence(health, mode)
-    if strong_long_count <= 0:
+    if mode.get("mode") == "pre_open_prepare":
+        reminder = "目前是開盤前準備模式；以下只整理上一交易日觀察清單。請等開盤後確認今日 VWAP、量比、突破與進場雷達，不要提前當成即時買多。"
+    elif mode.get("mode") == "closed_review":
+        reminder = "目前是休市復盤模式；以下只供復盤與下個交易日觀察，不提供即時買多判斷。"
+    elif mode.get("mode") == "post_close_review":
+        reminder = "目前是盤後復盤模式；請用來檢查今日訊號結果與下個交易日觀察清單，不提供即時買多判斷。"
+    elif strong_long_count <= 0:
         reminder = f"今日沒有強烈買多標的，主要原因：{_strong_long_blocker_summary(strong_funnel)}。建議保守觀望；買多與練習買多都必須等待條件確認。"
     else:
         reminder = (

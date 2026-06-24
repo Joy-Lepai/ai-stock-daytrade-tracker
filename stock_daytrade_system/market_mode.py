@@ -72,7 +72,7 @@ def evaluate_tw_market_mode(
     last_trading = _last_trading_date(local_now)
     raw_data_date = _parse_date(data_date)
     parsed_data_date = raw_data_date or last_trading
-    if not is_trading_day and parsed_data_date == today:
+    if (not is_trading_day or is_pre_open) and parsed_data_date == today:
         parsed_data_date = last_trading
     latest_dt = _parse_datetime(latest_data_at)
 

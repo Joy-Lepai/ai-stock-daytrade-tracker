@@ -109,6 +109,7 @@ class RefreshCoordinator:
         with connect(db_path) as conn:
             rows = [dict(row) for row in refresh_state_rows(conn)]
             data_meta = _latest_data_meta(conn)
+            inferred_layers = _latest_layer_data_meta(conn)
             price_status = _price_status_summary(conn, now=datetime.now(ZoneInfo("Asia/Taipei")))
         now = datetime.now(ZoneInfo("Asia/Taipei"))
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
@@ -116,6 +117,7 @@ class RefreshCoordinator:
             layer = row["layer"]
             if layer in by_layer:
                 by_layer[layer] = _layer_status(row, now)
+        _apply_inferred_layer_statuses(by_layer, inferred_layers, now)
         any_stale = any(item["is_stale"] for item in by_layer.values())
         source_health = health_status_snapshot()
         source_health_compact = health_status_compact()
@@ -402,6 +404,62 @@ def _latest_data_meta(conn) -> dict:
     data_date = (intraday["data_date"] if intraday else None) or (full_market["data_date"] if full_market else None)
     latest_data_at = (intraday["captured_at"] if intraday else None) or (full_market["captured_at"] if full_market else None)
     return {"data_date": data_date, "latest_data_at": latest_data_at}
+
+
+def _latest_layer_data_meta(conn) -> dict:
+    full_market = conn.execute(
+        """
+        SELECT captured_at, COUNT(*) AS symbols_count
+        FROM tw_full_market_snapshots
+        WHERE captured_at = (SELECT MAX(captured_at) FROM tw_full_market_snapshots)
+        GROUP BY captured_at
+        """
+    ).fetchone()
+    intraday = conn.execute(
+        """
+        SELECT captured_at, COUNT(*) AS symbols_count
+        FROM intraday_snapshots
+        WHERE captured_at = (SELECT MAX(captured_at) FROM intraday_snapshots)
+        GROUP BY captured_at
+        """
+    ).fetchone()
+    return {
+        "full_market": {
+            "captured_at": full_market["captured_at"] if full_market else None,
+            "symbols_count": int(full_market["symbols_count"] or 0) if full_market else 0,
+        },
+        "watchlist": {
+            "captured_at": intraday["captured_at"] if intraday else None,
+            "symbols_count": int(intraday["symbols_count"] or 0) if intraday else 0,
+        },
+    }
+
+
+def _apply_inferred_layer_statuses(by_layer: dict[str, dict], inferred_layers: dict, now: datetime) -> None:
+    for layer, meta in (inferred_layers or {}).items():
+        if layer not in by_layer:
+            continue
+        if by_layer[layer].get("status") not in {"idle", "skipped"}:
+            continue
+        captured_at = _parse_datetime((meta or {}).get("captured_at"))
+        if not captured_at:
+            continue
+        stale_after = int(by_layer[layer].get("stale_after_seconds") or REFRESH_LAYER_STALE_SECONDS[layer])
+        age_seconds = (now - captured_at).total_seconds()
+        is_stale = age_seconds > stale_after
+        by_layer[layer].update(
+            {
+                "last_started_at": captured_at.isoformat(timespec="seconds"),
+                "last_success_at": captured_at.isoformat(timespec="seconds"),
+                "duration_seconds": 0.0,
+                "status": "stale" if is_stale else "success",
+                "symbols_count": int((meta or {}).get("symbols_count") or 0),
+                "error": "inferred_from_latest_snapshot",
+                "age_seconds": round(age_seconds, 1),
+                "is_stale": is_stale,
+                "stale_label": "已過期" if is_stale else "正常",
+            }
+        )
 
 
 def _empty_layer_status(layer: str, now: datetime) -> dict:

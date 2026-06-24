@@ -1,6 +1,8 @@
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price
 from stock_daytrade_system.refresh_service import RefreshCoordinator
@@ -103,6 +105,46 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertIn("cached_count", summary)
         self.assertGreaterEqual(summary["cached_count"], 0)
         self.assertIn("missing_ratio", summary)
+
+    def test_status_payload_infers_layers_from_latest_snapshots(self):
+        now = datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds")
+        today = datetime.now(ZoneInfo("Asia/Taipei")).date().isoformat()
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, price, change_pct, volume,
+                      turnover, volume_ratio, vwap, above_vwap, break_prev_high,
+                      break_5d_high, entered_candidate_pool, entered_ai_candidates,
+                      ai_grade, entry_status, trade_bias, data_status, created_at
+                    ) VALUES (?, ?, '2330.TW', '台積電', 100, 1, 1000,
+                      100000, 1.2, 99.5, 1, 1, 1, 1, 1,
+                      'A', 'wait_breakout', 'long', 'ok', ?)
+                    """,
+                    (now, today, now),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap,
+                      above_vwap, volume_ratio, opening_range_high, opening_range_low
+                    ) VALUES (?, ?, '2330.TW', 100, 1000, 100000, 99.5, 1, 1.2, 101, 98)
+                    """,
+                    (now, today),
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload()
+            layers = payload["layers"]
+
+        self.assertEqual(layers["full_market"]["status"], "success")
+        self.assertEqual(layers["full_market"]["symbols_count"], 1)
+        self.assertEqual(layers["full_market"]["error"], "inferred_from_latest_snapshot")
+        self.assertEqual(layers["watchlist"]["status"], "success")
+        self.assertEqual(layers["watchlist"]["symbols_count"], 1)
 
 
 if __name__ == "__main__":

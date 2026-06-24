@@ -11,12 +11,14 @@ from stock_daytrade_system.tracker import (
     _bullish_focus_table,
     _change_number,
     _data_status_block,
+    _decision_overview,
     _entry_radar_scorecard_panel,
     _entry_status_message,
     _focus_card,
     _fugle_priority_pool_panel,
     _market_mode_panel,
     _recommendation_checklist_table,
+    _today_playbook_panel,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
     _trend_continuation_panel,
@@ -849,6 +851,62 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("休市復盤：使用上一交易日資料", html)
         self.assertNotIn("資料異常模式", html)
         self.assertNotIn("資料已過期或缺漏嚴重", html)
+
+    def test_pre_open_decision_overview_uses_actionable_copy_not_debug_counts(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-06-24",
+                    "latest_intraday_at": "2026-06-24T13:30:00+08:00",
+                },
+                "strong_long_funnel": {
+                    "top_blockers": [
+                        {"reason": "使用上一筆", "count": 118},
+                        {"reason": "資料不是今天", "count": 118},
+                    ]
+                },
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 25, 8, 50))
+
+        self.assertIn("開盤前準備模式", html)
+        self.assertIn("請等開盤後確認今日 VWAP、量比、突破與進場雷達", html)
+        self.assertNotIn("使用上一筆 118 檔", html)
+
+    def test_today_playbook_pre_open_gives_three_step_action_plan(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-06-24",
+                    "latest_intraday_at": "2026-06-24T13:30:00+08:00",
+                }
+            },
+        )
+
+        html = _today_playbook_panel(summary, datetime(2026, 6, 25, 8, 50))
+
+        self.assertIn("今日作戰流程", html)
+        self.assertIn("開盤前作戰：先挑清單，不提前進場", html)
+        self.assertIn("09:00 後先等 5 到 10 分鐘", html)
+        self.assertIn("資料沒有 live 前，不做強烈買多判斷", html)
 
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(
