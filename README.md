@@ -185,6 +185,8 @@ python3 scripts/verify_public_deployment.py \
 - 非盤中 / 開盤前 / 休市是否禁止顯示即時強烈買多
 - `/api/system/version` 與 `/api/refresh/status` 是否正常回傳
 
+也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址與預期 commit，即可在 Actions 裡看到 PASS / FAIL。
+
 ### Shioaji 永豐金報價接入（選用）
 
 本系統可選擇接入 Shioaji 作為台股即時報價背景資料，用來補強個股頁的盤口確認。第一版只讀行情，不下單、不送委託、不需要把交易功能打開。

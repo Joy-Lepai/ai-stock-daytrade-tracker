@@ -1,0 +1,33 @@
+name: Verify Public Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Public dashboard base URL"
+        required: false
+        default: "https://stock.letslepai.com"
+      expected_commit:
+        description: "Expected deployed commit. Leave blank to use this workflow commit."
+        required: false
+        default: ""
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify public deployment
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.inputs.expected_commit }}"
+          if [ -z "$expected" ]; then
+            expected="${GITHUB_SHA}"
+          fi
+          python3 scripts/verify_public_deployment.py \
+            --base-url "${{ github.event.inputs.base_url }}" \
+            --expected-commit "$expected" \
+            --timeout 20
