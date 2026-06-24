@@ -13,6 +13,7 @@ from stock_daytrade_system.tw_momentum_scanner import (
     normalize_tw_symbol,
     scan_momentum_candidates,
     scan_single_symbol,
+    watch_symbol_for,
 )
 
 
@@ -46,10 +47,24 @@ class TWMomentumScannerTests(unittest.TestCase):
         self.assertIn("6191.TW", symbols)
         self.assertIn("6919.TW", symbols)
         self.assertIn("8110.TW", symbols)
+        self.assertIn("3260.TWO", symbols)
+        self.assertIn("6485.TWO", symbols)
+        self.assertIn("3529.TWO", symbols)
+        self.assertIn("4966.TWO", symbols)
+        self.assertNotIn("3260.TW", symbols)
+        self.assertNotIn("6485.TW", symbols)
+        self.assertNotIn("3529.TW", symbols)
+        self.assertNotIn("4966.TW", symbols)
 
     def test_normalizes_manual_symbol_and_alias(self):
         self.assertEqual(normalize_tw_symbol("6770"), "6770.TW")
         self.assertEqual(normalize_tw_symbol("力積電"), "6770.TW")
+
+    def test_known_tpex_seed_codes_use_two_suffix_when_user_enters_digits(self):
+        self.assertEqual(watch_symbol_for("3260").symbol, "3260.TWO")
+        self.assertEqual(watch_symbol_for("點序").symbol, "6485.TWO")
+        self.assertEqual(watch_symbol_for("力旺").symbol, "3529.TWO")
+        self.assertEqual(watch_symbol_for("譜瑞-KY").symbol, "4966.TWO")
 
     def test_latest_timestamp_is_displayed_as_taipei_time(self):
         self.assertEqual(_taipei_time(datetime(2026, 6, 18, 4, 17, 18)), "2026-06-18T12:17:18+08:00")

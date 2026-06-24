@@ -20,12 +20,12 @@ MOMENTUM_SEED_SYMBOLS = [
     WatchSymbol("6919.TW", "康霈生技", "biotech"),
     WatchSymbol("8110.TW", "華東", "semiconductor"),
     WatchSymbol("6239.TW", "力成", "semiconductor"),
-    WatchSymbol("3260.TW", "威剛", "memory"),
-    WatchSymbol("6485.TW", "點序", "memory"),
+    WatchSymbol("3260.TWO", "威剛", "memory"),
+    WatchSymbol("6485.TWO", "點序", "memory"),
     WatchSymbol("4967.TW", "十銓", "memory"),
     WatchSymbol("3006.TW", "晶豪科", "memory"),
     WatchSymbol("3035.TW", "智原", "semiconductor"),
-    WatchSymbol("3529.TW", "力旺", "semiconductor"),
+    WatchSymbol("3529.TWO", "力旺", "semiconductor"),
     WatchSymbol("3653.TW", "健策", "thermal"),
     WatchSymbol("6781.TW", "AES-KY", "battery"),
     WatchSymbol("2367.TW", "燿華", "pcb"),
@@ -41,7 +41,7 @@ MOMENTUM_SEED_SYMBOLS = [
     WatchSymbol("8996.TW", "高力", "thermal"),
     WatchSymbol("4763.TW", "材料-KY", "materials"),
     WatchSymbol("6446.TW", "藥華藥", "biotech"),
-    WatchSymbol("4966.TW", "譜瑞-KY", "semiconductor"),
+    WatchSymbol("4966.TWO", "譜瑞-KY", "semiconductor"),
     WatchSymbol("1560.TW", "中砂", "semiconductor"),
 ]
 
@@ -53,6 +53,11 @@ SYMBOL_ALIASES = {
     "康霈": "6919.TW",
     "康霈生技": "6919.TW",
     "華東": "8110.TW",
+    "威剛": "3260.TWO",
+    "點序": "6485.TWO",
+    "力旺": "3529.TWO",
+    "譜瑞": "4966.TWO",
+    "譜瑞-KY": "4966.TWO",
     "台積電": "2330.TW",
     "台塑": "1301.TW",
     "華邦電": "2344.TW",
@@ -152,6 +157,10 @@ def watch_symbol_for(value: str, known_symbols: Iterable[WatchSymbol] = ()) -> W
     known = {item.symbol: item for item in known_items}
     if symbol in known:
         return known[symbol]
+    if symbol.endswith(".TW"):
+        tpex_symbol = symbol.removesuffix(".TW") + ".TWO"
+        if tpex_symbol in known:
+            return known[tpex_symbol]
     name_match = next((item for item in known_items if item.name == (value or "").strip()), None)
     if name_match:
         return name_match
