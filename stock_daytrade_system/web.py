@@ -369,8 +369,8 @@ class StockWebHandler(BaseHTTPRequestHandler):
 
     def _handle_refresh(self) -> None:
         if self.headers.get("X-Requested-With") != "fetch":
-            self.web_app.start_background_refresh("manual_full_refresh")
-            self._redirect("/dashboard")
+            started = self.web_app.start_background_refresh("manual_full_refresh")
+            self._redirect(_refresh_redirect_location("manual_full_refresh", started))
             return
         result = self.web_app.refresh_coordinator.refresh_manual_full()
         if self.headers.get("X-Requested-With") == "fetch":
@@ -380,8 +380,8 @@ class StockWebHandler(BaseHTTPRequestHandler):
 
     def _handle_layer_refresh(self, layer: str) -> None:
         if self.headers.get("X-Requested-With") != "fetch":
-            self.web_app.start_background_refresh(layer)
-            self._redirect("/dashboard")
+            started = self.web_app.start_background_refresh(layer)
+            self._redirect(_refresh_redirect_location(layer, started))
             return
         coordinator = self.web_app.refresh_coordinator
         if layer == "full_market":
@@ -646,6 +646,12 @@ def _tracker_html_needs_refresh(html: str) -> bool:
     if current_commit != "unknown" and current_commit not in html:
         return True
     return False
+
+
+def _refresh_redirect_location(layer: str, started: bool) -> str:
+    status = "started" if started else "already_running"
+    query = urllib.parse.urlencode({"refresh_layer": layer, "refresh_status": status})
+    return f"/dashboard?{query}"
 
 
 def _scheduled_tracker_interval(now: Optional[datetime] = None) -> tuple[Optional[int], str]:
@@ -1785,6 +1791,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <div id="refresh-layer-status" class="refresh-layer-status">正在讀取分層更新狀態...</div>
     <p class="muted">完整刷新會重跑全市場；盤中一般只需更新重點觀察或持倉/觸發。</p>
   </details>
+  <div id="refresh-flash" class="refresh-flash" role="status" aria-live="polite" hidden></div>
   {content}
   <script>{hotkeys_script()}</script>
   <script>{position_sizing_calculator_script()}</script>
@@ -1804,6 +1811,29 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         positions: "交易觸發",
         post_close_validation: "盤後驗證",
         manual_full_refresh: "手動完整刷新",
+      }};
+      const showRefreshFlash = () => {{
+        const flash = document.getElementById("refresh-flash");
+        if (!flash) return;
+        const params = new URLSearchParams(window.location.search);
+        const refreshStatus = params.get("refresh_status");
+        const layer = params.get("refresh_layer");
+        if (!refreshStatus || !layer) return;
+        const layerText = labelMap[layer] || layer;
+        const messages = {{
+          started: `已開始更新：${{layerText}}。更新完成後系統狀態會自動刷新。`,
+          already_running: `${{layerText}}正在更新中，已略過重複請求。`,
+        }};
+        const message = messages[refreshStatus];
+        if (!message) return;
+        flash.textContent = message;
+        flash.hidden = false;
+        flash.classList.toggle("refresh-flash-warn", refreshStatus === "already_running");
+        params.delete("refresh_status");
+        params.delete("refresh_layer");
+        const nextQuery = params.toString();
+        const nextUrl = `${{window.location.pathname}}${{nextQuery ? `?${{nextQuery}}` : ""}}${{window.location.hash}}`;
+        window.history.replaceState(null, "", nextUrl);
       }};
       const timeText = (value) => {{
         if (!value) return "尚未更新";
@@ -1926,6 +1956,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       }};
       loadRefreshStatus();
       loadSystemVersionStatus();
+      showRefreshFlash();
       window.setInterval(loadRefreshStatus, 60000);
       window.setInterval(loadSystemVersionStatus, 60000);
     }})();
@@ -1971,6 +2002,8 @@ def base_css() -> str:
     .refresh-layer-panel summary { cursor:pointer; font-weight:800; color:#344054; }
     .refresh-layer-panel[open] summary { margin-bottom:8px; }
     .refresh-layer-panel p { margin:6px 0 0; font-size:12px; }
+    .refresh-flash { margin:10px 18px 0; padding:10px 12px; border:1px solid #bbf7d0; background:#f0fdf4; color:#067647; border-radius:8px; font-weight:750; }
+    .refresh-flash-warn { border-color:#fed7aa; background:#fff7ed; color:#9a3412; }
     .refresh-layer-status { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; color:#344054; font-size:13px; }
     .refresh-layer-item { display:inline-flex; gap:4px; align-items:center; white-space:nowrap; }
     .refresh-guidance-item { white-space:normal; }

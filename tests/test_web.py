@@ -7,6 +7,7 @@ from stock_daytrade_system.web import (
     _extract_body,
     _extract_style,
     _notification_signals_payload,
+    _refresh_redirect_location,
     _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
     latest_tracker_file,
@@ -248,12 +249,26 @@ class WebTests(unittest.TestCase):
         self.assertIn("下次到期", html)
         self.assertIn("距離過期", html)
         self.assertIn("refresh-guidance-action", html)
+        self.assertIn("refresh-flash", html)
+        self.assertIn("refresh_status", html)
+        self.assertIn("已開始更新", html)
+        self.assertIn("已略過重複請求", html)
         self.assertIn("立即執行", html)
         self.assertIn('method="post"', html)
         self.assertIn("WebSocket", html)
         self.assertIn("deployment_status", html)
         self.assertIn("signal_guard", html)
         self.assertNotIn('fetch("/refresh"', html)
+
+    def test_refresh_redirect_location_marks_started_and_running(self):
+        self.assertEqual(
+            _refresh_redirect_location("watchlist", True),
+            "/dashboard?refresh_layer=watchlist&refresh_status=started",
+        )
+        self.assertEqual(
+            _refresh_redirect_location("manual_full_refresh", False),
+            "/dashboard?refresh_layer=manual_full_refresh&refresh_status=already_running",
+        )
 
     def test_notification_signals_payload_returns_triggered_status(self):
         import tempfile
