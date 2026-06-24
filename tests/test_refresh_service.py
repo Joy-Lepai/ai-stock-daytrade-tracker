@@ -143,8 +143,11 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(layers["full_market"]["status"], "success")
         self.assertEqual(layers["full_market"]["symbols_count"], 1)
         self.assertEqual(layers["full_market"]["error"], "inferred_from_latest_snapshot")
+        self.assertIsNotNone(layers["full_market"]["next_due_at"])
+        self.assertIsNotNone(layers["full_market"]["seconds_until_stale"])
         self.assertEqual(layers["watchlist"]["status"], "success")
         self.assertEqual(layers["watchlist"]["symbols_count"], 1)
+        self.assertIsNotNone(layers["watchlist"]["next_due_at"])
 
     def test_pre_open_status_ignores_optional_position_staleness(self):
         now = datetime(2026, 6, 25, 8, 50, tzinfo=ZoneInfo("Asia/Taipei"))
@@ -187,6 +190,8 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["refresh_guidance"]["severity"], "ok")
         self.assertEqual(payload["refresh_guidance"]["action_label"], "不需手動更新")
         self.assertIn("開盤前準備模式", payload["refresh_guidance"]["summary"])
+        self.assertEqual(payload["layers"]["full_market"]["next_due_at"], "2026-06-25T09:03:00+08:00")
+        self.assertEqual(payload["layers"]["watchlist"]["next_due_at"], "2026-06-25T08:53:00+08:00")
 
     def test_intraday_stale_watchlist_guides_watchlist_refresh(self):
         now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))

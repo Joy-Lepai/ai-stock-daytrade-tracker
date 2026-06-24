@@ -5,7 +5,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
@@ -474,6 +474,7 @@ def _apply_inferred_layer_statuses(by_layer: dict[str, dict], inferred_layers: d
                 "age_seconds": round(age_seconds, 1),
                 "is_stale": is_stale,
                 "stale_label": "已過期" if is_stale else "正常",
+                **_next_due_fields(captured_at, now, stale_after),
             }
         )
 
@@ -491,6 +492,8 @@ def _empty_layer_status(layer: str, now: datetime) -> dict:
         "age_seconds": None,
         "is_stale": True,
         "stale_label": "尚未更新",
+        "next_due_at": None,
+        "seconds_until_stale": None,
     }
 
 
@@ -505,6 +508,7 @@ def _layer_status(row: dict, now: datetime) -> dict:
     status = "stale" if is_stale and row.get("status") == "success" else row.get("status")
     if running_stuck:
         status = "stale"
+    due_fields = _next_due_fields(last_success, now, stale_after)
     return {
         "layer": row["layer"],
         "last_started_at": row.get("last_started_at"),
@@ -517,6 +521,18 @@ def _layer_status(row: dict, now: datetime) -> dict:
         "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
         "is_stale": is_stale,
         "stale_label": "已過期" if is_stale else "正常",
+        **due_fields,
+    }
+
+
+def _next_due_fields(last_success: Optional[datetime], now: datetime, stale_after: int) -> dict:
+    if not last_success:
+        return {"next_due_at": None, "seconds_until_stale": None}
+    next_due = last_success + timedelta(seconds=stale_after)
+    seconds_until_stale = (next_due - now).total_seconds()
+    return {
+        "next_due_at": next_due.isoformat(timespec="seconds"),
+        "seconds_until_stale": round(max(seconds_until_stale, 0.0), 1),
     }
 
 
