@@ -17,6 +17,7 @@ from stock_daytrade_system.tracker import (
     _entry_status_message,
     _focus_card,
     _fugle_priority_pool_panel,
+    _grade_label,
     _market_mode_panel,
     _recommendation_checklist_table,
     _today_playbook_panel,
@@ -269,6 +270,21 @@ class TrackerStatusTests(unittest.TestCase):
             _entry_status_message("high_risk"),
             "多方動能強，但追價風險偏高，避免直接追高。",
         )
+
+    def test_user_facing_status_copy_avoids_buy_recommendation_language(self):
+        combined = " ".join(
+            [
+                _entry_status_message("executable"),
+                _entry_status_message("high_risk"),
+                _grade_label("A"),
+                _grade_label("B+"),
+            ]
+        )
+
+        self.assertIn("進場雷達通過觀察", combined)
+        self.assertIn("強勢重點盯盤", combined)
+        for forbidden in ["強烈看漲", "做多確認", "買多推薦", "可執行做多", "強勢做多觀察", "可列入做多觀察"]:
+            self.assertNotIn(forbidden, combined)
 
     def test_tomorrow_watch_pool_surfaces_more_than_executable_names(self):
         summary = LongModelSummary(

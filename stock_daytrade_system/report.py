@@ -40,7 +40,7 @@ def render_report(
     lines.extend(f"- {note}" for note in market_bias.notes[:12])
     lines.extend(["", "## 族群強弱", ""])
     lines.extend(_render_sector_table(sector_list))
-    lines.extend(["", "## 做多觀察", ""])
+    lines.extend(["", "## 方向偏多觀察", ""])
     lines.extend(_render_table(long_list))
     lines.extend(["", "## 做空觀察", ""])
     lines.extend(_render_table(short_list))

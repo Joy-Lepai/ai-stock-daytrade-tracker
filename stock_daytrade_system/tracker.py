@@ -3197,7 +3197,7 @@ def _time_bucket_label(value: str) -> str:
 
 def _entry_status_message(value: str) -> str:
     return {
-        "executable": "量能與VWAP條件成立，可列入做多觀察。",
+        "executable": "量能與VWAP條件成立，可列入進場雷達通過觀察。",
         "practice_long": "條件接近且風險可控，可用虛擬交易練習買多。",
         "wait_volume": "多方結構不錯，但量能不足，等待量比放大後再觀察。",
         "wait_vwap": "突破條件成立，但尚未站上 VWAP，等待站回均價線。",
@@ -3527,7 +3527,7 @@ def _safe_direction_text(value: str) -> str:
 
 def _grade_label(value: str) -> str:
     return {
-        "A": "強勢做多觀察",
+        "A": "強勢重點盯盤",
         "B+": "可練習觀察",
         "B": "可追蹤，等回測",
         "C": "題材股，風險偏高",
