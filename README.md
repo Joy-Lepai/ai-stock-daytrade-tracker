@@ -161,6 +161,30 @@ python3 -m py_compile stock_daytrade_system/*.py
 - 若要多人使用，下一步應改成資料庫與多帳號權限。
 - 若要更即時，建議串券商報價 API，而不是只靠 Yahoo chart endpoint。
 
+### 4. 部署後驗收
+
+每次 Render 部署完成後，可用下列指令確認公開站版本、tracker HTML、分層刷新狀態與強烈買多安全閘門：
+
+```bash
+python3 scripts/verify_public_deployment.py --base-url https://stock.letslepai.com
+```
+
+若要指定應該部署的 commit：
+
+```bash
+python3 scripts/verify_public_deployment.py \
+  --base-url https://stock.letslepai.com \
+  --expected-commit 你的_git_commit
+```
+
+驗收會檢查：
+
+- runtime commit 是否存在
+- tracker HTML commit 是否與 runtime 一致
+- 需要的刷新層是否新鮮
+- 非盤中 / 開盤前 / 休市是否禁止顯示即時強烈買多
+- `/api/system/version` 與 `/api/refresh/status` 是否正常回傳
+
 ### Shioaji 永豐金報價接入（選用）
 
 本系統可選擇接入 Shioaji 作為台股即時報價背景資料，用來補強個股頁的盤口確認。第一版只讀行情，不下單、不送委託、不需要把交易功能打開。
