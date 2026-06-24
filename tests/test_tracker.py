@@ -20,6 +20,7 @@ from stock_daytrade_system.tracker import (
     _grade_label,
     _market_mode_panel,
     _recommendation_checklist_table,
+    _signal_center,
     _today_playbook_panel,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
@@ -597,6 +598,77 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("真假突破", html)
         self.assertIn("量比 0.72x", html)
         self.assertIn("量比放大到 1.0x", html)
+
+    def test_signal_center_uses_market_mode_context_for_non_intraday(self):
+        item = LongCandidate(
+            symbol="1216.TW",
+            name="統一",
+            sector="food",
+            last_price=80,
+            change_pct=-0.5,
+            volume=1_000_000,
+            turnover=80_000_000,
+            avg_volume_20=900_000,
+            daily_volume_ratio=1.0,
+            intraday_volume=300_000,
+            volume_ratio=1.1,
+            vwap=81,
+            above_vwap=False,
+            previous_high=82,
+            high_5d=83,
+            high_10d=84,
+            break_prev_high=False,
+            break_5d_high=False,
+            break_10d_high=False,
+            upper_shadow_pct=0.2,
+            institutional_buy_million=None,
+            margin_balance=None,
+            short_balance=None,
+            daytrade_ratio=None,
+            sector_strength=0,
+            news_topics=[],
+            market_state="中性",
+            bullish_score=30,
+            risk_score=45,
+            grade="D",
+            entry_status="avoid",
+            original_entry_status="avoid",
+            adjusted_entry_status="avoid",
+            confidence_score=50,
+            confidence_level="low",
+            confidence_level_label="低信心",
+            conflicts_count=0,
+            conflicts=[],
+            conflict_summary="",
+            confidence_summary="資料完整度尚可。",
+            confidence_adjustment_reason="",
+            trade_bias="short",
+            trade_bias_label="看空",
+            trade_bias_reason="跌破 VWAP",
+            trigger_price=82,
+            stop_loss=78,
+            target_price=85,
+            opening_range_high=81.5,
+            opening_range_low=79.5,
+            reasons=["跌破 VWAP"],
+            risk_reasons=[],
+        )
+        summary = LongModelSummary(
+            candidates=[item],
+            alerts=[],
+            sector_heat=[],
+            market_state="休市",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={"data_health": {"data_date": "2026-01-02", "latest_intraday_at": "2026-01-02T13:30:00+08:00"}},
+        )
+
+        html = _signal_center(summary, datetime(2026, 1, 3, 10, 0))
+
+        self.assertIn("觀察（1）", html)
+        self.assertIn("看空（0）", html)
+        self.assertIn("目前不是盤中", html)
 
     def test_trend_continuation_panel_displays_watch_items(self):
         item = LongCandidate(

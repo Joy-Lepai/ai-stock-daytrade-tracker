@@ -561,7 +561,7 @@ def render_tracker_html(
     {_decision_overview(long_summary, report_time)}
     {_precision_gap_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
-    {_signal_center(long_summary)}
+    {_signal_center(long_summary, report_time)}
     {_fugle_priority_pool_panel(long_summary)}
     {_trend_continuation_panel(long_summary, report_time)}
     {_position_command_center(long_summary)}
@@ -1679,14 +1679,15 @@ def _ai_decision_center(summary: Optional[LongModelSummary]) -> str:
     )
 
 
-def _signal_center(summary: Optional[LongModelSummary]) -> str:
+def _signal_center(summary: Optional[LongModelSummary], report_time: Optional[datetime] = None) -> str:
     if summary is None or not summary.candidates:
         return (
             "<section class=\"decision-center\"><h2>訊號中心</h2>"
             "<p class=\"muted\">目前沒有符合條件的候選股。</p></section>"
         )
     buckets = {"強烈買多": [], "買多": [], "觀察": [], "看空": []}
-    front_context = _front_context(summary)
+    market_mode = _dashboard_market_mode(summary, report_time) if report_time else None
+    front_context = _front_context(summary, market_mode)
     for item in summary.candidates:
         view = front_trade_view(item, **front_context)
         buckets.setdefault(view.category, []).append((item, view))
