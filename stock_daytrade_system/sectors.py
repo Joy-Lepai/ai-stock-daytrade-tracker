@@ -97,7 +97,7 @@ def rank_opening_sector_strength(signals: Iterable[OpeningSignal]) -> List[Secto
 
     strengths: List[SectorOpeningStrength] = []
     for sector, items in grouped.items():
-        confirmed_long = sum(1 for item in items if item.direction in {"偏多確認", "做多" + "確認"})
+        confirmed_long = sum(1 for item in items if _is_long_confirmation(item.direction))
         confirmed_short = sum(1 for item in items if item.direction == "做空確認")
         watch_count = sum(1 for item in items if item.direction == "觀望")
         avg_volume_ratio = sum(item.volume_ratio for item in items) / len(items)
@@ -118,3 +118,7 @@ def rank_opening_sector_strength(signals: Iterable[OpeningSignal]) -> List[Secto
 
     strengths.sort(key=lambda item: item.score, reverse=True)
     return strengths
+
+
+def _is_long_confirmation(value: str) -> bool:
+    return value == "偏多確認" or (value.startswith("做多") and value.endswith("確認"))

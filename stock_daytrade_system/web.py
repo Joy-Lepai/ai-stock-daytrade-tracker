@@ -2501,7 +2501,7 @@ def tw_advisor_script() -> str:
         if (entry === "executable") return "進場雷達通過";
         if (label === "強烈" + "看漲") return "方向偏多";
         if (label === "看漲") return "偏多";
-        if ((item?.trade_bias || "") === "long" && (label === "買多" || label === "做多" + "確認")) return "進場雷達通過";
+        if ((item?.trade_bias || "") === "long" && (label === "買多" || (label.startsWith("做多") && label.endsWith("確認")))) return "進場雷達通過";
         return label || item?.trade_bias || "觀察";
       };
       const displayTradeReason = (item) => {

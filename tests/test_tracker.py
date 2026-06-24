@@ -152,7 +152,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("不列入今日做多", html)
         self.assertIn("避免追價", html)
         self.assertNotIn("強烈看漲", html)
-        self.assertNotIn("做多" + "確認", html)
+        self.assertNotIn("做多確認", html)
         self.assertIn("跌破VWAP 101.25", html)
 
     def test_recommendation_checklist_surfaces_mvp_counts(self):
