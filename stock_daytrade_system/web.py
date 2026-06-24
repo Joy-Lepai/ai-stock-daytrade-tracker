@@ -1847,13 +1847,14 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const cls = state.is_stale ? "health-warn" : "health-ok";
         const nextDue = state.next_due_at ? timeText(state.next_due_at) : "尚未排定";
         const secondsUntilStale = state.seconds_until_stale == null ? "-" : `${{Math.round(Number(state.seconds_until_stale) || 0)}} 秒`;
+        const errorText = state.error ? `｜原因 ${{escapeHtml(state.error)}}` : "";
         return `<span class="refresh-layer-item"><strong>${{escapeHtml(labelMap[state.layer] || state.layer)}}：</strong>
           <span class="${{cls}}">${{escapeHtml(stale)}}</span>｜
           最後成功 ${{escapeHtml(timeText(state.last_success_at))}}｜
           下次到期 ${{escapeHtml(nextDue)}}｜
           距離過期 ${{escapeHtml(secondsUntilStale)}}｜
           狀態 ${{escapeHtml(state.status)}}｜
-          檔數 ${{escapeHtml(state.symbols_count || 0)}}</span>`;
+          檔數 ${{escapeHtml(state.symbols_count || 0)}}${{errorText}}</span>`;
       }};
       const sourceHealthHtml = (payload) => {{
         const health = payload.data_source_health || {{}};
