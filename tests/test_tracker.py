@@ -9,6 +9,7 @@ from stock_daytrade_system.scoring import CandidateScore
 from stock_daytrade_system.tracker import (
     _backtest_table,
     _bullish_focus_table,
+    _candidate_selection_explainer,
     _change_number,
     _data_status_block,
     _decision_overview,
@@ -907,6 +908,52 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("開盤前作戰：先挑清單，不提前進場", html)
         self.assertIn("09:00 後先等 5 到 10 分鐘", html)
         self.assertIn("資料沒有 live 前，不做強烈買多判斷", html)
+
+    def test_candidate_selection_explainer_shows_pool_flow_and_blockers(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "full_market_scan": {
+                    "data": {
+                        "pool_symbols": 1125,
+                        "twse_count": 714,
+                        "tpex_count": 411,
+                        "candidate_symbols": 40,
+                        "scored_symbols": 40,
+                    },
+                    "source_status": {"twse_ok": True, "tpex_ok": True},
+                    "by_status": {"out_of_pool": 36, "high_risk": 9},
+                },
+                "strong_long_funnel": {
+                    "momentum_candidate_count": 40,
+                    "model_scored_count": 40,
+                    "blocked_high_risk": 9,
+                    "blocked_wait_volume": 8,
+                    "blocked_wait_vwap": 5,
+                    "blocked_wait_breakout": 4,
+                    "strong_long_candidate_count": 2,
+                    "executable_count": 1,
+                },
+            },
+        )
+
+        html = _candidate_selection_explainer(summary)
+
+        self.assertIn("候選股怎麼選出來", html)
+        self.assertIn("完整普通股池", html)
+        self.assertIn("<strong>1125</strong>", html)
+        self.assertIn("今日異動候選", html)
+        self.assertIn("原觀察池外新找到", html)
+        self.assertIn("常見卡關", html)
+        self.assertIn("high_risk 9 檔", html)
+        self.assertIn("Fugle 五檔與逐筆只作背景", html)
+        self.assertIn("不會直接把股票升級成強烈買多", html)
 
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(

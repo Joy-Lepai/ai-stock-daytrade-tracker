@@ -2624,6 +2624,51 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderAdvisorQuickReadCard = ({ decisionCard, entryRadarSummary, dataHealth, safety, frontTrade }) => {
+        decisionCard = decisionCard || {};
+        entryRadarSummary = entryRadarSummary || {};
+        dataHealth = dataHealth || {};
+        safety = safety || {};
+        frontTrade = frontTrade || {};
+        const state = decisionCard.final_decision || frontTrade.category || entryRadarSummary.entry_state || "觀察";
+        const blocker = decisionCard.top_reason || entryRadarSummary.blocker_summary || frontTrade.reason || "等待 VWAP、量比、突破與風控確認。";
+        const nextStep = decisionCard.next_trigger || entryRadarSummary.next_trigger || frontTrade.next_step || "等待條件確認。";
+        const invalidation = decisionCard.invalid_condition || "跌破 VWAP、量能退潮、觸發失敗或資料轉為延遲時失效。";
+        const dataUsable = Boolean(dataHealth.can_use_for_daytrade && !dataHealth.uses_cache && !dataHealth.is_delayed && !dataHealth.is_data_missing);
+        const dataStatus = dataHealth.is_live
+          ? "資料即時，可進入盤中判斷"
+          : dataHealth.uses_cache
+          ? "使用上一筆，僅供觀察"
+          : dataHealth.is_delayed
+          ? "資料延遲，僅供觀察"
+          : dataHealth.is_data_missing
+          ? "資料不足，不能判斷"
+          : "非即時資料，先觀察";
+        const action = !dataUsable
+          ? "先等資料恢復即時，再重新判斷。"
+          : state === "強烈買多"
+          ? "進入重點盯盤；仍要檢查停損距離與部位大小。"
+          : state === "買多"
+          ? "方向偏多，但需等待觸發或進場雷達確認。"
+          : state === "看空"
+          ? "多方結構失效，暫不做多。"
+          : "只觀察，不提前進場。";
+        const blocked = Array.isArray(safety.blocked_reasons) ? safety.blocked_reasons.map((item) => item.message).filter(Boolean) : [];
+        return `
+          <article class="advisor-card quick-read-card ${dataUsable ? "" : "data-limited-card"}">
+            <h3>作戰速讀</h3>
+            <div class="advisor-grid">
+              ${metric("現在狀態", escapeHtml(state))}
+              ${metric("資料狀態", escapeHtml(dataStatus))}
+              ${metric("建議動作", escapeHtml(action))}
+              ${metric("最大卡關", escapeHtml(blocker))}
+              ${metric("下一步", escapeHtml(nextStep))}
+              ${metric("失效條件", escapeHtml(invalidation))}
+            </div>
+            ${blocked.length ? `<p class="warn-inline">安全限制：${escapeHtml(blocked.slice(0, 3).join("；"))}</p>` : ""}
+          </article>
+        `;
+      };
       const renderBreakoutTrapCard = (diagnosis) => {
         diagnosis = diagnosis || {};
         const evidence = Array.isArray(diagnosis.evidence) ? diagnosis.evidence : [];
@@ -3198,6 +3243,7 @@ def tw_advisor_script() -> str:
         const sizingStop = keyMetrics.stop_loss || candidate.stop_loss;
         result.className = "advisor-result";
         result.innerHTML = `
+          ${renderAdvisorQuickReadCard({ decisionCard, entryRadarSummary, dataHealth, safety, frontTrade })}
           <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
             <div class="advisor-title">
               <div>
@@ -3916,6 +3962,11 @@ def tw_advisor_css() -> str:
     .advisor-form button { background:#175cd3; border-color:#175cd3; color:#fff; height:38px; }
     .advisor-result { margin-top:14px; }
     .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
+    .quick-read-card { border-width:2px; border-color:#bfdbfe; background:#eff6ff; }
+    .quick-read-card.data-limited-card { border-color:#fed7aa; background:#fff7ed; }
+    .quick-read-card h3 { margin-top:0; }
+    .quick-read-card .advisor-metric { background:rgba(255,255,255,.78); }
+    .quick-read-card .advisor-metric strong { font-size:16px; line-height:1.35; }
     .conclusion-card { border-width:2px; }
     .conclusion-ok { border-color:#16a34a; background:#f0fdf4; }
     .conclusion-watch { border-color:#bfdbfe; background:#eff6ff; }

@@ -472,6 +472,13 @@ def render_tracker_html(
     }}
     .decision-panel strong {{ display: block; margin-bottom: 4px; }}
     .decision-list {{ margin: 6px 0 0; padding-left: 18px; color: var(--muted); }}
+    .selection-explainer summary {{
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 16px;
+      list-style-position: inside;
+    }}
+    .selection-explainer[open] summary {{ margin-bottom: 10px; }}
     .signal-grid {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -550,6 +557,7 @@ def render_tracker_html(
   <main>
     {_market_mode_panel(long_summary, report_time)}
     {_today_playbook_panel(long_summary, report_time)}
+    {_candidate_selection_explainer(long_summary)}
     {_decision_overview(long_summary, report_time)}
     {_precision_gap_overview(long_summary, report_time)}
     {_ai_decision_center(long_summary)}
@@ -882,6 +890,67 @@ def _today_playbook_panel(summary: Optional[LongModelSummary], report_time: date
         f'<section class="notice"><strong>{escape(headline)}</strong></section>'
         f'<div class="decision-grid">{rows}</div>'
         '</section>'
+    )
+
+
+def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    full_scan = (diagnostics.get("full_market_scan") or {}) if diagnostics else {}
+    full_data = full_scan.get("data") or {}
+    full_source = full_scan.get("source_status") or {}
+    by_status = full_scan.get("by_status") or {}
+    funnel = (diagnostics.get("strong_long_funnel") or {}) if diagnostics else {}
+    pool_count = int(full_data.get("pool_symbols", 0) or 0)
+    twse_count = int(full_data.get("twse_count", 0) or 0)
+    tpex_count = int(full_data.get("tpex_count", 0) or 0)
+    momentum_count = int(funnel.get("momentum_candidate_count", full_data.get("candidate_symbols", 0) or 0) or 0)
+    scored_count = int(funnel.get("model_scored_count", full_data.get("scored_symbols", 0) or 0) or 0)
+    out_of_pool = int(by_status.get("out_of_pool", full_scan.get("out_of_pool_count", 0) or 0) or 0)
+    high_risk = int(funnel.get("blocked_high_risk", by_status.get("high_risk", 0) or 0) or 0)
+    wait_volume = int(funnel.get("blocked_wait_volume", by_status.get("wait_volume", 0) or 0) or 0)
+    wait_vwap = int(funnel.get("blocked_wait_vwap", by_status.get("wait_vwap", 0) or 0) or 0)
+    wait_breakout = int(funnel.get("blocked_wait_breakout", by_status.get("wait_breakout", 0) or 0) or 0)
+    strong = int(funnel.get("strong_long_candidate_count", 0) or 0)
+    executable = int(funnel.get("executable_count", 0) or 0)
+    if full_source:
+        twse = "成功" if full_source.get("twse_ok") else ("使用 cache" if full_source.get("twse_used_cache") else "失敗")
+        tpex = "成功" if full_source.get("tpex_ok") else ("使用 cache" if full_source.get("tpex_used_cache") else "失敗或未納入")
+        source_line = f"TWSE {twse} / TPEX {tpex}"
+    else:
+        source_line = "等待下一次全市場掃描更新。"
+    return (
+        '<details class="decision-center selection-explainer">'
+        '<summary>候選股怎麼選出來？</summary>'
+        '<p class="muted">系統不是直接找漲最多的股票，而是先從全市場找出異動股，再送進 VWAP、量比、突破、風險、資料可信度與進場雷達檢查。'
+        '沒有通過的股票不會消失，會被標成觀察、high_risk、wait_vwap、wait_volume 或看空。</p>'
+        '<div class="summary">'
+        f'{_metric("完整普通股池", pool_count)}'
+        f'{_metric("上市", twse_count)}'
+        f'{_metric("上櫃", tpex_count)}'
+        f'{_metric("今日異動候選", momentum_count)}'
+        f'{_metric("送入模型評分", scored_count)}'
+        f'{_metric("原觀察池外新找到", out_of_pool)}'
+        f'{_metric("強烈買多", strong)}'
+        f'{_metric("進場雷達通過", executable)}'
+        '</div>'
+        '<div class="decision-grid">'
+        '<div class="decision-panel">'
+        '<strong>第一步：找得到</strong>'
+        '<p class="muted">掃上市 + 上櫃普通股，排除 ETF、權證、特殊股與低流動性標的，再找今日漲幅、成交金額、量比、突破與接近漲停的異動股。</p>'
+        f'<p class="muted">資料源狀態：{escape(source_line)}</p>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>第二步：能不能追</strong>'
+        '<p class="muted">每檔都檢查是否站上 VWAP、量比是否放大、是否突破昨日高點或盤中關鍵高點、停損距離是否合理、資料是否即時。</p>'
+        f'<p class="muted">常見卡關：high_risk {high_risk} 檔、wait_volume {wait_volume} 檔、wait_vwap {wait_vwap} 檔、wait_breakout {wait_breakout} 檔。</p>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>第三步：怎麼看</strong>'
+        '<p class="muted">強烈買多代表值得重點盯盤；買多代表方向偏多但仍等確認；觀察代表有動能但目前不適合進；看空代表多方結構失效。</p>'
+        '<p class="muted">法人、族群、Fugle 五檔與逐筆只作背景與進場前確認，不會直接把股票升級成強烈買多。</p>'
+        '</div>'
+        '</div>'
+        '</details>'
     )
 
 
