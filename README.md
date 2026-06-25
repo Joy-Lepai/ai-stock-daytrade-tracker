@@ -304,6 +304,8 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 這個指令會優先讀輕量 `/api/health`；若公開站尚未部署新端點，會 fallback 到 `/api/refresh/status`，並整理成：
 
 - 目前是可用、警告，還是阻擋狀態
+- 目前作戰模式：盤中作戰、盤中保守、開盤前準備、復盤準備，或資料修復
+- 現在要做什麼、不要做什麼，以及進場前檢查清單
 - market mode 是否為盤中 / 開盤前 / 休市復盤
 - live / delayed / cached / missing 各幾檔
 - 哪些刷新層過期
@@ -334,6 +336,13 @@ python3 scripts/check_operational_health.py \
 若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
+
+每次 workflow 不論成功或失敗，都會上傳 `refresh-diagnostics` artifact，內含：
+
+- `refresh-status.json`：完整 `/api/refresh/status` 快照。
+- `operational-health.txt`：可讀的營運健康報告、刷新順序與下一步。
+
+如果 GitHub Actions 顯示失敗，先下載這個 artifact 看「作戰模式」、「阻擋原因」與「刷新計畫」，再決定要不要手動跑 `/refresh_full_market`、`/refresh_watchlist` 或 Render Deploy。
 
 若要手動刷新，不一定要進 Render。可以到 GitHub Actions 執行 `Refresh Stock Dashboard`，並選擇 `refresh_layer`：
 
