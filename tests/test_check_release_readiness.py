@@ -1,10 +1,16 @@
+import contextlib
+import io
+import subprocess
 import unittest
 
 from scripts.check_release_readiness import (
     ReleaseState,
     commit_matches,
+    describe_git_failure,
     evaluate_release_state,
+    git_output,
     is_worktree_dirty,
+    main,
     parse_ahead_count,
     recommended_next_action,
 )
@@ -68,6 +74,38 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertTrue(commit_matches("abcdef123456", "abcdef1234567890"))
         self.assertTrue(commit_matches("abcdef1234567890", "abcdef123456"))
         self.assertFalse(commit_matches("abcdef", "123456"))
+
+    def test_git_failure_describes_signal_without_traceback(self):
+        error = subprocess.CalledProcessError(-10, ["git", "status", "-sb"])
+
+        self.assertIn("SIGBUS", describe_git_failure(["status", "-sb"], error))
+
+    def test_git_output_wraps_runner_failure(self):
+        def failing_runner(*args, **kwargs):
+            raise subprocess.CalledProcessError(128, ["git", "status", "-sb"])
+
+        with self.assertRaisesRegex(RuntimeError, "git status -sb"):
+            git_output(["status", "-sb"], runner=failing_runner)
+
+    def test_main_prints_readable_failure_when_git_unavailable(self):
+        import scripts.check_release_readiness as module
+
+        original = module.git_output
+
+        def failing_git_output(args, **kwargs):
+            raise module.ReleaseReadinessError("`git status -sb` failed: SIGBUS")
+
+        module.git_output = failing_git_output
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = main(["--no-public"])
+        finally:
+            module.git_output = original
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("local Git state readable", stream.getvalue())
+        self.assertIn("Next action", stream.getvalue())
 
 
 if __name__ == "__main__":

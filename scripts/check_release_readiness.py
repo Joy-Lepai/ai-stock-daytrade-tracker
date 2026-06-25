@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import signal
 import subprocess
-import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -33,8 +33,29 @@ class ReleaseCheck:
     detail: str
 
 
+class ReleaseReadinessError(RuntimeError):
+    pass
+
+
 def git_output(args: list[str], *, runner: Callable[..., str] = subprocess.check_output) -> str:
-    return runner(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()
+    try:
+        return runner(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()
+    except subprocess.CalledProcessError as exc:
+        raise ReleaseReadinessError(describe_git_failure(args, exc)) from exc
+    except OSError as exc:
+        raise ReleaseReadinessError(f"`git {' '.join(args)}` failed: {exc}") from exc
+
+
+def describe_git_failure(args: list[str], exc: subprocess.CalledProcessError) -> str:
+    command = "git " + " ".join(args)
+    code = int(exc.returncode or 0)
+    if code < 0:
+        try:
+            reason = signal.Signals(-code).name
+        except ValueError:
+            reason = f"signal {-code}"
+        return f"`{command}` failed: {reason}"
+    return f"`{command}` failed: exit status {code}"
 
 
 def load_release_state(
@@ -160,13 +181,25 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
     return failures
 
 
+def print_load_failure(error: Exception) -> int:
+    print("Release readiness")
+    print()
+    print(f"[FAIL] local Git state readable: {error}")
+    print()
+    print("Next action: 無法讀取本機 Git 狀態；請先確認此目錄是正確 repo，或重跑 git status 後再驗收。")
+    return 1
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Check local Git, origin/main, and public runtime release readiness.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--no-public", action="store_true", help="Skip public /api/system/version probe.")
     args = parser.parse_args(argv)
-    state = load_release_state(base_url=args.base_url, timeout=args.timeout, fetch_public=not args.no_public)
+    try:
+        state = load_release_state(base_url=args.base_url, timeout=args.timeout, fetch_public=not args.no_public)
+    except ReleaseReadinessError as exc:
+        return print_load_failure(exc)
     checks = evaluate_release_state(state)
     return 1 if print_release_report(state, checks) else 0
 
