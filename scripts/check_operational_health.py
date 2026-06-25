@@ -42,7 +42,7 @@ def fetch_health_payload(base_url: str, *, timeout: float = 12.0) -> dict[str, A
         return payload
 
 
-def render_report(payload: dict[str, Any]) -> tuple[int, str]:
+def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) -> tuple[int, str]:
     health = payload.get("operational_health") if isinstance(payload.get("operational_health"), dict) else None
     if health is None and payload.get("status") in {"ok", "warning", "blocked"}:
         health = payload
@@ -72,9 +72,45 @@ def render_report(payload: dict[str, Any]) -> tuple[int, str]:
     if warnings:
         lines.append("warnings:")
         lines.extend(f"- {item}" for item in warnings)
-    next_action = health.get("next_action") or {}
-    lines.append(f"next_action: {next_action.get('label') or '-'} {next_action.get('endpoint') or ''}".strip())
+    required_stale = payload.get("required_stale_layers") or []
+    stale_layers = payload.get("stale_layers") or []
+    if required_stale:
+        lines.append(f"required_stale_layers: {', '.join(str(item) for item in required_stale)}")
+    if stale_layers:
+        lines.append(f"stale_layers: {', '.join(str(item) for item in stale_layers)}")
+    next_action = _next_action(payload, health)
+    action_label = str(next_action.get("label") or "-")
+    action_endpoint = str(next_action.get("endpoint") or "")
+    lines.append(f"next_action: {action_label} {action_endpoint}".strip())
+    if action_endpoint.startswith("/refresh"):
+        lines.append(f"manual_endpoint: POST {action_endpoint}")
+        lines.append(f"manual_curl: curl -X POST {base_url.rstrip('/')}{action_endpoint}")
     return (0 if status in {"ok", "warning"} else 1, "\n".join(lines))
+
+
+def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, Any]:
+    required_stale = list(payload.get("required_stale_layers") or [])
+    if "full_market" in required_stale:
+        return {"label": "更新全市場", "endpoint": "/refresh_full_market"}
+    if "watchlist" in required_stale:
+        return {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"}
+    if "positions" in required_stale:
+        return {"label": "更新持倉/觸發", "endpoint": "/refresh_positions"}
+    health_action = health.get("next_action") if isinstance(health.get("next_action"), dict) else {}
+    if health_action.get("label"):
+        return health_action
+    guidance = payload.get("refresh_guidance") if isinstance(payload.get("refresh_guidance"), dict) else {}
+    if guidance.get("action_label"):
+        return {"label": guidance.get("action_label"), "endpoint": guidance.get("action_endpoint") or ""}
+    operation = payload.get("refresh_operation_summary") if isinstance(payload.get("refresh_operation_summary"), dict) else {}
+    blocking = list(operation.get("blocking_layers") or [])
+    if "full_market" in blocking:
+        return {"label": "更新全市場", "endpoint": "/refresh_full_market"}
+    if "watchlist" in blocking:
+        return {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"}
+    if "positions" in blocking:
+        return {"label": "更新持倉/觸發", "endpoint": "/refresh_positions"}
+    return {"label": "-", "endpoint": ""}
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -89,7 +125,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f"[FAIL] 無法讀取 /api/health 或 /api/refresh/status：{exc}")
         print("next_action: 確認網站是否啟動，或稍後重試。")
         return 1
-    exit_code, report = render_report(payload)
+    exit_code, report = render_report(payload, base_url=args.base_url)
     print(report)
     return exit_code
 

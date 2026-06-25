@@ -40,6 +40,46 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("[WARN]", report)
         self.assertIn("查看復盤", report)
 
+    def test_render_report_prints_manual_refresh_command_for_stale_required_layer(self):
+        exit_code, report = script.render_report(
+            {
+                "status": "blocked",
+                "summary": "必要資料層過期",
+                "market_mode": "pre_open_prepare",
+                "data_quality_status": "部分延遲",
+                "price_status_summary": {"live_count": 0, "delayed_count": 120},
+                "required_stale_layers": ["full_market", "watchlist"],
+                "stale_layers": ["full_market", "watchlist", "positions"],
+                "next_action": {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"},
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("required_stale_layers: full_market, watchlist", report)
+        self.assertIn("manual_endpoint: POST /refresh_full_market", report)
+        self.assertIn("curl -X POST https://stock.letslepai.com/refresh_full_market", report)
+
+    def test_render_report_uses_refresh_guidance_when_health_has_no_next_action(self):
+        exit_code, report = script.render_report(
+            {
+                "status": "warning",
+                "summary": "重點觀察過期",
+                "market_mode": "intraday",
+                "data_quality_status": "部分延遲",
+                "price_status_summary": {"live_count": 5, "delayed_count": 2},
+                "refresh_guidance": {
+                    "action_label": "更新重點觀察",
+                    "action_endpoint": "/refresh_watchlist",
+                },
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("next_action: 更新重點觀察 /refresh_watchlist", report)
+        self.assertIn("manual_endpoint: POST /refresh_watchlist", report)
+
     def test_render_report_builds_health_when_api_payload_has_no_operational_health(self):
         exit_code, report = script.render_report(
             {
