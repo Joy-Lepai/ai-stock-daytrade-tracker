@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -205,6 +206,29 @@ def validate_dashboard_html(html: str) -> list[Check]:
     ]
     missing_markers = [marker for marker in required_markers if marker not in html]
     found_forbidden = [term for term in forbidden_terms if term in html]
+    selection_html = _html_section(html, "候選股怎麼選出來", "</details>")
+    scan_count_evidence = _html_first_number_after(html, "今日異動候選") or _html_first_number_after(html, "今日異動候選池")
+    pool_count_evidence = (
+        _html_first_number_after(html, "普通股池")
+        or _html_first_number_after(html, "完整普通股池")
+        or _html_first_number_after(html, "full market pool symbols")
+    )
+    selection_pool_count = _html_first_number_after(selection_html, "完整普通股池") if selection_html else None
+    selection_scored_count = _html_first_number_after(selection_html, "送入模型評分") if selection_html else None
+    selection_counts_consistent = True
+    selection_detail = "selection explainer not present"
+    if selection_html:
+        selection_counts_consistent = not (
+            (pool_count_evidence or 0) > 0
+            and (scan_count_evidence or 0) > 0
+            and ((selection_pool_count == 0) or (selection_scored_count == 0))
+        )
+        selection_detail = (
+            f"pool_evidence={pool_count_evidence if pool_count_evidence is not None else '-'} "
+            f"scan_evidence={scan_count_evidence if scan_count_evidence is not None else '-'} "
+            f"selection_pool={selection_pool_count if selection_pool_count is not None else '-'} "
+            f"selection_scored={selection_scored_count if selection_scored_count is not None else '-'}"
+        )
     checks = [
         Check("dashboard HTML loaded", bool(html.strip()), f"length={len(html)}"),
         Check(
@@ -217,8 +241,46 @@ def validate_dashboard_html(html: str) -> list[Check]:
             not found_forbidden,
             f"found={', '.join(found_forbidden) if found_forbidden else '-'}",
         ),
+        Check(
+            "dashboard candidate explainer counts are consistent",
+            selection_counts_consistent,
+            selection_detail,
+        ),
     ]
     return checks
+
+
+def _html_section(html: str, start_marker: str, end_marker: str) -> str:
+    start = html.find(start_marker)
+    if start < 0:
+        return ""
+    end = html.find(end_marker, start)
+    if end < 0:
+        return html[start:]
+    return html[start : end + len(end_marker)]
+
+
+def _html_first_number_after(html: str, label: str) -> int | None:
+    if not html or label not in html:
+        return None
+    index = html.find(label)
+    snippet = html[index : index + 700]
+    patterns = [
+        r"<strong>\s*([0-9][0-9,]*)\s*</strong>",
+        r">\s*([0-9][0-9,]*)\s*檔",
+        r":\s*([0-9][0-9,]*)",
+        r"\s([0-9][0-9,]*)\s*檔",
+    ]
+    matches: list[tuple[int, str]] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, snippet):
+            matches.append((match.start(1), match.group(1)))
+    for _position, value in sorted(matches, key=lambda item: item[0]):
+        try:
+            return int(value.replace(",", ""))
+        except ValueError:
+            continue
+    return None
 
 
 def validate_tw_advisor_html(html: str) -> list[Check]:

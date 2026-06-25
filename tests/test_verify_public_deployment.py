@@ -122,6 +122,41 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("dashboard has core decision sections", failed)
 
+    def test_dashboard_html_detects_candidate_explainer_zero_count_contradiction(self):
+        html = """
+        今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
+        <details><summary>候選股怎麼選出來？</summary>
+        <div class="metric"><span>完整普通股池</span><strong>0</strong></div>
+        <div class="metric"><span>今日異動候選</span><strong>40</strong></div>
+        <div class="metric"><span>送入模型評分</span><strong>0</strong></div>
+        </details>
+        """
+
+        checks = validate_dashboard_html(html)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("dashboard candidate explainer counts are consistent", failed)
+
+    def test_dashboard_html_accepts_consistent_candidate_explainer_counts(self):
+        html = """
+        今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
+        <details><summary>候選股怎麼選出來？</summary>
+        <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>
+        <div class="metric"><span>今日異動候選</span><strong>40</strong></div>
+        <div class="metric"><span>送入模型評分</span><strong>118</strong></div>
+        </details>
+        """
+
+        checks = validate_dashboard_html(html)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
     def test_tw_advisor_html_requires_entry_copy_and_blocks_legacy_words(self):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
