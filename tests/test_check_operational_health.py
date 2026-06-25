@@ -11,6 +11,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
             {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "watch_readiness": "可正常看盤",
+                "watch_readiness_message": "仍需依停損確認",
                 "market_mode": "intraday",
                 "data_quality_status": "正常",
                 "price_status_summary": {"live_count": 20, "delayed_count": 0, "cached_count": 0, "missing_count": 0},
@@ -21,7 +23,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS]", report)
-        self.assertIn("watch_readiness: 可正常看盤", report)
+        self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
         self.assertIn("live=20", report)
         self.assertIn("/api/health", report)
 

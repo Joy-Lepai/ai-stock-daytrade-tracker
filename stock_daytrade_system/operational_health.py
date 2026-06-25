@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-OPERATIONAL_HEALTH_VERSION = "operational_health_v1_readiness_2026-06-26"
+OPERATIONAL_HEALTH_VERSION = "operational_health_v2_watch_readiness_2026-06-26"
 
 BLOCKING_PRICE_STATUSES = {"嚴重缺漏", "資料異常"}
 INTRADAY_MODES = {"intraday"}
@@ -68,10 +68,13 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     status = "blocked" if blockers else "warning" if warnings else "ok"
     next_action = _next_action(status, refresh_guidance, required_stale_layers, market_mode)
     summary = _summary(status, market_mode, blockers, warnings)
+    watch_readiness = _watch_readiness(status, market_mode)
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
+        "watch_readiness": watch_readiness["label"],
+        "watch_readiness_message": watch_readiness["message"],
         "blockers": _dedupe(blockers),
         "warnings": _dedupe(warnings),
         "next_action": next_action,
@@ -118,6 +121,28 @@ def _summary(status: str, market_mode: str, blockers: list[str], warnings: list[
     if market_mode in REVIEW_MODES:
         return "資料可用於復盤與下個交易日觀察。"
     return "系統狀態正常，可依前台訊號與風控規則觀察。"
+
+
+def _watch_readiness(status: str, market_mode: str) -> dict[str, str]:
+    if status == "blocked":
+        return {
+            "label": "暫不適合進場判斷",
+            "message": "先處理資料或刷新層，再重新檢查。",
+        }
+    if market_mode not in INTRADAY_MODES:
+        return {
+            "label": "僅供復盤或開盤前觀察",
+            "message": "目前不是盤中即時模式，不提供即時買多判斷。",
+        }
+    if status == "warning":
+        return {
+            "label": "可看但需保守",
+            "message": "延遲、使用上一筆或資料不足標的不可作為進場依據。",
+        }
+    return {
+        "label": "可正常看盤",
+        "message": "仍需依停損、失效條件與進場雷達確認。",
+    }
 
 
 def _layer_label(layer: str) -> str:

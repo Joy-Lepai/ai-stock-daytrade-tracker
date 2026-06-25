@@ -30,6 +30,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["status"], "ok")
         self.assertTrue(health["can_use_dashboard"])
         self.assertTrue(health["can_show_strong_long"])
+        self.assertEqual(health["watch_readiness"], "可正常看盤")
         self.assertIn("正常", health["summary"])
 
     def test_stale_required_layer_blocks_dashboard(self):
@@ -54,6 +55,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["status"], "blocked")
         self.assertFalse(health["can_use_dashboard"])
         self.assertFalse(health["can_show_strong_long"])
+        self.assertEqual(health["watch_readiness"], "暫不適合進場判斷")
         self.assertEqual(health["next_action"]["endpoint"], "/refresh_watchlist")
         self.assertIn("重點觀察", " ".join(health["blockers"]))
 
@@ -83,6 +85,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["status"], "warning")
         self.assertTrue(health["can_use_dashboard"])
         self.assertFalse(health["can_show_strong_long"])
+        self.assertEqual(health["watch_readiness"], "可看但需保守")
         self.assertIn("上一筆", " ".join(health["warnings"]))
         self.assertIn("延遲", " ".join(health["warnings"]))
 
@@ -107,6 +110,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["status"], "warning")
         self.assertTrue(health["can_use_dashboard"])
         self.assertFalse(health["allow_intraday_signal"])
+        self.assertEqual(health["watch_readiness"], "僅供復盤或開盤前觀察")
         self.assertIn("復盤", health["summary"])
 
     def test_severe_missing_blocks_dashboard(self):

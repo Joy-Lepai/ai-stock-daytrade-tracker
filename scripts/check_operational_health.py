@@ -90,6 +90,9 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
 
 
 def _watch_readiness_label(status: str, health: dict[str, Any], payload: dict[str, Any]) -> str:
+    if health.get("watch_readiness"):
+        message = str(health.get("watch_readiness_message") or "")
+        return f"{health.get('watch_readiness')}，{message}" if message else str(health.get("watch_readiness"))
     mode = str(health.get("market_mode") or payload.get("market_mode") or "")
     if status == "blocked":
         return "暫不適合進場判斷，先處理資料或刷新層。"
