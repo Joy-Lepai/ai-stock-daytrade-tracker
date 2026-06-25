@@ -46,6 +46,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "allow_strong_long": False,
             "price_status_summary": {"status": "部分延遲"},
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "開盤前準備模式",
+                "next_action": {"label": "不需手動更新"},
+            },
         }
 
         checks = validate_refresh_status(payload)
@@ -61,6 +66,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "allow_strong_long": True,
             "price_status_summary": {"status": "正常"},
             "refresh_operation_summary": {"severity": "ok", "message": "休市復盤模式。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "休市復盤模式",
+                "next_action": {"label": "查看復盤"},
+            },
         }
 
         checks = validate_refresh_status(payload)
@@ -77,6 +87,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
             "refresh_operation_summary": {"severity": "warn", "message": "重點觀察需更新。"},
+            "operational_health": {
+                "status": "blocked",
+                "summary": "重點觀察過期",
+                "next_action": {"label": "更新重點觀察"},
+            },
         }
 
         checks = validate_refresh_status(payload)
@@ -94,12 +109,56 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "allow_strong_long": False,
             "price_status_summary": {"status": "嚴重缺漏"},
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "blocked",
+                "summary": "資料異常",
+                "next_action": {"label": "先修正資料"},
+            },
         }
 
         checks = validate_refresh_status(payload)
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("stale market mode blocks operation summary", failed)
+
+    def test_refresh_status_requires_operational_health(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": False,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("operational health present", failed)
+        self.assertIn("operational health status valid", failed)
+        self.assertIn("operational health has next action", failed)
+
+    def test_blocked_operational_health_must_block_strong_buy(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": True,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "blocked",
+                "summary": "資料異常",
+                "next_action": {"label": "先修資料"},
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("blocked operational health blocks strong buy", failed)
 
     def test_dashboard_html_requires_core_sections_and_blocks_legacy_words(self):
         required_html = """

@@ -133,7 +133,9 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
     required_stale = list(payload.get("required_stale_layers") or [])
     price = payload.get("price_status_summary") or {}
     operation = payload.get("refresh_operation_summary") or {}
+    health = payload.get("operational_health") or {}
     operation_severity = str(operation.get("severity") or "")
+    health_status = str(health.get("status") or "")
     allow_strong = bool(payload.get("allow_strong_long"))
     checks = [
         Check("refresh API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
@@ -154,7 +156,30 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             bool(operation.get("message")),
             f"severity={operation_severity or '-'} message={operation.get('message') or '-'}",
         ),
+        Check(
+            "operational health present",
+            bool(health),
+            f"status={health_status or '-'}",
+        ),
+        Check(
+            "operational health status valid",
+            health_status in {"ok", "warning", "blocked"},
+            f"status={health_status or '-'}",
+        ),
+        Check(
+            "operational health has next action",
+            bool((health.get("next_action") or {}).get("label")) if isinstance(health, dict) else False,
+            f"next_action={((health.get('next_action') or {}).get('label') if isinstance(health, dict) else '-') or '-'}",
+        ),
     ]
+    if health_status == "blocked":
+        checks.append(
+            Check(
+                "blocked operational health blocks strong buy",
+                not allow_strong,
+                f"health_status={health_status} allow_strong_long={allow_strong}",
+            )
+        )
     if required_stale:
         checks.append(
             Check(
