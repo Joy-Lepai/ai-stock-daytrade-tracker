@@ -186,6 +186,11 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             bool((health.get("next_action") or {}).get("label")) if isinstance(health, dict) else False,
             f"next_action={((health.get('next_action') or {}).get('label') if isinstance(health, dict) else '-') or '-'}",
         ),
+        Check(
+            "operational health has watch readiness",
+            bool(health.get("watch_readiness")) if isinstance(health, dict) else False,
+            f"watch_readiness={(health.get('watch_readiness') if isinstance(health, dict) else '-') or '-'}",
+        ),
     ]
     if health_status == "blocked":
         checks.append(
@@ -234,6 +239,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             "health has next action",
             bool((payload.get("next_action") or {}).get("label")),
             f"next_action={(payload.get('next_action') or {}).get('label') or '-'}",
+        ),
+        Check(
+            "health has watch readiness",
+            bool(payload.get("watch_readiness")),
+            f"watch_readiness={payload.get('watch_readiness') or '-'}",
         ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
