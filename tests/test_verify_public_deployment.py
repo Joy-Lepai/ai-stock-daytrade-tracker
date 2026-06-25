@@ -339,7 +339,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         payload = {
             "symbol": "6919.TW",
             "front_trade": {"category": "觀察"},
-            "decision_card": {"top_reason": "追價風險高"},
+            "decision_card": {
+                "top_reason": "追價風險高",
+                "next_trigger": "等待拉回 VWAP",
+                "invalid_condition": "追價風險未降溫",
+            },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
             "data_health": {"price_status": "live"},
             "market_mode": {"mode": "intraday"},
@@ -365,6 +369,8 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("advisor scan has front category", failed)
         self.assertIn("advisor scan has market mode", failed)
         self.assertIn("advisor scan has decision card", failed)
+        self.assertIn("advisor scan has next trigger", failed)
+        self.assertIn("advisor scan has invalid condition", failed)
         self.assertIn("advisor scan has entry radar summary", failed)
         self.assertIn("advisor scan has no legacy misleading category", failed)
 
@@ -372,7 +378,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         payload = {
             "symbol": "2330.TW",
             "front_trade": {"category": "強烈買多"},
-            "decision_card": {"top_reason": "多方條件完整"},
+            "decision_card": {
+                "top_reason": "多方條件完整",
+                "next_trigger": "等開盤",
+                "invalid_condition": "非盤中",
+            },
             "entry_radar_summary": {"blocker_summary": "非盤中", "next_trigger": "等開盤"},
             "data_health": {"price_status": "delayed"},
             "market_mode": {"mode": "pre_open_prepare"},
@@ -388,7 +398,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         payload = {
             "symbol": "2886.TW",
             "front_trade": {"category": "買多"},
-            "decision_card": {"top_reason": "突破但未站上 VWAP"},
+            "decision_card": {
+                "top_reason": "突破但未站上 VWAP",
+                "next_trigger": "站回 VWAP",
+                "invalid_condition": "無法站回 VWAP",
+            },
             "entry_radar_summary": {"blocker_summary": "尚未站上 VWAP", "next_trigger": "站回 VWAP"},
             "candidate": {"entry_status": "wait_vwap", "above_vwap": False},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
@@ -405,7 +419,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         payload = {
             "symbol": "8150.TW",
             "front_trade": {"category": "強烈買多"},
-            "decision_card": {"top_reason": "強勢但追價風險高"},
+            "decision_card": {
+                "top_reason": "強勢但追價風險高",
+                "next_trigger": "等待拉回",
+                "invalid_condition": "追價風險未降溫",
+            },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回"},
             "candidate": {"entry_status": "high_risk", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
@@ -421,7 +439,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         payload = {
             "symbol": "2330.TW",
             "front_trade": {"category": "買多"},
-            "decision_card": {"top_reason": "方向偏多，等待突破"},
+            "decision_card": {
+                "top_reason": "方向偏多，等待突破",
+                "next_trigger": "突破昨高",
+                "invalid_condition": "跌破 VWAP",
+            },
             "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
             "candidate": {"entry_status": "wait_breakout", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},

@@ -477,6 +477,16 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
             f"top_reason={decision_card.get('top_reason', '-') if isinstance(decision_card, dict) else '-'}",
         ),
         Check(
+            "advisor scan has next trigger",
+            bool(decision_card.get("next_trigger") or radar.get("next_trigger")),
+            f"next_trigger={decision_card.get('next_trigger') or radar.get('next_trigger') or '-'}",
+        ),
+        Check(
+            "advisor scan has invalid condition",
+            bool(decision_card.get("invalid_condition")),
+            f"invalid_condition={decision_card.get('invalid_condition') or '-'}",
+        ),
+        Check(
             "advisor scan has entry radar summary",
             bool(radar.get("blocker_summary") or radar.get("next_trigger")),
             f"blocker={radar.get('blocker_summary', '-') if isinstance(radar, dict) else '-'}",
