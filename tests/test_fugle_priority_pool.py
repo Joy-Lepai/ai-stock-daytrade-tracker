@@ -67,6 +67,19 @@ class FuglePriorityPoolTests(unittest.TestCase):
         self.assertFalse(payload["configured"])
         self.assertIn("沒有需要", payload["message"])
 
+    def test_pinned_numeric_tpex_symbol_uses_two_suffix(self):
+        payload = build_fugle_priority_pool(
+            [item("8936.TWO", "wait_breakout"), item("2330.TW", "wait_breakout")],
+            pinned_symbols=["8936"],
+            max_symbols=2,
+            enabled=True,
+            configured=True,
+        )
+
+        self.assertEqual(payload["pinned_symbols"], ["8936.TWO"])
+        self.assertEqual(payload["selected"][0]["symbol"], "8936.TWO")
+        self.assertIn("使用者指定即時追蹤", payload["selected"][0]["priority_reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

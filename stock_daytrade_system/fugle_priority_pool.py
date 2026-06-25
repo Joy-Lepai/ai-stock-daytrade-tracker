@@ -4,6 +4,8 @@ import os
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional
 
+from stock_daytrade_system.cmoney import market_suffix_for_code
+
 
 FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v1_basic_5_2026-06-21"
 DEFAULT_FUGLE_BASIC_SUBSCRIPTIONS = 5
@@ -235,7 +237,7 @@ def _normalize_symbol(value) -> str:
     if not text:
         return ""
     if "." not in text and text.isdigit():
-        return f"{text}.TW"
+        return f"{text}{market_suffix_for_code(text)}"
     return text
 
 

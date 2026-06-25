@@ -45,6 +45,11 @@ class TWRealtimeQuoteTests(unittest.TestCase):
 
         self.assertEqual(quote.quote_time, "2026-06-18 12:05:55")
 
+    def test_parse_twse_quote_row_normalizes_numeric_tpex_symbol(self):
+        quote = parse_twse_quote_row("8936", {"z": "50.00", "y": "49.00"})
+
+        self.assertEqual(quote.symbol, "8936.TWO")
+
     def test_parse_twse_quote_row_marks_limit_up_bid_only(self):
         quote = parse_twse_quote_row(
             "6919.TW",
