@@ -308,6 +308,18 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 - 哪些刷新層過期
 - 下一步應該更新全市場、重點觀察，還是持倉觸發
 
+若多個必要資料層同時過期，請依序處理：
+
+1. `POST /refresh_full_market`：先重建上市櫃異動候選池。
+2. `POST /refresh_watchlist`：再更新重點觀察股的 VWAP、量比與狀態。
+3. `POST /refresh_positions`：最後更新持倉、停損停利與觸發狀態。
+
+腳本會直接印出可複製的 `curl -X POST ...` 指令，例如：
+
+```bash
+curl -X POST https://stock.letslepai.com/refresh_full_market
+```
+
 若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
