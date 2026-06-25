@@ -206,7 +206,7 @@ python3 scripts/verify_public_deployment.py \
   --expected-commit 你的_git_commit
 ```
 
-也可以用一鍵檢查腳本，預設檢查 `https://stock.letslepai.com` 與 `6919`：
+也可以用一鍵檢查腳本，預設檢查 `https://stock.letslepai.com`，並驗證 `6919,2886,8150` 三檔代表案例：
 
 ```bash
 ./scripts/check_public_readiness.sh

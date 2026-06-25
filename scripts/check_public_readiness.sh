@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BASE_URL="${1:-${BASE_URL:-https://stock.letslepai.com}}"
-ADVISOR_SYMBOL="${2:-${ADVISOR_SYMBOL:-6919}}"
+ADVISOR_SYMBOL="${2:-${ADVISOR_SYMBOL:-6919,2886,8150}}"
 EXPECTED_COMMIT="${3:-${EXPECTED_COMMIT:-}}"
 TIMEOUT="${TIMEOUT:-20}"
 SKIP_RELEASE_READINESS="${SKIP_RELEASE_READINESS:-0}"
