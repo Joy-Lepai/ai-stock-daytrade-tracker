@@ -1011,6 +1011,11 @@ def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
         '<p class="muted">強烈買多代表值得重點盯盤；買多代表方向偏多但仍等確認；觀察代表有動能但目前不適合進；看空代表多方結構失效。</p>'
         '<p class="muted">法人、族群、Fugle 五檔與逐筆只作背景與進場前確認，不會直接把股票升級成強烈買多。</p>'
         '</div>'
+        '<div class="decision-panel">'
+        '<strong>如果覺得某檔漏掉</strong>'
+        '<p class="muted">到「個股建議」輸入股票代號，例如 8150.TW，系統會顯示它是否進入異動池、目前四分類、最大卡關、下一步與 reason code。</p>'
+        '<p class="muted">若顯示 high_risk、wait_vwap、wait_volume 或資料不足，代表系統有看到但沒有列為買多；這不是漏抓，而是風險或條件未過。</p>'
+        '</div>'
         '</div>'
         '</details>'
     )

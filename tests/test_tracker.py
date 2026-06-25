@@ -1168,6 +1168,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("<strong>389</strong>", html)
         self.assertIn("送入模型評分", html)
         self.assertIn("<strong>118</strong>", html)
+        self.assertIn("如果覺得某檔漏掉", html)
+        self.assertIn("個股建議", html)
+        self.assertIn("reason code", html)
 
     def test_candidate_selection_explainer_uses_current_strong_funnel_keys(self):
         summary = LongModelSummary(
