@@ -31,6 +31,28 @@ def fetch_json(base_url: str, path: str, *, timeout: float = 12.0) -> dict[str, 
         raise RuntimeError(str(exc.reason)) from exc
 
 
+def post_json(base_url: str, path: str, *, timeout: float = 240.0) -> dict[str, Any]:
+    url = base_url.rstrip("/") + path
+    request = urllib.request.Request(
+        url,
+        data=b"",
+        headers={"Accept": "application/json", "X-Requested-With": "fetch"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(str(exc.reason)) from exc
+    try:
+        payload = json.loads(body or "{}")
+    except json.JSONDecodeError:
+        payload = {"raw_response": body}
+    return payload if isinstance(payload, dict) else {"response": payload}
+
+
 def fetch_health_payload(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
     try:
         payload = fetch_json(base_url, "/api/health", timeout=timeout)
@@ -86,6 +108,9 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     if action_endpoint.startswith("/refresh"):
         lines.append(f"manual_endpoint: POST {action_endpoint}")
         lines.append(f"manual_curl: curl -X POST {base_url.rstrip('/')}{action_endpoint}")
+    plan = refresh_plan(payload, health)
+    if plan:
+        lines.append(f"refresh_plan: {' -> '.join(plan)}")
     return (0 if status in {"ok", "warning"} else 1, "\n".join(lines))
 
 
@@ -128,10 +153,60 @@ def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, A
     return {"label": "-", "endpoint": ""}
 
 
+def refresh_plan(payload: dict[str, Any], health: Optional[dict[str, Any]] = None) -> list[str]:
+    health = health or payload.get("operational_health") or {}
+    endpoints: list[str] = []
+    required_stale = [str(item) for item in (payload.get("required_stale_layers") or [])]
+    operation = payload.get("refresh_operation_summary") if isinstance(payload.get("refresh_operation_summary"), dict) else {}
+    blocking = [str(item) for item in (operation.get("blocking_layers") or [])]
+    for layer in ("full_market", "watchlist", "positions"):
+        if layer in required_stale or layer in blocking:
+            endpoints.append(_layer_endpoint(layer))
+    next_endpoint = str((_next_action(payload, health) or {}).get("endpoint") or "")
+    if next_endpoint.startswith("/refresh"):
+        endpoints.append(next_endpoint)
+    result: list[str] = []
+    for endpoint in endpoints:
+        if endpoint and endpoint not in result:
+            result.append(endpoint)
+    return result
+
+
+def apply_refresh_plan(base_url: str, endpoints: list[str], *, timeout: float = 240.0) -> list[tuple[str, bool, str]]:
+    results: list[tuple[str, bool, str]] = []
+    for endpoint in endpoints:
+        try:
+            payload = post_json(base_url, endpoint, timeout=timeout)
+        except Exception as exc:
+            results.append((endpoint, False, str(exc)))
+            continue
+        status = str(payload.get("status") or payload.get("api_status") or "ok")
+        error = str(payload.get("error") or "")
+        ok = status not in {"failed", "error"} and not error
+        detail = error or status
+        results.append((endpoint, ok, detail))
+    return results
+
+
+def _layer_endpoint(layer: str) -> str:
+    return {
+        "full_market": "/refresh_full_market",
+        "watchlist": "/refresh_watchlist",
+        "positions": "/refresh_positions",
+        "post_close_validation": "/refresh_post_close_validation",
+    }.get(layer, "")
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Check dashboard operational readiness from /api/health.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=12.0)
+    parser.add_argument(
+        "--apply-refresh-plan",
+        action="store_true",
+        help="POST the ordered refresh plan, then fetch and print health again.",
+    )
+    parser.add_argument("--refresh-timeout", type=float, default=240.0)
     args = parser.parse_args(argv)
     try:
         payload = fetch_health_payload(args.base_url, timeout=args.timeout)
@@ -142,6 +217,28 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
     exit_code, report = render_report(payload, base_url=args.base_url)
     print(report)
+    if args.apply_refresh_plan:
+        plan = refresh_plan(payload)
+        if not plan:
+            print()
+            print("Refresh plan: no refresh endpoint needed.")
+            return exit_code
+        print()
+        print("Applying refresh plan")
+        refresh_failures = 0
+        for endpoint, ok, detail in apply_refresh_plan(args.base_url, plan, timeout=args.refresh_timeout):
+            mark = "PASS" if ok else "FAIL"
+            print(f"[{mark}] POST {endpoint}: {detail or '-'}")
+            refresh_failures += 0 if ok else 1
+        print()
+        try:
+            refreshed_payload = fetch_health_payload(args.base_url, timeout=args.timeout)
+        except Exception as exc:
+            print(f"[FAIL] refresh completed but health recheck failed: {exc}")
+            return 1
+        refreshed_exit_code, refreshed_report = render_report(refreshed_payload, base_url=args.base_url)
+        print(refreshed_report)
+        return 1 if refresh_failures else refreshed_exit_code
     return exit_code
 
 

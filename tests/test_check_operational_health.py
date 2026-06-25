@@ -64,6 +64,38 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("required_stale_layers: full_market, watchlist", report)
         self.assertIn("manual_endpoint: POST /refresh_full_market", report)
         self.assertIn("curl -X POST https://stock.letslepai.com/refresh_full_market", report)
+        self.assertIn("refresh_plan: /refresh_full_market -> /refresh_watchlist", report)
+
+    def test_refresh_plan_orders_required_layers_safely(self):
+        plan = script.refresh_plan(
+            {
+                "required_stale_layers": ["watchlist", "full_market"],
+                "refresh_operation_summary": {"blocking_layers": ["positions"]},
+            }
+        )
+
+        self.assertEqual(plan, ["/refresh_full_market", "/refresh_watchlist", "/refresh_positions"])
+
+    def test_apply_refresh_plan_records_endpoint_failures(self):
+        original = script.post_json
+
+        def fake_post(base_url, path, **kwargs):
+            if path == "/refresh_watchlist":
+                raise RuntimeError("down")
+            return {"status": "success"}
+
+        script.post_json = fake_post
+        try:
+            results = script.apply_refresh_plan(
+                "https://example.test",
+                ["/refresh_full_market", "/refresh_watchlist"],
+                timeout=1,
+            )
+        finally:
+            script.post_json = original
+
+        self.assertEqual(results[0], ("/refresh_full_market", True, "success"))
+        self.assertEqual(results[1], ("/refresh_watchlist", False, "down"))
 
     def test_render_report_uses_refresh_guidance_when_health_has_no_next_action(self):
         exit_code, report = script.render_report(
@@ -120,6 +152,52 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("無法讀取", stream.getvalue())
         self.assertIn("next_action", stream.getvalue())
+
+    def test_main_can_apply_refresh_plan_and_recheck_health(self):
+        original_fetch = script.fetch_health_payload
+        original_apply = script.apply_refresh_plan
+        fetch_calls = []
+        applied = []
+
+        def fake_fetch(base_url, **kwargs):
+            fetch_calls.append(base_url)
+            if len(fetch_calls) == 1:
+                return {
+                    "status": "blocked",
+                    "summary": "必要資料層過期",
+                    "market_mode": "pre_open_prepare",
+                    "data_quality_status": "部分延遲",
+                    "price_status_summary": {"live_count": 0},
+                    "required_stale_layers": ["full_market"],
+                    "next_action": {"label": "更新全市場", "endpoint": "/refresh_full_market"},
+                }
+            return {
+                "status": "warning",
+                "summary": "開盤前觀察",
+                "market_mode": "pre_open_prepare",
+                "data_quality_status": "部分延遲",
+                "price_status_summary": {"live_count": 0},
+                "next_action": {"label": "查看復盤", "endpoint": "/dashboard"},
+            }
+
+        def fake_apply(base_url, endpoints, **kwargs):
+            applied.extend(endpoints)
+            return [(endpoint, True, "success") for endpoint in endpoints]
+
+        script.fetch_health_payload = fake_fetch
+        script.apply_refresh_plan = fake_apply
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = script.main(["--base-url", "https://example.test", "--apply-refresh-plan"])
+        finally:
+            script.fetch_health_payload = original_fetch
+            script.apply_refresh_plan = original_apply
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(applied, ["/refresh_full_market"])
+        self.assertIn("Applying refresh plan", stream.getvalue())
+        self.assertIn("[PASS] POST /refresh_full_market", stream.getvalue())
 
     def test_fetch_health_payload_prefers_health_endpoint(self):
         calls = []

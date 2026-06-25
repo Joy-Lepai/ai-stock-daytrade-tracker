@@ -320,6 +320,16 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 curl -X POST https://stock.letslepai.com/refresh_full_market
 ```
 
+若想讓腳本依照建議順序自動執行刷新，可明確加上 `--apply-refresh-plan`：
+
+```bash
+python3 scripts/check_operational_health.py \
+  --base-url https://stock.letslepai.com \
+  --apply-refresh-plan
+```
+
+注意：未加 `--apply-refresh-plan` 時只會讀取狀態，不會觸發任何刷新。
+
 若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
