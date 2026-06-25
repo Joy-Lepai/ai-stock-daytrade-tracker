@@ -682,6 +682,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "summary": health.get("summary") or "",
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
+        "operator_steps": health.get("operator_steps") or [],
         "refresh_plan": health.get("refresh_plan") or [],
         "next_action": health.get("next_action") or {},
         "blockers": health.get("blockers") or [],

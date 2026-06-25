@@ -54,6 +54,7 @@ class WebTests(unittest.TestCase):
                 "summary": "系統狀態正常",
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
+                "operator_steps": ["先看強烈買多與買多清單"],
                 "refresh_plan": ["/refresh_watchlist"],
                 "next_action": {"label": "不需手動更新"},
                 "can_use_dashboard": True,
@@ -74,6 +75,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["watch_readiness"], "可正常看盤")
         self.assertEqual(payload["watch_readiness_message"], "仍需依停損確認")
+        self.assertEqual(payload["operator_steps"], ["先看強烈買多與買多清單"])
         self.assertEqual(payload["refresh_plan"], ["/refresh_watchlist"])
         self.assertEqual(payload["market_mode"], "intraday")
         self.assertTrue(payload["can_use_dashboard"])

@@ -70,6 +70,11 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         health = payload
     if not isinstance(health, dict):
         health = build_operational_health(payload)
+    elif not health.get("operator_steps") and (
+        "price_status_summary" in payload or "required_stale_layers" in payload or "refresh_operation_summary" in payload
+    ):
+        inferred = build_operational_health(payload)
+        health = {**inferred, **health, "operator_steps": inferred.get("operator_steps") or []}
     status = str(health.get("status") or "blocked")
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
@@ -95,6 +100,10 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     if warnings:
         lines.append("warnings:")
         lines.extend(f"- {item}" for item in warnings)
+    operator_steps = [str(item) for item in (health.get("operator_steps") or [])]
+    if operator_steps:
+        lines.append("operator_steps:")
+        lines.extend(f"{index}. {item}" for index, item in enumerate(operator_steps, start=1))
     required_stale = payload.get("required_stale_layers") or []
     stale_layers = payload.get("stale_layers") or []
     if required_stale:

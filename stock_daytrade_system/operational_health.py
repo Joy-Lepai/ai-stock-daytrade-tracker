@@ -70,12 +70,21 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     summary = _summary(status, market_mode, blockers, warnings)
     watch_readiness = _watch_readiness(status, market_mode)
     refresh_plan = _refresh_plan(required_stale_layers, refresh_summary, next_action)
+    operator_steps = _operator_steps(
+        status=status,
+        market_mode=market_mode,
+        next_action=next_action,
+        refresh_plan=refresh_plan,
+        blockers=blockers,
+        warnings=warnings,
+    )
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
         "watch_readiness": watch_readiness["label"],
         "watch_readiness_message": watch_readiness["message"],
+        "operator_steps": operator_steps,
         "refresh_plan": refresh_plan,
         "blockers": _dedupe(blockers),
         "warnings": _dedupe(warnings),
@@ -127,6 +136,59 @@ def _refresh_plan(
     if next_endpoint.startswith("/refresh"):
         endpoints.append(next_endpoint)
     return _dedupe(endpoints)
+
+
+def _operator_steps(
+    *,
+    status: str,
+    market_mode: str,
+    next_action: dict[str, str],
+    refresh_plan: list[str],
+    blockers: list[str],
+    warnings: list[str],
+) -> list[str]:
+    if status == "blocked":
+        if refresh_plan:
+            return [
+                "先執行刷新計畫：" + " → ".join(refresh_plan),
+                "刷新完成後重新檢查 /api/health 或公開驗收腳本。",
+                "資料恢復前只做復盤與觀察，不使用即時買多判斷。",
+            ]
+        first_step = str(next_action.get("label") or (blockers[0] if blockers else "先修正資料狀態。"))
+        return [
+            first_step,
+            "必要時執行完整刷新，並檢查資料源健康度。",
+            "狀態未恢復前，不顯示或依賴強烈買多。",
+        ]
+    if market_mode == "pre_open_prepare":
+        return [
+            "先看下個交易日觀察清單與個股作戰卡。",
+            "09:00 後等待今日 VWAP、量比、突破與進場雷達更新。",
+            "資料未轉 live 前，不提前當作即時買多。",
+        ]
+    if market_mode in {"closed_review", "post_close_review"}:
+        return [
+            "先看上一交易日復盤與盤後驗證結果。",
+            "整理下個交易日觀察清單，不把盤後資料當即時訊號。",
+            "下個交易日開盤後，再用 live 資料重新確認。",
+        ]
+    if status == "warning":
+        return [
+            warnings[0] if warnings else "目前可看但需保守。",
+            "只把 live 且資料完整的標的納入盤中判斷。",
+            "cached、delayed、missing 標的只能觀察，不可顯示強烈買多。",
+        ]
+    if market_mode == "intraday":
+        return [
+            "先看強烈買多與買多清單，但不為了交易而交易。",
+            "逐檔確認 VWAP、量比、突破、停損距離與進場雷達。",
+            "持倉只依停損、停利與失效條件管理。",
+        ]
+    return [
+        "先確認市場模式與資料可信度。",
+        "再看候選股清單與個股作戰卡。",
+        "不確定時維持觀察，不勉強進場。",
+    ]
 
 
 def _summary(status: str, market_mode: str, blockers: list[str], warnings: list[str]) -> str:

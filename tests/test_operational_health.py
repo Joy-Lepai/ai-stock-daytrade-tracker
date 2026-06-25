@@ -58,6 +58,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["watch_readiness"], "暫不適合進場判斷")
         self.assertEqual(health["next_action"]["endpoint"], "/refresh_watchlist")
         self.assertEqual(health["refresh_plan"], ["/refresh_watchlist"])
+        self.assertEqual(health["operator_steps"][0], "先執行刷新計畫：/refresh_watchlist")
         self.assertIn("重點觀察", " ".join(health["blockers"]))
 
     def test_refresh_plan_prioritizes_full_market_before_watchlist(self):
@@ -152,6 +153,7 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertTrue(health["can_use_dashboard"])
         self.assertFalse(health["allow_intraday_signal"])
         self.assertEqual(health["watch_readiness"], "僅供復盤或開盤前觀察")
+        self.assertIn("復盤", " ".join(health["operator_steps"]))
         self.assertIn("復盤", health["summary"])
 
     def test_severe_missing_blocks_dashboard(self):

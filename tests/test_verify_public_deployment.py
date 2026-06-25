@@ -18,6 +18,23 @@ from scripts.verify_public_deployment import (
 
 
 class VerifyPublicDeploymentTests(unittest.TestCase):
+    def _health_payload(self, **overrides):
+        payload = {
+            "api_status": "ok",
+            "status": "warning",
+            "summary": "非盤中模式",
+            "next_action": {"label": "查看復盤"},
+            "watch_readiness": "僅供復盤或開盤前觀察",
+            "operator_steps": ["先看復盤與下個交易日觀察清單"],
+            "refresh_plan": [],
+            "market_mode": "closed_review",
+            "price_status_summary": {"status": "休市復盤"},
+            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
+            "can_show_strong_long": False,
+        }
+        payload.update(overrides)
+        return payload
+
     def test_main_reports_endpoint_fetch_failures_without_traceback(self):
         original_fetch_json = module.fetch_json
         original_fetch_json_with_status = module.fetch_json_with_status
@@ -169,34 +186,15 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("stale market mode blocks operation summary", failed)
 
     def test_health_payload_requires_core_monitoring_fields(self):
-        payload = {
-            "api_status": "ok",
-            "status": "warning",
-            "summary": "非盤中模式",
-            "next_action": {"label": "查看復盤"},
-            "watch_readiness": "僅供復盤或開盤前觀察",
-            "refresh_plan": [],
-            "market_mode": "closed_review",
-            "price_status_summary": {"status": "休市復盤"},
-            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
-            "can_show_strong_long": False,
-        }
+        payload = self._health_payload()
 
         checks = validate_health_payload(payload)
 
         self.assertTrue(all(item.ok for item in checks), checks)
 
     def test_health_payload_requires_watch_readiness(self):
-        payload = {
-            "api_status": "ok",
-            "status": "warning",
-            "summary": "非盤中模式",
-            "next_action": {"label": "查看復盤"},
-            "market_mode": "closed_review",
-            "price_status_summary": {"status": "休市復盤"},
-            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
-            "can_show_strong_long": False,
-        }
+        payload = self._health_payload()
+        payload.pop("watch_readiness")
 
         checks = validate_health_payload(payload)
 
@@ -204,36 +202,36 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("health has watch readiness", failed)
 
     def test_health_payload_requires_refresh_plan(self):
-        payload = {
-            "api_status": "ok",
-            "status": "warning",
-            "summary": "非盤中模式",
-            "next_action": {"label": "查看復盤"},
-            "watch_readiness": "僅供復盤或開盤前觀察",
-            "market_mode": "closed_review",
-            "price_status_summary": {"status": "休市復盤"},
-            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
-            "can_show_strong_long": False,
-        }
+        payload = self._health_payload()
+        payload.pop("refresh_plan")
 
         checks = validate_health_payload(payload)
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has refresh plan", failed)
 
+    def test_health_payload_requires_operator_steps(self):
+        payload = self._health_payload()
+        payload.pop("operator_steps")
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health has operator steps", failed)
+
     def test_blocked_health_cannot_show_strong_buy(self):
-        payload = {
-            "api_status": "ok",
-            "status": "blocked",
-            "summary": "資料異常",
-            "next_action": {"label": "先修資料"},
-            "watch_readiness": "暫不適合進場判斷",
-            "refresh_plan": ["/refresh_watchlist"],
-            "market_mode": "intraday",
-            "price_status_summary": {"status": "嚴重缺漏"},
-            "deployment": {"runtime_commit": "abc123"},
-            "can_show_strong_long": True,
-        }
+        payload = self._health_payload(
+            status="blocked",
+            summary="資料異常",
+            next_action={"label": "先修資料"},
+            watch_readiness="暫不適合進場判斷",
+            operator_steps=["先執行刷新計畫"],
+            refresh_plan=["/refresh_watchlist"],
+            market_mode="intraday",
+            price_status_summary={"status": "嚴重缺漏"},
+            deployment={"runtime_commit": "abc123"},
+            can_show_strong_long=True,
+        )
 
         checks = validate_health_payload(payload)
 
@@ -248,36 +246,36 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertTrue(all(item.ok for item in checks), checks)
 
     def test_readiness_payload_accepts_503_when_blocked(self):
-        payload = {
-            "api_status": "ok",
-            "status": "blocked",
-            "summary": "資料異常",
-            "next_action": {"label": "先修資料"},
-            "watch_readiness": "暫不適合進場判斷",
-            "refresh_plan": ["/refresh_watchlist"],
-            "market_mode": "intraday",
-            "price_status_summary": {"status": "嚴重缺漏"},
-            "deployment": {"runtime_commit": "abc123"},
-            "can_show_strong_long": False,
-        }
+        payload = self._health_payload(
+            status="blocked",
+            summary="資料異常",
+            next_action={"label": "先修資料"},
+            watch_readiness="暫不適合進場判斷",
+            operator_steps=["先執行刷新計畫"],
+            refresh_plan=["/refresh_watchlist"],
+            market_mode="intraday",
+            price_status_summary={"status": "嚴重缺漏"},
+            deployment={"runtime_commit": "abc123"},
+            can_show_strong_long=False,
+        )
 
         checks = validate_readiness_payload(503, payload)
 
         self.assertTrue(all(item.ok for item in checks), checks)
 
     def test_readiness_payload_rejects_200_when_blocked(self):
-        payload = {
-            "api_status": "ok",
-            "status": "blocked",
-            "summary": "資料異常",
-            "next_action": {"label": "先修資料"},
-            "watch_readiness": "暫不適合進場判斷",
-            "refresh_plan": ["/refresh_watchlist"],
-            "market_mode": "intraday",
-            "price_status_summary": {"status": "嚴重缺漏"},
-            "deployment": {"runtime_commit": "abc123"},
-            "can_show_strong_long": False,
-        }
+        payload = self._health_payload(
+            status="blocked",
+            summary="資料異常",
+            next_action={"label": "先修資料"},
+            watch_readiness="暫不適合進場判斷",
+            operator_steps=["先執行刷新計畫"],
+            refresh_plan=["/refresh_watchlist"],
+            market_mode="intraday",
+            price_status_summary={"status": "嚴重缺漏"},
+            deployment={"runtime_commit": "abc123"},
+            can_show_strong_long=False,
+        )
 
         checks = validate_readiness_payload(200, payload)
 

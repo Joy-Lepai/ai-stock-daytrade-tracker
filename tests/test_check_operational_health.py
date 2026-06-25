@@ -65,6 +65,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("manual_endpoint: POST /refresh_full_market", report)
         self.assertIn("curl -X POST https://stock.letslepai.com/refresh_full_market", report)
         self.assertIn("refresh_plan: /refresh_full_market -> /refresh_watchlist", report)
+        self.assertIn("operator_steps:", report)
+        self.assertIn("1. 先執行刷新計畫", report)
 
     def test_refresh_plan_orders_required_layers_safely(self):
         plan = script.refresh_plan(

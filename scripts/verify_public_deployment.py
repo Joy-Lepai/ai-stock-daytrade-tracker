@@ -255,6 +255,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             isinstance(payload.get("refresh_plan"), list),
             f"refresh_plan={payload.get('refresh_plan') if isinstance(payload.get('refresh_plan'), list) else '-'}",
         ),
+        Check(
+            "health has operator steps",
+            isinstance(payload.get("operator_steps"), list) and bool(payload.get("operator_steps")),
+            f"operator_steps={payload.get('operator_steps') if isinstance(payload.get('operator_steps'), list) else '-'}",
+        ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
         Check(
