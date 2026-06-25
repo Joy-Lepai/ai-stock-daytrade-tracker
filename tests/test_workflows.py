@@ -16,6 +16,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("vars.STOCK_DASHBOARD_URL", text)
         self.assertIn("https://stock.letslepai.com", text)
+        self.assertIn("uses: actions/checkout@v4", text)
         self.assertIn("/refresh_full_market", text)
         self.assertIn("/refresh_watchlist", text)
         self.assertIn("/refresh_positions", text)
@@ -25,10 +26,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("print_refresh_status", text)
         self.assertIn("/api/refresh/status", text)
         self.assertIn("python3 -m json.tool", text)
-        self.assertIn("operational_health", text)
-        self.assertIn("Operational health", text)
-        self.assertIn('status == "blocked"', text)
+        self.assertIn("scripts/check_operational_health.py", text)
+        self.assertIn("--base-url \"$DASHBOARD_URL\"", text)
         self.assertIn("FAILED /api/refresh/status operational health", text)
+        self.assertNotIn('status == "blocked"', text)
 
 
 if __name__ == "__main__":
