@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime
 from typing import Any, Optional
@@ -15,6 +16,7 @@ from stock_daytrade_system.tw_scan_service import (
 
 
 FUGLE_ENTRY_RADAR_VERSION = "fugle_entry_radar_v1_priority_5_2026-06-21"
+DEFAULT_FUGLE_PRIORITY_POOL_LIMIT = 5
 
 
 def enrich_fugle_priority_pool(
@@ -62,11 +64,14 @@ def enrich_fugle_priority_pool(
         )
         return payload
 
+    tracking_limit = _priority_pool_limit()
+    rows_to_fetch = rows[:tracking_limit]
+    skipped_rows = rows[tracking_limit:]
     enriched: list[dict] = []
     success_count = 0
     failed_count = 0
     api_calls = 0
-    for item in rows:
+    for item in rows_to_fetch:
         try:
             enriched_item = _enrich_item(item, client=client, conn=conn, captured_at=captured_at)
             api_calls += int(enriched_item.get("fugle_api_calls") or 0)
@@ -82,6 +87,13 @@ def enrich_fugle_priority_pool(
             item["entry_confirmation_summary"] = "Fugle 進場雷達暫時無法更新，僅保留原本模型觀察。"
             item["entry_confirmation_next_step"] = "等待下一次重點追蹤刷新。"
             enriched.append(item)
+    skipped_items = [
+        _unavailable_item(
+            item,
+            reason=f"超過 Fugle 進場雷達 {tracking_limit} 檔追蹤上限",
+        )
+        for item in skipped_rows
+    ]
 
     payload.update(
         {
@@ -89,10 +101,18 @@ def enrich_fugle_priority_pool(
             "confirmation_updated_at": captured_at.isoformat(timespec="seconds"),
             "confirmation_success_count": success_count,
             "confirmation_failed_count": failed_count,
-            "planned_api_calls": len(rows) * 3,
+            "confirmation_skipped_count": len(skipped_items),
+            "tracking_limit": tracking_limit,
+            "planned_api_calls": len(rows_to_fetch) * 3,
             "actual_api_calls": api_calls,
-            "entry_radar_status": "ok" if success_count else "partial",
-            "selected": enriched,
+            "entry_radar_status": "ok" if success_count and not failed_count and not skipped_items else "partial",
+            "entry_radar_message": (
+                f"Fugle 進場雷達只追蹤前 {tracking_limit} 檔；"
+                f"超過上限 {len(skipped_items)} 檔保留原模型觀察。"
+                if skipped_items
+                else "Fugle 進場雷達已更新。"
+            ),
+            "selected": enriched + skipped_items,
         }
     )
     return payload
@@ -233,6 +253,14 @@ def _to_dict(value: Any) -> dict:
     if hasattr(value, "to_dict"):
         return value.to_dict()
     return {}
+
+
+def _priority_pool_limit() -> int:
+    try:
+        value = int(os.environ.get("FUGLE_PRIORITY_POOL_LIMIT", str(DEFAULT_FUGLE_PRIORITY_POOL_LIMIT)))
+    except (TypeError, ValueError):
+        value = DEFAULT_FUGLE_PRIORITY_POOL_LIMIT
+    return max(1, min(value, 20))
 
 
 def _float(value) -> Optional[float]:

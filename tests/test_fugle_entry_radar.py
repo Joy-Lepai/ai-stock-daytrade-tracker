@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from stock_daytrade_system.db import connect
 from stock_daytrade_system.fugle_entry_radar import enrich_fugle_priority_pool
@@ -160,6 +161,31 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(client.quote_calls + client.trade_calls + client.candle_calls, 0)
         self.assertEqual(item["entry_confirmation_status_label"], "等待 Fugle 設定")
         self.assertFalse(item["entry_confirmation_can_consider"])
+
+    def test_basic_user_limit_only_fetches_first_five_symbols(self):
+        symbols = ["2330.TW", "2317.TW", "2454.TW", "2886.TW", "6919.TW", "8150.TW"]
+        client = FakeFugleClient()
+        with TemporaryDirectory() as directory:
+            with connect(Path(directory) / "daytrade.db") as conn:
+                with patch.dict("os.environ", {"FUGLE_PRIORITY_POOL_LIMIT": "5"}):
+                    payload = enrich_fugle_priority_pool(
+                        pool_for(symbols),
+                        client=client,
+                        conn=conn,
+                        captured_at=datetime(2026, 6, 18, 9, 35),
+                    )
+
+        rows = {item["symbol"]: item for item in payload["selected"]}
+        self.assertEqual(payload["tracking_limit"], 5)
+        self.assertEqual(payload["confirmation_success_count"], 5)
+        self.assertEqual(payload["confirmation_skipped_count"], 1)
+        self.assertEqual(payload["planned_api_calls"], 15)
+        self.assertEqual(payload["actual_api_calls"], 15)
+        self.assertEqual(client.quote_calls, 5)
+        self.assertEqual(client.trade_calls, 5)
+        self.assertEqual(client.candle_calls, 5)
+        self.assertEqual(rows["8150.TW"]["fugle_confirmation_status"], "disabled")
+        self.assertIn("超過 Fugle 進場雷達 5 檔追蹤上限", rows["8150.TW"]["entry_confirmation_summary"])
 
 
 if __name__ == "__main__":
