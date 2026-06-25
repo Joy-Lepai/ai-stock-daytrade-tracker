@@ -1166,6 +1166,47 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("送入模型評分", html)
         self.assertIn("<strong>118</strong>", html)
 
+    def test_candidate_selection_explainer_uses_current_strong_funnel_keys(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "full_market_scan": {
+                    "data": {
+                        "pool_symbols": 1125,
+                        "twse_count": 714,
+                        "tpex_count": 411,
+                        "candidate_symbols": 40,
+                    },
+                    "source_status": {"twse_ok": True, "tpex_ok": True},
+                },
+                "strong_long_funnel": {
+                    "momentum_candidate_count": 40,
+                    "model_candidates_count": 40,
+                    "blocked_high_risk_count": 12,
+                    "blocked_wait_volume_count": 8,
+                    "blocked_wait_vwap_count": 5,
+                    "blocked_wait_breakout_count": 4,
+                    "strong_long_candidate_count": 2,
+                    "executable_count": 1,
+                },
+            },
+        )
+
+        html = _candidate_selection_explainer(summary)
+
+        self.assertIn("送入模型評分", html)
+        self.assertIn("<strong>40</strong>", html)
+        self.assertIn("high_risk 12 檔", html)
+        self.assertIn("wait_volume 8 檔", html)
+        self.assertIn("wait_vwap 5 檔", html)
+        self.assertIn("wait_breakout 4 檔", html)
+
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(
             candidates=[],

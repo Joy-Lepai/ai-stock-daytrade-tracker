@@ -928,6 +928,7 @@ def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
         len(full_scan.get("candidate_symbols") or []),
     )
     scored_count = _first_int(
+        funnel.get("model_candidates_count"),
         funnel.get("model_scored_count"),
         full_data.get("scored_symbols"),
         momentum_summary.get("model_scored"),
@@ -935,10 +936,10 @@ def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
         len(summary.candidates) if summary else 0,
     )
     out_of_pool = int(by_status.get("out_of_pool", full_scan.get("out_of_pool_count", 0) or 0) or 0)
-    high_risk = int(funnel.get("blocked_high_risk", by_status.get("high_risk", 0) or 0) or 0)
-    wait_volume = int(funnel.get("blocked_wait_volume", by_status.get("wait_volume", 0) or 0) or 0)
-    wait_vwap = int(funnel.get("blocked_wait_vwap", by_status.get("wait_vwap", 0) or 0) or 0)
-    wait_breakout = int(funnel.get("blocked_wait_breakout", by_status.get("wait_breakout", 0) or 0) or 0)
+    high_risk = _first_int(funnel.get("blocked_high_risk_count"), funnel.get("blocked_high_risk"), by_status.get("high_risk"))
+    wait_volume = _first_int(funnel.get("blocked_wait_volume_count"), funnel.get("blocked_wait_volume"), by_status.get("wait_volume"))
+    wait_vwap = _first_int(funnel.get("blocked_wait_vwap_count"), funnel.get("blocked_wait_vwap"), by_status.get("wait_vwap"))
+    wait_breakout = _first_int(funnel.get("blocked_wait_breakout_count"), funnel.get("blocked_wait_breakout"), by_status.get("wait_breakout"))
     strong = int(funnel.get("strong_long_candidate_count", 0) or 0)
     executable = int(funnel.get("executable_count", 0) or 0)
     if full_source:
