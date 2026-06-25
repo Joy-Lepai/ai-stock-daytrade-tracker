@@ -52,6 +52,11 @@ class WebTests(unittest.TestCase):
             "operational_health": {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "operator_mode": "盤中作戰模式",
+                "primary_focus": "先看強烈買多與買多",
+                "do_now": ["先看強烈買多候選"],
+                "do_not_do": ["不要追 high_risk"],
+                "decision_checklist": ["是否站上 VWAP？"],
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
                 "operator_steps": ["先看強烈買多與買多清單"],
@@ -73,6 +78,11 @@ class WebTests(unittest.TestCase):
 
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["operator_mode"], "盤中作戰模式")
+        self.assertEqual(payload["primary_focus"], "先看強烈買多與買多")
+        self.assertEqual(payload["do_now"], ["先看強烈買多候選"])
+        self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
+        self.assertEqual(payload["decision_checklist"], ["是否站上 VWAP？"])
         self.assertEqual(payload["watch_readiness"], "可正常看盤")
         self.assertEqual(payload["watch_readiness_message"], "仍需依停損確認")
         self.assertEqual(payload["operator_steps"], ["先看強烈買多與買多清單"])
@@ -363,6 +373,11 @@ class WebTests(unittest.TestCase):
         self.assertIn("營運健康", html)
         self.assertIn("看盤狀態", html)
         self.assertIn("看盤：", html)
+        self.assertIn("作戰模式", html)
+        self.assertIn("現在要做", html)
+        self.assertIn("不要做", html)
+        self.assertIn("operator_mode", html)
+        self.assertIn("primary_focus", html)
         self.assertIn("刷新順序", html)
         self.assertIn("operational_health", html)
         self.assertIn("operator_steps", html)

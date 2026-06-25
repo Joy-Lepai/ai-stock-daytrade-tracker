@@ -32,6 +32,10 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertTrue(health["can_show_strong_long"])
         self.assertEqual(health["watch_readiness"], "可正常看盤")
         self.assertIn("正常", health["summary"])
+        self.assertEqual(health["operator_mode"], "盤中作戰模式")
+        self.assertIn("強烈買多", health["primary_focus"])
+        self.assertIn("不要追 high_risk。", health["do_not_do"])
+        self.assertIn("是否站上 VWAP？", health["decision_checklist"])
 
     def test_stale_required_layer_blocks_dashboard(self):
         payload = {
@@ -59,6 +63,8 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["next_action"]["endpoint"], "/refresh_watchlist")
         self.assertEqual(health["refresh_plan"], ["/refresh_watchlist"])
         self.assertEqual(health["operator_steps"][0], "先執行刷新計畫：/refresh_watchlist")
+        self.assertEqual(health["operator_mode"], "資料修復模式")
+        self.assertIn("/refresh_watchlist", health["do_now"][0])
         self.assertIn("重點觀察", " ".join(health["blockers"]))
 
     def test_refresh_plan_prioritizes_full_market_before_watchlist(self):
@@ -155,6 +161,9 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["watch_readiness"], "僅供復盤或開盤前觀察")
         self.assertIn("復盤", " ".join(health["operator_steps"]))
         self.assertIn("復盤", health["summary"])
+        self.assertEqual(health["operator_mode"], "復盤準備模式")
+        self.assertIn("上一交易日", health["primary_focus"])
+        self.assertIn("不要顯示或依賴即時強烈買多。", health["do_not_do"])
 
     def test_severe_missing_blocks_dashboard(self):
         payload = {

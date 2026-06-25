@@ -680,6 +680,11 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "status": status,
         "generated_at": refresh_payload.get("generated_at") or system_payload.get("generated_at"),
         "summary": health.get("summary") or "",
+        "operator_mode": health.get("operator_mode") or "",
+        "primary_focus": health.get("primary_focus") or "",
+        "do_now": health.get("do_now") or [],
+        "do_not_do": health.get("do_not_do") or [],
+        "decision_checklist": health.get("decision_checklist") or [],
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
         "operator_steps": health.get("operator_steps") or [],
@@ -2043,7 +2048,13 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const steps = Array.isArray(health.operator_steps) && health.operator_steps.length
           ? `<ol class="operator-steps">${{health.operator_steps.map((step) => `<li>${{escapeHtml(step)}}</li>`).join("")}}</ol>`
           : "";
-        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{steps}}${{blockers}}${{warnings}}`;
+        const mode = health.operator_mode
+          ? `<div class="warn-mini">作戰模式：${{escapeHtml(health.operator_mode)}}｜重點：${{escapeHtml(health.primary_focus || "-")}}</div>` : "";
+        const doNow = Array.isArray(health.do_now) && health.do_now.length
+          ? `<div class="warn-mini">現在要做：${{health.do_now.map((item) => escapeHtml(item)).join(" / ")}}</div>` : "";
+        const doNot = Array.isArray(health.do_not_do) && health.do_not_do.length
+          ? `<div class="warn-mini">不要做：${{health.do_not_do.map((item) => escapeHtml(item)).join(" / ")}}</div>` : "";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{mode}}${{doNow}}${{doNot}}${{steps}}${{blockers}}${{warnings}}`;
       }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};

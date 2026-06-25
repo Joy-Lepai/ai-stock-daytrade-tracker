@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-OPERATIONAL_HEALTH_VERSION = "operational_health_v3_refresh_plan_2026-06-26"
+OPERATIONAL_HEALTH_VERSION = "operational_health_v4_operator_mode_2026-06-26"
 
 BLOCKING_PRICE_STATUSES = {"嚴重缺漏", "資料異常"}
 INTRADAY_MODES = {"intraday"}
@@ -78,10 +78,22 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         blockers=blockers,
         warnings=warnings,
     )
+    operator_mode = _operator_mode(
+        status=status,
+        market_mode=market_mode,
+        blockers=blockers,
+        warnings=warnings,
+        refresh_plan=refresh_plan,
+    )
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
+        "operator_mode": operator_mode["mode"],
+        "primary_focus": operator_mode["primary_focus"],
+        "do_now": operator_mode["do_now"],
+        "do_not_do": operator_mode["do_not_do"],
+        "decision_checklist": operator_mode["decision_checklist"],
         "watch_readiness": watch_readiness["label"],
         "watch_readiness_message": watch_readiness["message"],
         "operator_steps": operator_steps,
@@ -189,6 +201,121 @@ def _operator_steps(
         "再看候選股清單與個股作戰卡。",
         "不確定時維持觀察，不勉強進場。",
     ]
+
+
+def _operator_mode(
+    *,
+    status: str,
+    market_mode: str,
+    blockers: list[str],
+    warnings: list[str],
+    refresh_plan: list[str],
+) -> dict[str, Any]:
+    if status == "blocked":
+        return {
+            "mode": "資料修復模式",
+            "primary_focus": blockers[0] if blockers else "先修復資料與刷新層，再看訊號。",
+            "do_now": [
+                "依刷新計畫執行：" + " → ".join(refresh_plan) if refresh_plan else "先執行 /refresh_watchlist 或 /refresh_full_market。",
+                "確認 TWSE / TPEX / Yahoo / Fugle 資料健康度。",
+                "修復前只看復盤與觀察，不使用即時買多判斷。",
+            ],
+            "do_not_do": [
+                "不要把 delayed / cached / missing 當成即時訊號。",
+                "不要因畫面有候選股就進場。",
+            ],
+            "decision_checklist": [
+                "必要刷新層是否恢復？",
+                "價格資料是否 live？",
+                "資料日期是否符合目前模式？",
+            ],
+        }
+    if market_mode == "pre_open_prepare":
+        return {
+            "mode": "開盤前準備模式",
+            "primary_focus": "先整理觀察清單，09:00 後等 VWAP、量比、突破重新確認。",
+            "do_now": [
+                "看下個交易日觀察清單與個股作戰卡。",
+                "標記最接近 VWAP / 突破 / 量能確認的股票。",
+                "開盤後先等資料轉 live，再看進場雷達。",
+            ],
+            "do_not_do": [
+                "不要把昨日資料當成即時買多。",
+                "不要在沒有 VWAP 與量比前下結論。",
+            ],
+            "decision_checklist": [
+                "股票是否站上 VWAP？",
+                "量比是否接近 1.0？",
+                "是否突破昨日高點或觸發價？",
+            ],
+        }
+    if market_mode in {"closed_review", "post_close_review"}:
+        return {
+            "mode": "復盤準備模式",
+            "primary_focus": "檢查上一交易日結果，整理下個交易日觀察，不做即時進場判斷。",
+            "do_now": [
+                "看上一交易日復盤與盤後驗證。",
+                "檢查 high_risk / avoid 是否有可惜漏掉。",
+                "把 B+、買多、強勢但追價高的股票放入下個交易日觀察。",
+            ],
+            "do_not_do": [
+                "不要顯示或依賴即時強烈買多。",
+                "不要用收盤後資料回推成盤中可買。",
+            ],
+            "decision_checklist": [
+                "盤後驗證是否寫入？",
+                "漏抓診斷是 missed_by_pool 還是 seen_but_filtered？",
+                "下個交易日需要盯哪 5 到 10 檔？",
+            ],
+        }
+    if market_mode == "intraday" and status == "warning":
+        return {
+            "mode": "盤中保守模式",
+            "primary_focus": warnings[0] if warnings else "盤中可看，但資料或刷新層有提醒，需保守。",
+            "do_now": [
+                "只看 live 且資料完整的股票。",
+                "cached / delayed / missing 只列觀察。",
+                "先確認最大卡關原因，再看下一步觸發條件。",
+            ],
+            "do_not_do": [
+                "不要把資料提醒中的股票當成強烈買多。",
+                "不要忽略停損距離與進場雷達。",
+            ],
+            "decision_checklist": [
+                "price_status 是否 live？",
+                "watchlist 與 positions 層是否未過期？",
+                "VWAP、量比、停損價是否完整？",
+            ],
+        }
+    if market_mode == "intraday":
+        return {
+            "mode": "盤中作戰模式",
+            "primary_focus": "先看強烈買多與買多，再逐檔確認進場雷達與風控。",
+            "do_now": [
+                "先看強烈買多候選與買多清單。",
+                "逐檔確認 VWAP、量比、突破、停損距離。",
+                "有持倉時優先看停損、停利與失效條件。",
+            ],
+            "do_not_do": [
+                "不要追 high_risk。",
+                "不要因法人或族群背景直接升級買多。",
+                "沒有訊號就空手。",
+            ],
+            "decision_checklist": [
+                "資料是否 live？",
+                "是否站上 VWAP？",
+                "量比是否足夠？",
+                "突破是否成立？",
+                "停損距離是否合理？",
+            ],
+        }
+    return {
+        "mode": "檢查模式",
+        "primary_focus": "先確認市場模式與資料品質，再看候選股。",
+        "do_now": ["檢查市場模式。", "檢查資料健康度。", "只看資料完整的個股。"],
+        "do_not_do": ["不要在模式不明時進場。"],
+        "decision_checklist": ["市場模式是否明確？", "資料品質是否正常？"],
+    }
 
 
 def _summary(status: str, market_mode: str, blockers: list[str], warnings: list[str]) -> str:
