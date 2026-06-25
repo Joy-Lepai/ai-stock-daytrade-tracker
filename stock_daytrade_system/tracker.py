@@ -1988,17 +1988,43 @@ def _front_category_diagnostics(views: list) -> str:
             reason_counter[f"{category}：{_front_reason_label(str(code))}"] += 1
     top_reasons = reason_counter.most_common(4)
     reason_text = "、".join(f"{label} {count} 檔" for label, count in top_reasons) if top_reasons else "目前沒有明顯集中原因"
-    all_bearish_hint = ""
-    if counts.get("看空", 0) and counts.get("買多", 0) == 0 and counts.get("強烈買多", 0) == 0:
-        all_bearish_hint = " 若看空異常偏多，先檢查 market_mode、price_status、VWAP 與資料日是否正確。"
+    triage_hint = _front_category_triage_hint(counts, reason_counter)
     return (
         '<div class="notice">'
         '<strong>四分類原因診斷</strong><br>'
         f'強烈買多 {int(counts.get("強烈買多", 0))} 檔、買多 {int(counts.get("買多", 0))} 檔、'
         f'觀察 {int(counts.get("觀察", 0))} 檔、看空 {int(counts.get("看空", 0))} 檔。'
-        f'主要原因：{escape(reason_text)}。{escape(all_bearish_hint)}'
+        f'主要原因：{escape(reason_text)}。{triage_hint}'
         '</div>'
     )
+
+
+def _front_category_triage_hint(counts: Counter[str], reason_counter: Counter[str]) -> str:
+    strong = int(counts.get("強烈買多", 0) or 0)
+    buy = int(counts.get("買多", 0) or 0)
+    watch = int(counts.get("觀察", 0) or 0)
+    bearish = int(counts.get("看空", 0) or 0)
+    if strong or buy:
+        return ""
+    reason_text = " ".join(reason_counter.keys())
+    checks = []
+    if "資料" in reason_text or "使用上一筆" in reason_text or "非盤中" in reason_text:
+        checks.append("先看資料狀態是否 live、資料日是否正確")
+    if "VWAP" in reason_text:
+        checks.append("再看是否多數股票未站上 VWAP")
+    if "量比" in reason_text:
+        checks.append("接著看量比是否不足")
+    if "追價風險" in reason_text:
+        checks.append("最後看是否被 high_risk 擋下")
+    if not checks:
+        checks = ["先看 market_mode、price_status、VWAP、量比與資料日"]
+    if bearish:
+        prefix = "若看空異常偏多，"
+    elif watch:
+        prefix = "目前沒有買多候選，"
+    else:
+        prefix = "目前沒有可分類標的，"
+    return f'<br><span class="muted">{escape(prefix + "排查順序：" + " → ".join(checks) + "。")}</span>'
 
 
 def _front_reason_label(code: str) -> str:
