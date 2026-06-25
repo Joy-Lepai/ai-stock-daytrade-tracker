@@ -7,6 +7,14 @@ on:
         description: "Manual refresh layer: auto, full_market, watchlist, positions, post_close, all"
         required: false
         default: "auto"
+        type: choice
+        options:
+          - auto
+          - full_market
+          - watchlist
+          - positions
+          - post_close
+          - all
   schedule:
     # Taiwan market pre-open: 08:30 Asia/Taipei, weekdays.
     - cron: "30 0 * * 1-5"

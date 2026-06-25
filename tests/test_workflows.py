@@ -16,6 +16,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("vars.STOCK_DASHBOARD_URL", text)
         self.assertIn("refresh_layer:", text)
+        self.assertIn("type: choice", text)
+        self.assertIn("- auto", text)
+        self.assertIn("- full_market", text)
+        self.assertIn("- watchlist", text)
+        self.assertIn("- positions", text)
+        self.assertIn("- post_close", text)
+        self.assertIn("- all", text)
         self.assertIn("REFRESH_LAYER", text)
         self.assertIn('refresh_layer="${REFRESH_LAYER:-auto}"', text)
         self.assertIn('if [ "$refresh_layer" != "auto" ]', text)
@@ -40,6 +47,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--base-url \"$DASHBOARD_URL\"", text)
         self.assertIn("FAILED /api/refresh/status operational health", text)
         self.assertNotIn('status == "blocked"', text)
+
+    def test_verify_public_deployment_workflow_checks_representative_advisors_by_default(self):
+        workflow = PROJECT_ROOT / ".github" / "workflows" / "verify-public-deployment.yml"
+        text = workflow.read_text(encoding="utf-8")
+
+        self.assertIn("Verify Public Deployment", text)
+        self.assertIn("advisor_symbol:", text)
+        self.assertIn('default: "6919,2886,8150"', text)
+        self.assertIn("scripts/verify_public_deployment.py", text)
+        self.assertIn("--advisor-symbol", text)
+        self.assertIn("github.event.inputs.advisor_symbol", text)
 
 
 if __name__ == "__main__":
