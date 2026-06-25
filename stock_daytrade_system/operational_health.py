@@ -120,7 +120,7 @@ def _refresh_plan(
 ) -> list[str]:
     endpoints: list[str] = []
     blocking_layers = _list(refresh_summary.get("blocking_layers"))
-    for layer in ("full_market", "watchlist", "positions"):
+    for layer in ("full_market", "watchlist", "positions", "post_close_validation", "manual_full_refresh"):
         if layer in required_stale_layers or layer in blocking_layers:
             endpoints.append(_layer_endpoint(layer))
     next_endpoint = str(next_action.get("endpoint") or "")

@@ -136,6 +136,10 @@ def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, A
         return {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"}
     if "positions" in required_stale:
         return {"label": "更新持倉/觸發", "endpoint": "/refresh_positions"}
+    if "post_close_validation" in required_stale:
+        return {"label": "更新盤後驗證", "endpoint": "/refresh_post_close_validation"}
+    if "manual_full_refresh" in required_stale:
+        return {"label": "完整刷新", "endpoint": "/refresh"}
     health_action = health.get("next_action") if isinstance(health.get("next_action"), dict) else {}
     if health_action.get("label"):
         return health_action
@@ -150,6 +154,10 @@ def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, A
         return {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"}
     if "positions" in blocking:
         return {"label": "更新持倉/觸發", "endpoint": "/refresh_positions"}
+    if "post_close_validation" in blocking:
+        return {"label": "更新盤後驗證", "endpoint": "/refresh_post_close_validation"}
+    if "manual_full_refresh" in blocking:
+        return {"label": "完整刷新", "endpoint": "/refresh"}
     return {"label": "-", "endpoint": ""}
 
 
@@ -162,7 +170,7 @@ def refresh_plan(payload: dict[str, Any], health: Optional[dict[str, Any]] = Non
     required_stale = [str(item) for item in (payload.get("required_stale_layers") or [])]
     operation = payload.get("refresh_operation_summary") if isinstance(payload.get("refresh_operation_summary"), dict) else {}
     blocking = [str(item) for item in (operation.get("blocking_layers") or [])]
-    for layer in ("full_market", "watchlist", "positions"):
+    for layer in ("full_market", "watchlist", "positions", "post_close_validation", "manual_full_refresh"):
         if layer in required_stale or layer in blocking:
             endpoints.append(_layer_endpoint(layer))
     next_endpoint = str((_next_action(payload, health) or {}).get("endpoint") or "")
@@ -197,6 +205,7 @@ def _layer_endpoint(layer: str) -> str:
         "watchlist": "/refresh_watchlist",
         "positions": "/refresh_positions",
         "post_close_validation": "/refresh_post_close_validation",
+        "manual_full_refresh": "/refresh",
     }.get(layer, "")
 
 

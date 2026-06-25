@@ -80,6 +80,26 @@ class OperationalHealthTests(unittest.TestCase):
 
         self.assertEqual(health["refresh_plan"], ["/refresh_full_market", "/refresh_watchlist"])
 
+    def test_refresh_plan_includes_post_close_and_manual_refresh_layers(self):
+        payload = {
+            "market_mode": "closed_review",
+            "allow_intraday_signal": False,
+            "price_status_summary": {"status": "休市復盤", "live_count": 0, "missing_ratio": 0},
+            "required_stale_layers": ["manual_full_refresh", "post_close_validation"],
+            "stale_layers": ["manual_full_refresh", "post_close_validation"],
+            "refresh_guidance": {
+                "severity": "block",
+                "summary": "盤後驗證與完整刷新待補",
+                "action_label": "更新盤後驗證",
+                "action_endpoint": "/refresh_post_close_validation",
+            },
+            "refresh_operation_summary": {"severity": "block", "blocking_layers": ["manual_full_refresh"]},
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["refresh_plan"], ["/refresh_post_close_validation", "/refresh"])
+
     def test_cached_and_delayed_prices_are_warning_not_strong_long(self):
         payload = {
             "market_mode": "intraday",

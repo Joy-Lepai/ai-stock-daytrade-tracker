@@ -76,6 +76,16 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(plan, ["/refresh_full_market", "/refresh_watchlist", "/refresh_positions"])
 
+    def test_refresh_plan_includes_post_close_and_manual_refresh_layers(self):
+        plan = script.refresh_plan(
+            {
+                "required_stale_layers": ["manual_full_refresh", "post_close_validation"],
+                "refresh_operation_summary": {"blocking_layers": []},
+            }
+        )
+
+        self.assertEqual(plan, ["/refresh_post_close_validation", "/refresh"])
+
     def test_refresh_plan_prefers_health_payload_plan(self):
         plan = script.refresh_plan(
             {"required_stale_layers": ["full_market"]},
