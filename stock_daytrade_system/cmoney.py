@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List
 
 from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.resilience import record_source_health, retry_sync
-from stock_daytrade_system.tw_full_market import _parse_tpex_rows, _parse_twse_rows
+from stock_daytrade_system.tw_symbols import market_suffix_for_code
 
 
 @dataclass(frozen=True)
@@ -116,27 +116,6 @@ class CMoneyClient:
     def _symbol_for_code(self, code: str) -> str:
         suffix = market_suffix_for_code(code, cache_dir=self.cache_dir)
         return f"{code}{suffix}"
-
-
-def market_suffix_for_code(code: str, *, cache_dir: Path | None = None) -> str:
-    normalized = str(code or "").strip()
-    if not normalized:
-        return ".TW"
-    cache_root = cache_dir or Path(__file__).resolve().parents[1] / "data" / "cache"
-    try:
-        twse_cache = cache_root / "twse_stock_day_all.json"
-        if twse_cache.exists():
-            twse_codes = {item.code for item in _parse_twse_rows(json.loads(twse_cache.read_text(encoding="utf-8")))}
-            if normalized in twse_codes:
-                return ".TW"
-        tpex_cache = cache_root / "tpex_daily_quotes.json"
-        if tpex_cache.exists():
-            tpex_codes = {item.code for item in _parse_tpex_rows(json.loads(tpex_cache.read_text(encoding="utf-8")))}
-            if normalized in tpex_codes:
-                return ".TWO"
-    except Exception:
-        return ".TW"
-    return ".TW"
 
 
 def rankings_by_symbol(rankings: Iterable[CMoneyRanking]) -> Dict[str, CMoneyRanking]:

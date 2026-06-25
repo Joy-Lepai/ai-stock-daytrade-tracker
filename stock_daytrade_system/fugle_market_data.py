@@ -9,8 +9,8 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from stock_daytrade_system.cmoney import market_suffix_for_code
 from stock_daytrade_system.resilience import record_source_health, retry_sync
+from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 
 FUGLE_MARKET_DATA_VERSION = "fugle_market_data_v2_quote_trades_candles_2026-06-21"
@@ -649,12 +649,7 @@ def _classify_trade(row: dict, *, threshold: float) -> dict:
 
 
 def _normalize_symbol(symbol: str) -> str:
-    raw = (symbol or "").strip().upper()
-    if raw.endswith(".TW") or raw.endswith(".TWO"):
-        return raw
-    if raw.isdigit():
-        return f"{raw}{market_suffix_for_code(raw)}"
-    return raw
+    return normalize_tw_stock_symbol(symbol)
 
 
 def _symbol_code(symbol: str) -> str:

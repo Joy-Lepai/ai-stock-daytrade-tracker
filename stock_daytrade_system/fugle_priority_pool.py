@@ -4,7 +4,7 @@ import os
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional
 
-from stock_daytrade_system.cmoney import market_suffix_for_code
+from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 
 FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v1_basic_5_2026-06-21"
@@ -233,12 +233,7 @@ def _value(item: Any, key: str, default=None):
 
 
 def _normalize_symbol(value) -> str:
-    text = str(value or "").strip().upper()
-    if not text:
-        return ""
-    if "." not in text and text.isdigit():
-        return f"{text}{market_suffix_for_code(text)}"
-    return text
+    return normalize_tw_stock_symbol(value)
 
 
 def _float(value, default=None) -> Optional[float]:

@@ -10,8 +10,8 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from stock_daytrade_system.cmoney import market_suffix_for_code
 from stock_daytrade_system.resilience import record_source_health, retry_sync
+from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 
 SHIOAJI_QUOTE_VERSION = "shioaji_quote_mvp_snapshot_2026-06-20"
@@ -253,12 +253,7 @@ def parse_shioaji_snapshot(symbol: str, payload: Any, *, source: str = "Shioaji"
 
 
 def _normalize_symbol(symbol: str) -> str:
-    raw = (symbol or "").strip().upper()
-    if raw.endswith(".TW") or raw.endswith(".TWO"):
-        return raw
-    if raw.isdigit():
-        return f"{raw}{market_suffix_for_code(raw)}"
-    return raw
+    return normalize_tw_stock_symbol(symbol)
 
 
 def _symbol_code(symbol: str) -> str:
