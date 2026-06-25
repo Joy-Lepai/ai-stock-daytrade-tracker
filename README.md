@@ -324,6 +324,15 @@ curl -X POST https://stock.letslepai.com/refresh_full_market
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
 
+若要手動刷新，不一定要進 Render。可以到 GitHub Actions 執行 `Refresh Stock Dashboard`，並選擇 `refresh_layer`：
+
+- `auto`：依排程時間自動判斷要跑哪些層。
+- `full_market`：只重建全市場異動候選池。
+- `watchlist`：只更新重點觀察股。
+- `positions`：只更新持倉、停損停利與觸發狀態。
+- `post_close`：只跑盤後驗證。
+- `all`：依序跑全市場、重點觀察與持倉觸發。
+
 外部監控可以分兩層：
 
 - `/healthz`：只檢查 Web Service 是否活著，適合 uptime ping。
