@@ -186,6 +186,15 @@ class StockWebHandler(BaseHTTPRequestHandler):
         parsed_url = urllib.parse.urlparse(self.path)
         path = parsed_url.path
         query = urllib.parse.parse_qs(parsed_url.query)
+        if path == "/healthz":
+            self._send_json(build_liveness_payload())
+            return
+        if path == "/readyz":
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            health_payload = build_health_payload(refresh_payload, system_payload)
+            self._send_json(health_payload, readiness_http_status(health_payload))
+            return
         if path == "/login":
             if not self.web_app.require_auth:
                 self._redirect("/dashboard")
@@ -644,6 +653,19 @@ class StockWebHandler(BaseHTTPRequestHandler):
 def latest_tracker_file(report_dir: Path) -> Optional[Path]:
     files = sorted(report_dir.glob("*-tracker.html"), reverse=True)
     return files[0] if files else None
+
+
+def build_liveness_payload() -> dict[str, Any]:
+    return {
+        "api_status": "ok",
+        "status": "alive",
+        "service": "tw-daytrade-tracker",
+        "generated_at": datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds"),
+    }
+
+
+def readiness_http_status(health_payload: dict[str, Any]) -> HTTPStatus:
+    return HTTPStatus.SERVICE_UNAVAILABLE if health_payload.get("status") == "blocked" else HTTPStatus.OK
 
 
 def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[str, Any]) -> dict[str, Any]:

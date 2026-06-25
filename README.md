@@ -301,6 +301,11 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
 
+外部監控可以分兩層：
+
+- `/healthz`：只檢查 Web Service 是否活著，適合 uptime ping。
+- `/readyz`：檢查營運健康；若資料或必要刷新層阻擋即時判斷，會回 HTTP 503，適合資料可用性告警，不建議拿來當 Render 重啟健康檢查。
+
 ## 建議排程
 
 公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：

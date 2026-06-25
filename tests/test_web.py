@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 from stock_daytrade_system.web import (
     WebApp,
     build_health_payload,
+    build_liveness_payload,
+    readiness_http_status,
     _current_commit_hash,
     _extract_body,
     _extract_style,
@@ -20,6 +22,7 @@ from stock_daytrade_system.web import (
     render_tw_advisor_page,
 )
 from stock_daytrade_system.db import connect
+from http import HTTPStatus
 
 
 class WebTests(unittest.TestCase):
@@ -71,6 +74,19 @@ class WebTests(unittest.TestCase):
         self.assertTrue(payload["can_show_strong_long"])
         self.assertEqual(payload["deployment"]["runtime_commit"], "abc123")
         self.assertEqual(payload["db"]["data_date"], "2026-06-26")
+
+    def test_liveness_payload_is_lightweight_and_alive(self):
+        payload = build_liveness_payload()
+
+        self.assertEqual(payload["api_status"], "ok")
+        self.assertEqual(payload["status"], "alive")
+        self.assertEqual(payload["service"], "tw-daytrade-tracker")
+        self.assertIn("generated_at", payload)
+
+    def test_readiness_http_status_only_fails_when_blocked(self):
+        self.assertEqual(readiness_http_status({"status": "ok"}), HTTPStatus.OK)
+        self.assertEqual(readiness_http_status({"status": "warning"}), HTTPStatus.OK)
+        self.assertEqual(readiness_http_status({"status": "blocked"}), HTTPStatus.SERVICE_UNAVAILABLE)
 
     def test_tracker_html_needs_refresh_when_static_file_is_old(self):
         html = """
