@@ -92,12 +92,26 @@ def build_frontend_trade_label(
     reasons = _list_text(_get(item, "reasons"))
     conflicts = _conflict_codes(_get(item, "conflicts"))
     confidence_summary = _string(_get(item, "confidence_summary"))
-    price_status = price_status_label.strip().lower()
-    missing_or_unusable = data_missing or grade == "data_missing" or entry == "data_missing" or price_status in {"missing", "資料不足"}
+    item_price_status = _string(
+        _get(item, "price_status")
+        or _get(item, "price_status_label")
+        or _get(item, "quote_state")
+        or _get(item, "data_status")
+    )
+    price_status = (price_status_label or item_price_status).strip().lower()
+    item_uses_last_known = bool(
+        uses_last_known
+        or _get(item, "uses_last_known")
+        or _get(item, "fallback_used")
+        or _get(item, "is_cached")
+    )
+    item_is_delayed = bool(is_delayed or _get(item, "is_delayed"))
+    item_data_missing = bool(data_missing or _get(item, "data_missing") or _get(item, "is_data_missing"))
+    missing_or_unusable = item_data_missing or grade == "data_missing" or entry == "data_missing" or price_status in {"missing", "資料不足"}
     non_live_data = (
         stale
-        or uses_last_known
-        or is_delayed
+        or item_uses_last_known
+        or item_is_delayed
         or price_status in {"cached", "delayed", "missing", "使用上一筆", "資料延遲", "資料不足"}
     )
     stop_distance = _stop_distance_pct(price, stop_loss)
@@ -151,10 +165,10 @@ def build_frontend_trade_label(
         elif volume_ratio is None:
             top = "缺量比，不能產生做多判斷。"
             code = "missing_volume_ratio"
-        elif uses_last_known or price_status in {"cached", "使用上一筆"}:
+        elif item_uses_last_known or price_status in {"cached", "使用上一筆"}:
             top = "使用上一筆有效價格，僅供觀察，不作為進場依據。"
             code = "cached"
-        elif is_delayed or price_status in {"delayed", "資料延遲"}:
+        elif item_is_delayed or price_status in {"delayed", "資料延遲"}:
             top = "資料延遲，僅供觀察，不作為進場依據。"
             code = "delayed"
         else:
@@ -173,10 +187,10 @@ def build_frontend_trade_label(
         if stale:
             top = "資料過期，僅供觀察，不作為進場依據。"
             code = "stale_data"
-        elif uses_last_known or price_status in {"cached", "使用上一筆"}:
+        elif item_uses_last_known or price_status in {"cached", "使用上一筆"}:
             top = "使用上一筆有效價格，僅供觀察，不作為進場依據。"
             code = "cached"
-        elif is_delayed or price_status in {"delayed", "資料延遲"}:
+        elif item_is_delayed or price_status in {"delayed", "資料延遲"}:
             top = "資料延遲，僅供觀察，不作為進場依據。"
             code = "delayed"
         else:
@@ -439,9 +453,10 @@ def front_decision_card(
         invalid_condition = "開高走低、跌破 VWAP、量能退潮、爆量但價格無法再墊高或長上影擴大。"
     else:
         final = view.category if view.category in {FRONT_CATEGORY_STRONG_BUY, FRONT_CATEGORY_BUY, FRONT_CATEGORY_WATCH, FRONT_CATEGORY_BEARISH} else FRONT_CATEGORY_WATCH
-    if _data_unusable(data_missing, stale, uses_last_known, is_delayed, price_status_label):
+    data_unusable = _data_unusable(data_missing, stale, uses_last_known, is_delayed, price_status_label) or _item_data_unusable(item)
+    if data_unusable:
         final = FRONT_CATEGORY_WATCH if final != FRONT_CATEGORY_BEARISH else final
-    precision = _precision_score(item, view, radar, final_decision=final, data_unusable=_data_unusable(data_missing, stale, uses_last_known, is_delayed, price_status_label))
+    precision = _precision_score(item, view, radar, final_decision=final, data_unusable=data_unusable)
     summary = f"{final}｜{top_reason}。下一步：{next_trigger}"
     codes = list(view.reason_codes)
     blocker = str(radar.get("blocker_code") or "")
@@ -550,6 +565,25 @@ def _has_executable_entry(item: Any) -> bool:
 def _data_unusable(data_missing: bool, stale: bool, uses_last_known: bool, is_delayed: bool, price_status_label: str) -> bool:
     price_status = str(price_status_label or "").lower()
     return bool(data_missing or stale or uses_last_known or is_delayed or price_status in {"cached", "delayed", "missing", "使用上一筆", "資料延遲", "資料不足"})
+
+
+def _item_data_unusable(item: Any) -> bool:
+    price_status = str(
+        _get(item, "price_status")
+        or _get(item, "price_status_label")
+        or _get(item, "quote_state")
+        or _get(item, "data_status")
+        or ""
+    ).lower()
+    return bool(
+        _get(item, "data_missing")
+        or _get(item, "is_data_missing")
+        or _get(item, "uses_last_known")
+        or _get(item, "fallback_used")
+        or _get(item, "is_cached")
+        or _get(item, "is_delayed")
+        or price_status in {"cached", "delayed", "missing", "使用上一筆", "資料延遲", "資料不足"}
+    )
 
 
 def _precision_score(item: Any, view: FrontTradeView, radar: dict, *, final_decision: str, data_unusable: bool) -> float:

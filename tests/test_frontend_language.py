@@ -123,6 +123,52 @@ class FrontendLanguageTests(unittest.TestCase):
         self.assertFalse(view.is_strong_long_allowed)
         self.assertIn("cached", view.reason_codes)
 
+    def test_item_price_status_cached_blocks_strong_long_even_without_context_arg(self):
+        view = front_trade_view(
+            {
+                "grade": "A",
+                "entry_status": "executable",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.5,
+                "stop_loss": 99,
+                "break_prev_high": True,
+                "bullish_score": 85,
+                "risk_score": 35,
+                "confidence_score": 80,
+                "price_status": "cached",
+                "fallback_used": True,
+            }
+        )
+
+        self.assertEqual(view.category, "觀察")
+        self.assertFalse(view.is_strong_long_allowed)
+        self.assertIn("cached", view.reason_codes)
+
+    def test_item_data_missing_blocks_decision_card_precision(self):
+        card = front_decision_card(
+            {
+                "grade": "A",
+                "entry_status": "executable",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.5,
+                "stop_loss": 99,
+                "break_prev_high": True,
+                "bullish_score": 90,
+                "risk_score": 25,
+                "confidence_score": 90,
+                "price_status": "delayed",
+                "is_delayed": True,
+            }
+        )
+
+        self.assertEqual(card.final_decision, "觀察")
+        self.assertFalse(card.is_strong_long_candidate)
+        self.assertLessEqual(card.precision_score, 45)
+
     def test_delayed_price_status_blocks_strong_long_without_type_error(self):
         view = front_trade_view(
             {
