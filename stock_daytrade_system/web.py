@@ -682,6 +682,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "summary": health.get("summary") or "",
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
+        "refresh_plan": health.get("refresh_plan") or [],
         "next_action": health.get("next_action") or {},
         "blockers": health.get("blockers") or [],
         "warnings": health.get("warnings") or [],
@@ -2030,12 +2031,15 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const watchReadiness = health.watch_readiness
           ? `｜看盤狀態：${{escapeHtml(health.watch_readiness)}}${{health.watch_readiness_message ? "，" + escapeHtml(health.watch_readiness_message) : ""}}`
           : "";
+        const refreshPlan = Array.isArray(health.refresh_plan) && health.refresh_plan.length
+          ? `｜刷新順序：${{escapeHtml(health.refresh_plan.join(" → "))}}`
+          : "";
         const next = health.next_action || {{}};
         const blockers = Array.isArray(health.blockers) && health.blockers.length
           ? `<div class="warn-mini">阻擋：${{escapeHtml(health.blockers.join(" "))}}</div>` : "";
         const warnings = Array.isArray(health.warnings) && health.warnings.length
           ? `<div class="warn-mini">提醒：${{escapeHtml(health.warnings.join(" "))}}</div>` : "";
-        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{blockers}}${{warnings}}`;
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{blockers}}${{warnings}}`;
       }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};

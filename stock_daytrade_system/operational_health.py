@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-OPERATIONAL_HEALTH_VERSION = "operational_health_v2_watch_readiness_2026-06-26"
+OPERATIONAL_HEALTH_VERSION = "operational_health_v3_refresh_plan_2026-06-26"
 
 BLOCKING_PRICE_STATUSES = {"嚴重缺漏", "資料異常"}
 INTRADAY_MODES = {"intraday"}
@@ -69,12 +69,14 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     next_action = _next_action(status, refresh_guidance, required_stale_layers, market_mode)
     summary = _summary(status, market_mode, blockers, warnings)
     watch_readiness = _watch_readiness(status, market_mode)
+    refresh_plan = _refresh_plan(required_stale_layers, refresh_summary, next_action)
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
         "watch_readiness": watch_readiness["label"],
         "watch_readiness_message": watch_readiness["message"],
+        "refresh_plan": refresh_plan,
         "blockers": _dedupe(blockers),
         "warnings": _dedupe(warnings),
         "next_action": next_action,
@@ -109,6 +111,22 @@ def _next_action(status: str, refresh_guidance: dict[str, Any], required_stale_l
     if market_mode in REVIEW_MODES:
         return {"label": "查看復盤與下個交易日觀察", "endpoint": "/dashboard"}
     return {"label": "不需手動更新，持續觀察", "endpoint": ""}
+
+
+def _refresh_plan(
+    required_stale_layers: list[str],
+    refresh_summary: dict[str, Any],
+    next_action: dict[str, str],
+) -> list[str]:
+    endpoints: list[str] = []
+    blocking_layers = _list(refresh_summary.get("blocking_layers"))
+    for layer in ("full_market", "watchlist", "positions"):
+        if layer in required_stale_layers or layer in blocking_layers:
+            endpoints.append(_layer_endpoint(layer))
+    next_endpoint = str(next_action.get("endpoint") or "")
+    if next_endpoint.startswith("/refresh"):
+        endpoints.append(next_endpoint)
+    return _dedupe(endpoints)
 
 
 def _summary(status: str, market_mode: str, blockers: list[str], warnings: list[str]) -> str:

@@ -57,7 +57,28 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertFalse(health["can_show_strong_long"])
         self.assertEqual(health["watch_readiness"], "暫不適合進場判斷")
         self.assertEqual(health["next_action"]["endpoint"], "/refresh_watchlist")
+        self.assertEqual(health["refresh_plan"], ["/refresh_watchlist"])
         self.assertIn("重點觀察", " ".join(health["blockers"]))
+
+    def test_refresh_plan_prioritizes_full_market_before_watchlist(self):
+        payload = {
+            "market_mode": "pre_open_prepare",
+            "allow_intraday_signal": False,
+            "price_status_summary": {"status": "部分延遲", "live_count": 0, "missing_ratio": 0},
+            "required_stale_layers": ["watchlist", "full_market"],
+            "stale_layers": ["full_market", "watchlist"],
+            "refresh_guidance": {
+                "severity": "block",
+                "summary": "資料層過期",
+                "action_label": "更新重點觀察",
+                "action_endpoint": "/refresh_watchlist",
+            },
+            "refresh_operation_summary": {"severity": "block", "blocking_layers": ["watchlist"]},
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["refresh_plan"], ["/refresh_full_market", "/refresh_watchlist"])
 
     def test_cached_and_delayed_prices_are_warning_not_strong_long(self):
         payload = {

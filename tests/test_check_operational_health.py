@@ -76,6 +76,14 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(plan, ["/refresh_full_market", "/refresh_watchlist", "/refresh_positions"])
 
+    def test_refresh_plan_prefers_health_payload_plan(self):
+        plan = script.refresh_plan(
+            {"required_stale_layers": ["full_market"]},
+            {"refresh_plan": ["/refresh_watchlist", "/dashboard", "/refresh_positions"]},
+        )
+
+        self.assertEqual(plan, ["/refresh_watchlist", "/refresh_positions"])
+
     def test_apply_refresh_plan_records_endpoint_failures(self):
         original = script.post_json
 

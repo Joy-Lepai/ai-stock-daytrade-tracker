@@ -155,6 +155,9 @@ def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, A
 
 def refresh_plan(payload: dict[str, Any], health: Optional[dict[str, Any]] = None) -> list[str]:
     health = health or payload.get("operational_health") or {}
+    provided_plan = health.get("refresh_plan") if isinstance(health, dict) else None
+    if isinstance(provided_plan, list):
+        return [str(endpoint) for endpoint in provided_plan if str(endpoint).startswith("/refresh")]
     endpoints: list[str] = []
     required_stale = [str(item) for item in (payload.get("required_stale_layers") or [])]
     operation = payload.get("refresh_operation_summary") if isinstance(payload.get("refresh_operation_summary"), dict) else {}

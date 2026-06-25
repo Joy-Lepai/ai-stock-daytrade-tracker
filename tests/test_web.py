@@ -54,6 +54,7 @@ class WebTests(unittest.TestCase):
                 "summary": "系統狀態正常",
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
+                "refresh_plan": ["/refresh_watchlist"],
                 "next_action": {"label": "不需手動更新"},
                 "can_use_dashboard": True,
                 "can_show_strong_long": True,
@@ -73,6 +74,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["watch_readiness"], "可正常看盤")
         self.assertEqual(payload["watch_readiness_message"], "仍需依停損確認")
+        self.assertEqual(payload["refresh_plan"], ["/refresh_watchlist"])
         self.assertEqual(payload["market_mode"], "intraday")
         self.assertTrue(payload["can_use_dashboard"])
         self.assertTrue(payload["can_show_strong_long"])
@@ -348,6 +350,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("營運健康", html)
         self.assertIn("看盤狀態", html)
         self.assertIn("看盤：", html)
+        self.assertIn("刷新順序", html)
         self.assertIn("operational_health", html)
         self.assertIn("/api/notification/signals", html)
         self.assertIn("notify-sound-toggle", html)
