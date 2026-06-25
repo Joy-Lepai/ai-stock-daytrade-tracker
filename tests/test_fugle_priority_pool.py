@@ -58,6 +58,14 @@ class FuglePriorityPoolTests(unittest.TestCase):
         self.assertTrue(next(row for row in selected if row["symbol"] == "2317.TW")["can_use_for_entry_confirmation"])
         self.assertIn("不會改 A / B+ / B 條件", " ".join(payload["selection_policy"]))
         self.assertEqual(payload["pinned_symbols"], ["6919.TW"])
+        allocation = payload["allocation_summary"]
+        self.assertEqual(allocation["limit"], 5)
+        self.assertEqual(allocation["used"], 5)
+        self.assertEqual(allocation["confirmable_count"], 4)
+        self.assertEqual(allocation["high_risk_observation_count"], 1)
+        self.assertIn("高風險標的只作風險降溫觀察", allocation["warning"])
+        self.assertIn("練習買多", allocation["summary"])
+        self.assertEqual(allocation["by_entry_status"]["high_risk"], 1)
 
     def test_empty_pool_is_safe(self):
         payload = build_fugle_priority_pool([], max_symbols=5, enabled=False, configured=False)
@@ -66,6 +74,7 @@ class FuglePriorityPoolTests(unittest.TestCase):
         self.assertFalse(payload["enabled"])
         self.assertFalse(payload["configured"])
         self.assertIn("沒有需要", payload["message"])
+        self.assertEqual(payload["allocation_summary"]["summary"], "目前沒有配置即時追蹤名額。")
 
     def test_pinned_numeric_tpex_symbol_uses_two_suffix(self):
         payload = build_fugle_priority_pool(

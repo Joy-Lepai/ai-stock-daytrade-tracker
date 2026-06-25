@@ -899,6 +899,10 @@ class TrackerStatusTests(unittest.TestCase):
                     "actual_api_calls": 6,
                     "pinned_symbols": ["6919.TW"],
                     "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
+                    "allocation_summary": {
+                        "summary": "練習買多 1 檔、高風險觀察 1 檔",
+                        "warning": "高風險標的只作風險降溫觀察，不作進場確認。",
+                    },
                     "standby": [
                         {
                             "symbol": "2330.TW",
@@ -965,6 +969,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("不會改 A / B+ / B 條件", html)
         self.assertIn("雷達狀態", html)
         self.assertIn("實際 API 呼叫", html)
+        self.assertIn("名額配置", html)
+        self.assertIn("練習買多 1 檔", html)
+        self.assertIn("高風險標的只作風險降溫觀察", html)
         self.assertIn("盤中驗收重點", html)
         self.assertIn("追蹤池 2 / 5 檔", html)
         self.assertIn("本次實際 API 呼叫 6 次", html)

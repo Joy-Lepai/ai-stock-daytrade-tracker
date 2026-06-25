@@ -1354,6 +1354,10 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     configured_text = "API Key 已設定" if pool.get("configured") else "API Key 未設定"
     radar_status_text = _fugle_radar_status_label(str(pool.get("entry_radar_status") or "waiting"))
     pinned_text = "、".join(str(item) for item in (pool.get("pinned_symbols") or [])) or "未指定"
+    allocation = pool.get("allocation_summary") or {}
+    allocation_text = str(allocation.get("summary") or "目前沒有配置即時追蹤名額。")
+    allocation_warning = str(allocation.get("warning") or "")
+    allocation_warning_html = f'<br><span class="muted">{escape(allocation_warning)}</span>' if allocation_warning else ""
     service_warning = ""
     if not pool.get("enabled") or not pool.get("configured"):
         service_warning = (
@@ -1378,6 +1382,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'{_metric("可追蹤名額", int(pool.get("max_symbols", 5) or 5))}'
             f'{_metric("已選標的", 0)}'
             '</div>'
+            f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}</section>'
             f'{service_warning}'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
             f'{acceptance_html}'
@@ -1420,6 +1425,8 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("雷達不足", int(pool.get("confirmation_failed_count", 0) or 0))}'
         f'{_metric("實際 API 呼叫", int(pool.get("actual_api_calls", 0) or 0))}'
         '</div>'
+        f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}'
+        f'{allocation_warning_html}</section>'
         f'{service_warning}'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         f'{acceptance_html}'

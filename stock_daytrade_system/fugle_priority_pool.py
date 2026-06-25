@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import Counter
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional
 
@@ -69,6 +70,7 @@ def build_fugle_priority_pool(
     scored.sort(key=lambda item: (-item.priority_score, item.risk_score, item.symbol))
     selected = scored[:limit]
     standby = scored[limit : limit + 10]
+    allocation_summary = _allocation_summary(selected, limit)
     return {
         "version": FUGLE_PRIORITY_POOL_VERSION,
         "mode": "basic_user_5_symbols",
@@ -78,6 +80,7 @@ def build_fugle_priority_pool(
         "considered_count": len(scored),
         "selected_count": len(selected),
         "excluded_count": max(len(scored) - len(selected), 0),
+        "allocation_summary": allocation_summary,
         "pinned_symbols": sorted(pinned),
         "selected": [item.to_dict() for item in selected],
         "standby": [
@@ -95,6 +98,37 @@ def build_fugle_priority_pool(
         "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。"
         if selected
         else "目前沒有需要使用 Fugle 即時追蹤的重點標的。",
+    }
+
+
+def _allocation_summary(selected: list[FuglePriorityItem], limit: int) -> dict:
+    by_status = Counter(item.entry_status or "-" for item in selected)
+    by_purpose = Counter(item.tracking_purpose or "-" for item in selected)
+    confirmable = sum(1 for item in selected if item.can_use_for_entry_confirmation)
+    high_risk = sum(1 for item in selected if item.entry_status == "high_risk")
+    summary_parts = []
+    for key, label in (
+        ("executable", "可執行確認"),
+        ("practice_long", "練習買多"),
+        ("wait_breakout", "等待突破"),
+        ("wait_vwap", "等待 VWAP"),
+        ("wait_volume", "等待量能"),
+        ("wait_pullback", "等待拉回"),
+        ("high_risk", "高風險觀察"),
+    ):
+        count = by_status.get(key, 0)
+        if count:
+            summary_parts.append(f"{label} {count} 檔")
+    return {
+        "limit": limit,
+        "used": len(selected),
+        "remaining": max(limit - len(selected), 0),
+        "confirmable_count": confirmable,
+        "high_risk_observation_count": high_risk,
+        "by_entry_status": dict(sorted(by_status.items())),
+        "by_tracking_purpose": dict(sorted(by_purpose.items())),
+        "summary": "、".join(summary_parts) if summary_parts else "目前沒有配置即時追蹤名額。",
+        "warning": "高風險標的只作風險降溫觀察，不作進場確認。" if high_risk else "",
     }
 
 
