@@ -515,6 +515,7 @@ def _advisor_scan_front_category_safety_checks(payload: dict[str, Any], category
     scan = payload.get("scan") or {}
     health = payload.get("data_health") or {}
     market_mode = payload.get("market_mode") or {}
+    key_metrics = payload.get("key_metrics") or {}
     buy_labels = {"強烈買多", "買多"}
     is_buy_label = category in buy_labels
     entry_status = str(candidate.get("entry_status") or scan.get("entry_status") or "")
@@ -532,6 +533,7 @@ def _advisor_scan_front_category_safety_checks(payload: dict[str, Any], category
         or bool(health.get("is_data_missing"))
     )
     unsafe_entry = entry_status in {"high_risk", "wait_vwap", "avoid", "data_missing"}
+    stop_loss = _first_positive_number(candidate.get("stop_loss"), scan.get("stop_loss"), key_metrics.get("stop_loss"))
     checks = [
         Check(
             "advisor buy labels require intraday live data",
@@ -548,8 +550,24 @@ def _advisor_scan_front_category_safety_checks(payload: dict[str, Any], category
             (not is_buy_label) or not unsafe_entry,
             f"category={category or '-'} entry_status={entry_status or '-'}",
         ),
+        Check(
+            "advisor buy labels require stop loss",
+            (not is_buy_label) or stop_loss is not None,
+            f"category={category or '-'} stop_loss={stop_loss if stop_loss is not None else '-'}",
+        ),
     ]
     return checks
+
+
+def _first_positive_number(*values: Any) -> float | None:
+    for value in values:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if numeric > 0:
+            return numeric
+    return None
 
 
 def parse_advisor_symbols(values: list[str] | None) -> list[str]:

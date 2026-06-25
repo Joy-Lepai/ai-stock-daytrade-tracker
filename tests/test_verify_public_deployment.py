@@ -353,6 +353,25 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         self.assertTrue(all(item.ok for item in checks), checks)
 
+    def test_tw_advisor_scan_observation_does_not_require_stop_loss(self):
+        payload = {
+            "symbol": "6919.TW",
+            "front_trade": {"category": "觀察"},
+            "decision_card": {
+                "top_reason": "追價風險高",
+                "next_trigger": "等待拉回 VWAP",
+                "invalid_condition": "追價風險未降溫",
+            },
+            "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
+            "candidate": {"entry_status": "high_risk", "above_vwap": True},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "6919")
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
     def test_tw_advisor_scan_detects_missing_radar_and_legacy_category(self):
         payload = {
             "symbol": "6919.TW",
@@ -445,7 +464,47 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "跌破 VWAP",
             },
             "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
+            "candidate": {"entry_status": "wait_breakout", "above_vwap": True, "stop_loss": 101.5},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "2330")
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_tw_advisor_scan_blocks_buy_label_without_stop_loss(self):
+        payload = {
+            "symbol": "2330.TW",
+            "front_trade": {"category": "買多"},
+            "decision_card": {
+                "top_reason": "方向偏多，等待突破",
+                "next_trigger": "突破昨高",
+                "invalid_condition": "跌破 VWAP",
+            },
+            "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
             "candidate": {"entry_status": "wait_breakout", "above_vwap": True},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "2330")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor buy labels require stop loss", failed)
+
+    def test_tw_advisor_scan_accepts_buy_label_stop_loss_from_key_metrics(self):
+        payload = {
+            "symbol": "2330.TW",
+            "front_trade": {"category": "強烈買多"},
+            "decision_card": {
+                "top_reason": "多方條件完整",
+                "next_trigger": "等待進場雷達確認",
+                "invalid_condition": "跌破 VWAP",
+            },
+            "entry_radar_summary": {"blocker_summary": "接近觸發", "next_trigger": "等待進場雷達確認"},
+            "candidate": {"entry_status": "executable", "above_vwap": True},
+            "key_metrics": {"stop_loss": 598.0},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
         }
