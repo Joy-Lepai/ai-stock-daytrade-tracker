@@ -54,6 +54,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     lines = [
         "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
+        f"watch_readiness: {_watch_readiness_label(status, health, payload)}",
         f"market_mode: {health.get('market_mode') or payload.get('market_mode') or '-'}",
         f"data_quality: {health.get('data_quality_status') or '-'}",
         "counts: "
@@ -86,6 +87,17 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         lines.append(f"manual_endpoint: POST {action_endpoint}")
         lines.append(f"manual_curl: curl -X POST {base_url.rstrip('/')}{action_endpoint}")
     return (0 if status in {"ok", "warning"} else 1, "\n".join(lines))
+
+
+def _watch_readiness_label(status: str, health: dict[str, Any], payload: dict[str, Any]) -> str:
+    mode = str(health.get("market_mode") or payload.get("market_mode") or "")
+    if status == "blocked":
+        return "暫不適合進場判斷，先處理資料或刷新層。"
+    if mode != "intraday":
+        return "非盤中模式，僅供復盤或開盤前觀察。"
+    if status == "warning":
+        return "可看但需保守，延遲或缺漏標的不可作為進場依據。"
+    return "可正常看盤，仍需依停損與進場雷達確認。"
 
 
 def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, Any]:

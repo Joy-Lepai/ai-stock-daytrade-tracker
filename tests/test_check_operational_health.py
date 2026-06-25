@@ -21,6 +21,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS]", report)
+        self.assertIn("watch_readiness: 可正常看盤", report)
         self.assertIn("live=20", report)
         self.assertIn("/api/health", report)
 
@@ -38,6 +39,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[WARN]", report)
+        self.assertIn("watch_readiness: 非盤中模式", report)
         self.assertIn("查看復盤", report)
 
     def test_render_report_prints_manual_refresh_command_for_stale_required_layer(self):
@@ -56,6 +58,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 1)
+        self.assertIn("watch_readiness: 暫不適合進場判斷", report)
         self.assertIn("required_stale_layers: full_market, watchlist", report)
         self.assertIn("manual_endpoint: POST /refresh_full_market", report)
         self.assertIn("curl -X POST https://stock.letslepai.com/refresh_full_market", report)
@@ -77,6 +80,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 0)
+        self.assertIn("watch_readiness: 可看但需保守", report)
         self.assertIn("next_action: 更新重點觀察 /refresh_watchlist", report)
         self.assertIn("manual_endpoint: POST /refresh_watchlist", report)
 
