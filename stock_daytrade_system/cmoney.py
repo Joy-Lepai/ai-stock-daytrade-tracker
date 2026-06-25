@@ -5,10 +5,12 @@ import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, Iterable, List
 
 from stock_daytrade_system.config import WatchSymbol
 from stock_daytrade_system.resilience import record_source_health, retry_sync
+from stock_daytrade_system.tw_full_market import _parse_tpex_rows, _parse_twse_rows
 
 
 @dataclass(frozen=True)
@@ -35,9 +37,10 @@ class CMoneyClient:
     leaderboard_url = "https://www.cmoney.tw/finance/f00065.aspx"
     cmkey = "eKCtnyfWW15mXQqZ6Cg3HQ=="
 
-    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2) -> None:
+    def __init__(self, timeout: int = 20, pause_seconds: float = 0.2, cache_dir: Path | None = None) -> None:
         self.timeout = timeout
         self.pause_seconds = pause_seconds
+        self.cache_dir = cache_dir or Path(__file__).resolve().parents[1] / "data" / "cache"
 
     def fetch_institutional_buy_rankings(self, limit: int = 30) -> List[CMoneyRanking]:
         payload = urllib.parse.urlencode(
@@ -95,7 +98,7 @@ class CMoneyClient:
                 CMoneyRanking(
                     rank=len(rankings) + 1,
                     date=date,
-                    symbol=f"{code}.TW",
+                    symbol=self._symbol_for_code(code),
                     code=code,
                     name=name,
                     foreign_buy_million=_float(item.get("NearDayForeignCapital")),
@@ -109,6 +112,31 @@ class CMoneyClient:
         time.sleep(self.pause_seconds)
         record_source_health("c_money", "OK", success_count=len(rankings), message="CMoney 法人排行擷取成功。")
         return rankings
+
+    def _symbol_for_code(self, code: str) -> str:
+        suffix = market_suffix_for_code(code, cache_dir=self.cache_dir)
+        return f"{code}{suffix}"
+
+
+def market_suffix_for_code(code: str, *, cache_dir: Path | None = None) -> str:
+    normalized = str(code or "").strip()
+    if not normalized:
+        return ".TW"
+    cache_root = cache_dir or Path(__file__).resolve().parents[1] / "data" / "cache"
+    try:
+        twse_cache = cache_root / "twse_stock_day_all.json"
+        if twse_cache.exists():
+            twse_codes = {item.code for item in _parse_twse_rows(json.loads(twse_cache.read_text(encoding="utf-8")))}
+            if normalized in twse_codes:
+                return ".TW"
+        tpex_cache = cache_root / "tpex_daily_quotes.json"
+        if tpex_cache.exists():
+            tpex_codes = {item.code for item in _parse_tpex_rows(json.loads(tpex_cache.read_text(encoding="utf-8")))}
+            if normalized in tpex_codes:
+                return ".TWO"
+    except Exception:
+        return ".TW"
+    return ".TW"
 
 
 def rankings_by_symbol(rankings: Iterable[CMoneyRanking]) -> Dict[str, CMoneyRanking]:
