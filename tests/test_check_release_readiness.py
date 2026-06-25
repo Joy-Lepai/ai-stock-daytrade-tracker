@@ -10,6 +10,7 @@ from scripts.check_release_readiness import (
     evaluate_release_state,
     git_output,
     is_worktree_dirty,
+    load_release_state,
     main,
     parse_ahead_count,
     recommended_next_action,
@@ -20,7 +21,30 @@ from scripts.check_release_readiness import (
 class CheckReleaseReadinessTests(unittest.TestCase):
     def test_parse_ahead_count_from_git_status(self):
         self.assertEqual(parse_ahead_count("## main...origin/main [ahead 18]"), 18)
+        self.assertEqual(parse_ahead_count("72"), 72)
         self.assertEqual(parse_ahead_count("## main...origin/main"), 0)
+
+    def test_load_release_state_uses_fast_status_without_ahead_behind_scan(self):
+        calls = []
+
+        def fake_runner(command, **kwargs):
+            calls.append(command)
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                return "localcommit\n"
+            if command[-2:] == ["rev-parse", "origin/main"]:
+                return "origincommit\n"
+            if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
+                return "72\n"
+            if command[-3:] == ["status", "-sb", "--no-ahead-behind"]:
+                return "## main...origin/main\n"
+            raise AssertionError(command)
+
+        state = load_release_state(runner=fake_runner, fetch_public=False)
+
+        self.assertEqual(state.ahead_count, 72)
+        self.assertEqual(state.status_line, "## main...origin/main")
+        self.assertIn(["git", "status", "-sb", "--no-ahead-behind"], calls)
+        self.assertNotIn(["git", "status", "-sb"], calls)
 
     def test_dirty_worktree_detection_ignores_header(self):
         self.assertFalse(is_worktree_dirty("## main...origin/main\n"))

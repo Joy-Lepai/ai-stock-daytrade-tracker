@@ -67,7 +67,8 @@ def load_release_state(
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
-    status = git_output(["status", "-sb"], runner=runner)
+    ahead_count = parse_ahead_count(git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner))
+    status = git_output(["status", "-sb", "--no-ahead-behind"], runner=runner)
     first_line = status.splitlines()[0] if status else ""
     public_runtime = ""
     public_tracker = ""
@@ -81,7 +82,7 @@ def load_release_state(
     return ReleaseState(
         head=head,
         origin=origin,
-        ahead_count=parse_ahead_count(first_line),
+        ahead_count=ahead_count,
         dirty=is_worktree_dirty(status),
         status_line=first_line,
         public_runtime=public_runtime,
@@ -90,6 +91,9 @@ def load_release_state(
 
 
 def parse_ahead_count(status_line: str) -> int:
+    value = (status_line or "").strip()
+    if value.isdigit():
+        return int(value)
     match = re.search(r"\bahead\s+(\d+)", status_line or "")
     return int(match.group(1)) if match else 0
 
