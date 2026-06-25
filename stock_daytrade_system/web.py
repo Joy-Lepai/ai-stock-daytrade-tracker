@@ -761,7 +761,7 @@ def _scheduled_tracker_interval(now: Optional[datetime] = None) -> tuple[Optiona
         return TW_PREMARKET_REFRESH_SECONDS, "開盤前觀察池"
     if dt_time(9, 0) <= current < dt_time(13, 30):
         return TW_INTRADAY_REFRESH_SECONDS, "台股盤中"
-    if dt_time(13, 30) <= current < dt_time(14, 30):
+    if dt_time(13, 45) <= current < dt_time(15, 0):
         return TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後回測"
     return None, "非排程更新時段"
 
@@ -783,7 +783,7 @@ def _scheduled_refresh_layers(now: Optional[datetime] = None) -> list[tuple[str,
             ("watchlist", TW_WATCHLIST_REFRESH_SECONDS, "台股盤中重點觀察快追"),
             ("positions", TW_POSITIONS_REFRESH_SECONDS, "台股盤中持倉與觸發控風險"),
         ]
-    if dt_time(13, 30) <= current < dt_time(14, 30):
+    if dt_time(13, 45) <= current < dt_time(15, 0):
         return [
             ("full_market", TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後全市場整理"),
             ("post_close_validation", TW_AFTER_CLOSE_REFRESH_SECONDS, "收盤後盤後驗證"),

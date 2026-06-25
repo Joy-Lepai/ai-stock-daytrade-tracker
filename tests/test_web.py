@@ -273,6 +273,14 @@ class WebTests(unittest.TestCase):
             (900, "收盤後回測"),
         )
         self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 17, 13, 35, tzinfo=tw)),
+            (None, "非排程更新時段"),
+        )
+        self.assertEqual(
+            _scheduled_tracker_interval(datetime(2026, 6, 17, 15, 0, tzinfo=tw)),
+            (None, "非排程更新時段"),
+        )
+        self.assertEqual(
             _scheduled_tracker_interval(datetime(2026, 6, 20, 9, 30, tzinfo=tw)),
             (None, "週末休市"),
         )
@@ -299,6 +307,8 @@ class WebTests(unittest.TestCase):
                 ("post_close_validation", 900, "收盤後盤後驗證"),
             ],
         )
+        self.assertEqual(_scheduled_refresh_layers(datetime(2026, 6, 17, 13, 35, tzinfo=tw)), [])
+        self.assertEqual(_scheduled_refresh_layers(datetime(2026, 6, 17, 15, 0, tzinfo=tw)), [])
         self.assertEqual(_scheduled_refresh_layers(datetime(2026, 6, 20, 9, 30, tzinfo=tw)), [])
 
     def test_web_scheduler_runs_due_layers_without_repeating_fresh_layer(self):
