@@ -613,6 +613,10 @@ def print_checks(title: str, checks: list[Check]) -> int:
     return failures
 
 
+def print_fetch_failure(title: str, error: Exception) -> int:
+    return print_checks(title, [Check("endpoint reachable", False, str(error))])
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify public dashboard deployment and refresh health.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
@@ -626,38 +630,65 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args(argv)
 
-    system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
-    refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
-    health_payload = fetch_json(args.base_url, "/api/health", timeout=args.timeout)
-    healthz_status, healthz_payload = fetch_json_with_status(args.base_url, "/healthz", timeout=args.timeout)
-    readyz_status, readyz_payload = fetch_json_with_status(args.base_url, "/readyz", timeout=args.timeout)
-    dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
-    advisor_html = fetch_text(args.base_url, "/tw/advisor", timeout=args.timeout)
     failures = 0
-    failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
-    failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
-    failures += print_checks("Health endpoint", validate_health_payload(health_payload))
-    failures += print_checks("Liveness endpoint", validate_liveness_payload(healthz_status, healthz_payload))
-    failures += print_checks("Readiness endpoint", validate_readiness_payload(readyz_status, readyz_payload))
-    failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
-    failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
+    try:
+        system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
+        failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
+    except Exception as exc:
+        failures += print_fetch_failure("Deployment", exc)
+    try:
+        refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
+        failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
+    except Exception as exc:
+        failures += print_fetch_failure("Refresh status", exc)
+    try:
+        health_payload = fetch_json(args.base_url, "/api/health", timeout=args.timeout)
+        failures += print_checks("Health endpoint", validate_health_payload(health_payload))
+    except Exception as exc:
+        failures += print_fetch_failure("Health endpoint", exc)
+    try:
+        healthz_status, healthz_payload = fetch_json_with_status(args.base_url, "/healthz", timeout=args.timeout)
+        failures += print_checks("Liveness endpoint", validate_liveness_payload(healthz_status, healthz_payload))
+    except Exception as exc:
+        failures += print_fetch_failure("Liveness endpoint", exc)
+    try:
+        readyz_status, readyz_payload = fetch_json_with_status(args.base_url, "/readyz", timeout=args.timeout)
+        failures += print_checks("Readiness endpoint", validate_readiness_payload(readyz_status, readyz_payload))
+    except Exception as exc:
+        failures += print_fetch_failure("Readiness endpoint", exc)
+    try:
+        dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
+        failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
+    except Exception as exc:
+        failures += print_fetch_failure("Dashboard HTML", exc)
+    try:
+        advisor_html = fetch_text(args.base_url, "/tw/advisor", timeout=args.timeout)
+        failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
+    except Exception as exc:
+        failures += print_fetch_failure("TW Advisor HTML", exc)
     for advisor_symbol in parse_advisor_symbols(args.advisor_symbol):
         direct_path = "/tw/advisor?" + urllib.parse.urlencode({"symbol": advisor_symbol})
-        advisor_direct_html = fetch_text(args.base_url, direct_path, timeout=args.timeout)
-        failures += print_checks(
-            f"TW Advisor Direct URL ({advisor_symbol})",
-            validate_tw_advisor_direct_html(advisor_direct_html, advisor_symbol),
-        )
-        advisor_payload = post_json(
-            args.base_url,
-            "/api/tw/scan/symbol",
-            {"symbol": advisor_symbol},
-            timeout=max(args.timeout, 30.0),
-        )
-        failures += print_checks(
-            f"TW Advisor API ({advisor_symbol})",
-            validate_tw_advisor_scan(advisor_payload, advisor_symbol),
-        )
+        try:
+            advisor_direct_html = fetch_text(args.base_url, direct_path, timeout=args.timeout)
+            failures += print_checks(
+                f"TW Advisor Direct URL ({advisor_symbol})",
+                validate_tw_advisor_direct_html(advisor_direct_html, advisor_symbol),
+            )
+        except Exception as exc:
+            failures += print_fetch_failure(f"TW Advisor Direct URL ({advisor_symbol})", exc)
+        try:
+            advisor_payload = post_json(
+                args.base_url,
+                "/api/tw/scan/symbol",
+                {"symbol": advisor_symbol},
+                timeout=max(args.timeout, 30.0),
+            )
+            failures += print_checks(
+                f"TW Advisor API ({advisor_symbol})",
+                validate_tw_advisor_scan(advisor_payload, advisor_symbol),
+            )
+        except Exception as exc:
+            failures += print_fetch_failure(f"TW Advisor API ({advisor_symbol})", exc)
     print()
     if failures:
         print(f"Deployment verification failed: {failures} check(s) need attention.")

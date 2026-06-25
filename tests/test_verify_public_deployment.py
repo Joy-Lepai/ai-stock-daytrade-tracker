@@ -1,5 +1,8 @@
+import contextlib
+import io
 import unittest
 
+import scripts.verify_public_deployment as module
 from scripts.verify_public_deployment import (
     parse_advisor_symbols,
     validate_dashboard_html,
@@ -15,6 +18,33 @@ from scripts.verify_public_deployment import (
 
 
 class VerifyPublicDeploymentTests(unittest.TestCase):
+    def test_main_reports_endpoint_fetch_failures_without_traceback(self):
+        original_fetch_json = module.fetch_json
+        original_fetch_json_with_status = module.fetch_json_with_status
+        original_fetch_text = module.fetch_text
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("down")
+
+        module.fetch_json = fail
+        module.fetch_json_with_status = fail
+        module.fetch_text = fail
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = module.main(["--base-url", "https://example.test", "--expected-commit", "abc123"])
+        finally:
+            module.fetch_json = original_fetch_json
+            module.fetch_json_with_status = original_fetch_json_with_status
+            module.fetch_text = original_fetch_text
+
+        output = stream.getvalue()
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Health endpoint", output)
+        self.assertIn("endpoint reachable", output)
+        self.assertIn("down", output)
+        self.assertNotIn("Traceback", output)
+
     def test_parse_advisor_symbols_accepts_repeated_and_comma_separated_values(self):
         symbols = parse_advisor_symbols(["6919,2886", "8150.TW", "", " 2330 "])
 
