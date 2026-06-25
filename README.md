@@ -163,6 +163,19 @@ python3 -m py_compile stock_daytrade_system/*.py
 
 ### 4. 部署後驗收
 
+部署前先確認「本機 → GitHub → Render 公開站」版本鏈路是否一致：
+
+```bash
+python3 scripts/check_release_readiness.py --base-url https://stock.letslepai.com
+```
+
+這個指令會告訴你：
+
+- 本機是否還有未提交修改
+- 本機是否 ahead `origin/main`
+- 公開站 runtime commit 是否等於本機 HEAD
+- 下一步應該先 `Push`，還是到 Render 按 `Deploy latest commit`
+
 每次 Render 部署完成後，可用下列指令確認公開站版本、tracker HTML、分層刷新狀態與強烈買多安全閘門：
 
 ```bash
