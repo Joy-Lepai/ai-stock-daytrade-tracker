@@ -203,6 +203,7 @@ class WebTests(unittest.TestCase):
         self.assertIn("通過進場確認才代表已觸發進場條件", html)
         self.assertIn("最新成交價", html)
         self.assertIn("資料可信度", html)
+        self.assertIn("現在要做", html)
         self.assertIn("目前模式", html)
         self.assertIn("market_mode", html)
         self.assertIn("模式說明", html)

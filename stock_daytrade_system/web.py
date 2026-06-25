@@ -2862,15 +2862,7 @@ def tw_advisor_script() -> str:
           : dataHealth.is_data_missing
           ? "資料不足，不能判斷"
           : "非即時資料，先觀察";
-        const action = !dataUsable
-          ? "先等資料恢復即時，再重新判斷。"
-          : state === "強烈買多"
-          ? "進入重點盯盤；仍要檢查停損距離與部位大小。"
-          : state === "買多"
-          ? "方向偏多，但需等待觸發或進場雷達確認。"
-          : state === "看空"
-          ? "多方結構失效，暫不做多。"
-          : "只觀察，不提前進場。";
+        const action = advisorNowAction({ state, dataHealth, nextStep });
         const blocked = Array.isArray(safety.blocked_reasons) ? safety.blocked_reasons.map((item) => item.message).filter(Boolean) : [];
         return `
           <article class="advisor-card quick-read-card ${dataUsable ? "" : "data-limited-card"}">
@@ -2886,6 +2878,16 @@ def tw_advisor_script() -> str:
             ${blocked.length ? `<p class="warn-inline">安全限制：${escapeHtml(blocked.slice(0, 3).join("；"))}</p>` : ""}
           </article>
         `;
+      };
+      const advisorNowAction = ({ state, dataHealth, nextStep }) => {
+        dataHealth = dataHealth || {};
+        const dataUsable = Boolean(dataHealth.can_use_for_daytrade && !dataHealth.uses_cache && !dataHealth.is_delayed && !dataHealth.is_data_missing);
+        if (!dataUsable) return "先等資料恢復即時，再重新判斷。";
+        if (state === "強烈買多") return "進入重點盯盤；仍要檢查停損距離與部位大小。";
+        if (state === "買多") return "方向偏多，但需等待觸發或進場雷達確認。";
+        if (state === "看空") return "多方結構失效，暫不做多。";
+        if (nextStep && nextStep !== "等待條件確認。") return nextStep;
+        return "只觀察，不提前進場。";
       };
       const renderBreakoutTrapCard = (diagnosis) => {
         diagnosis = diagnosis || {};
@@ -3410,6 +3412,11 @@ def tw_advisor_script() -> str:
         const effectiveEntry = safety.effective_entry_status || candidate.entry_status || scan.entry_status || "data_missing";
         const effectiveGrade = safety.effective_grade || candidate.grade || scan.ai_grade || "data_missing";
         const conclusionState = positionAction ? positionAction.action : (decisionCard.final_decision || frontTrade.category || safety.conclusion_state || statusZh(effectiveEntry));
+        const nowAction = advisorNowAction({
+          state: decisionCard.final_decision || frontTrade.category || conclusionState,
+          dataHealth,
+          nextStep: decisionCard.next_trigger || entryRadarSummary.next_trigger || frontTrade.next_step || "",
+        });
         const conclusion = positionAction
           ? `目前已有持倉，持倉動作：${positionAction.action}。${positionAction.next_step || ""}`
           : decisionCard.user_summary
@@ -3487,7 +3494,7 @@ def tw_advisor_script() -> str:
               ${metric("最新成交價", escapeHtml(number(price)))}
               ${metric("漲跌幅", pct(changePct))}
               ${metric("資料可信度", escapeHtml(dataHealth.credibility || "-"))}
-              ${metric("目前模式", escapeHtml(marketMode.label || dataHealth.market_mode_label || safety.market_mode_label || "-"))}
+              ${metric("現在要做", escapeHtml(nowAction))}
               ${metric("行情狀態", escapeHtml(dataHealth.quote_state_label || dataHealth.quote_state || "-"))}
               ${metric("可用於當沖判斷", escapeHtml(dataHealth.can_use_for_daytrade && safety.is_executable_allowed ? "是" : "否"))}
             </div>
@@ -3500,6 +3507,7 @@ def tw_advisor_script() -> str:
           <article class="advisor-card">
             <h3>資料可信度</h3>
             <div class="advisor-grid">
+              ${metric("目前模式", escapeHtml(marketMode.label || dataHealth.market_mode_label || safety.market_mode_label || "-"))}
               ${metric("market_mode", escapeHtml(marketMode.mode || dataHealth.market_mode || safety.market_mode || "-"))}
               ${metric("模式說明", escapeHtml(marketMode.review_mode_message || dataHealth.review_mode_message || safety.market_mode_message || "-"))}
               ${metric("資料符合模式", escapeHtml(yesNo(marketMode.is_data_current_for_mode ?? dataHealth.is_data_current_for_mode)))}
