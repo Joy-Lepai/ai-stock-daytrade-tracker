@@ -159,6 +159,44 @@ def recommended_next_action(state: ReleaseState) -> str:
     return "版本鏈路看起來一致，可以執行公開站功能驗收。"
 
 
+def release_steps(state: ReleaseState) -> list[str]:
+    if state.dirty:
+        return [
+            "先確認這些修改都屬於本次任務，跑測試後 commit。",
+            "commit 完成後重跑 release readiness。",
+            "確認本機乾淨後，再推送 GitHub 與部署 Render。",
+        ]
+    if state.head != state.origin or state.ahead_count:
+        return [
+            "在 GitHub Desktop 選正確 repo，執行 Repository → Push。",
+            "推送後重跑本腳本，確認 origin/main 等於 local HEAD。",
+            "origin/main 對齊後，再到 Render 執行 Deploy latest commit。",
+        ]
+    if state.public_runtime.startswith("ERROR:"):
+        return [
+            "先打開公開站或 Render Logs，確認服務已啟動。",
+            "服務恢復後重跑本腳本讀取 /api/system/version。",
+            "若仍讀不到公開版本，再檢查網域、DNS 或 Render runtime。",
+        ]
+    if state.public_runtime and not commit_matches(state.public_runtime, state.head):
+        return [
+            "在 Render 服務頁執行 Manual Deploy → Deploy latest commit。",
+            "等待 build 與 deploy 成功，確認 runtime commit 變成 local HEAD。",
+            "部署成功後跑公開站驗收腳本與營運健康檢查。",
+        ]
+    if state.public_tracker and not commit_matches(state.public_tracker, state.public_runtime):
+        return [
+            "runtime 已是新版，但 tracker HTML 還是舊版。",
+            "執行完整刷新 POST /refresh，重建 dashboard HTML。",
+            "刷新後確認 tracker commit 與 runtime commit 一致。",
+        ]
+    return [
+        "版本已對齊，執行 scripts/verify_public_deployment.py 做公開功能驗收。",
+        "再執行 scripts/check_operational_health.py 確認今日資料與刷新層。",
+        "驗收通過後才用 dashboard 當作今天的看盤工具。",
+    ]
+
+
 def short(value: str, length: int = 12) -> str:
     return str(value or "-")[:length]
 
@@ -178,6 +216,9 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
         failures += 0 if check.ok else 1
     print()
     print("Next action:", recommended_next_action(state))
+    print("Release steps:")
+    for index, item in enumerate(release_steps(state), start=1):
+        print(f"{index}. {item}")
     return failures
 
 

@@ -13,6 +13,7 @@ from scripts.check_release_readiness import (
     main,
     parse_ahead_count,
     recommended_next_action,
+    release_steps,
 )
 
 
@@ -42,6 +43,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn("local pushed to origin/main", failed)
         self.assertIn("public runtime matches local HEAD", failed)
         self.assertIn("Repository → Push", recommended_next_action(state))
+        self.assertIn("Repository → Push", " ".join(release_steps(state)))
 
     def test_recommended_action_deploy_when_origin_matches_but_public_old(self):
         state = ReleaseState(
@@ -55,6 +57,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         )
 
         self.assertIn("Render", recommended_next_action(state))
+        self.assertIn("Deploy latest commit", " ".join(release_steps(state)))
 
     def test_recommended_action_ready_when_all_match(self):
         state = ReleaseState(
@@ -69,6 +72,20 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertTrue(all(item.ok for item in evaluate_release_state(state)))
         self.assertIn("一致", recommended_next_action(state))
+        self.assertIn("verify_public_deployment.py", " ".join(release_steps(state)))
+
+    def test_release_steps_detect_tracker_mismatch(self):
+        state = ReleaseState(
+            head="abcdef123456",
+            origin="abcdef123456",
+            ahead_count=0,
+            dirty=False,
+            status_line="## main...origin/main",
+            public_runtime="abcdef123456",
+            public_tracker="oldcommit999999",
+        )
+
+        self.assertIn("POST /refresh", " ".join(release_steps(state)))
 
     def test_commit_matches_accepts_short_or_long_prefixes(self):
         self.assertTrue(commit_matches("abcdef123456", "abcdef1234567890"))
@@ -106,6 +123,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("local Git state readable", stream.getvalue())
         self.assertIn("Next action", stream.getvalue())
+        self.assertNotIn("Traceback", stream.getvalue())
 
 
 if __name__ == "__main__":
