@@ -149,7 +149,7 @@ def recommended_next_action(state: ReleaseState) -> str:
     if state.dirty:
         return "先 commit 目前修改，再檢查是否需要 push。"
     if state.head != state.origin or state.ahead_count:
-        return "本機 commit 尚未推到 GitHub：請先 Push origin/main，成功後再到 Render Deploy latest commit。"
+        return "本機 commit 尚未推到 GitHub：請先在 GitHub Desktop 選 Repository → Push，成功後再到 Render Deploy latest commit。"
     if state.public_runtime.startswith("ERROR:"):
         return "無法讀取公開站版本：請確認網站是否啟動，再跑公開站驗收。"
     if state.public_runtime and not commit_matches(state.public_runtime, state.head):

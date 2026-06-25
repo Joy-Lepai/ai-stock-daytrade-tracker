@@ -41,7 +41,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertIn("local pushed to origin/main", failed)
         self.assertIn("public runtime matches local HEAD", failed)
-        self.assertIn("Push origin/main", recommended_next_action(state))
+        self.assertIn("Repository → Push", recommended_next_action(state))
 
     def test_recommended_action_deploy_when_origin_matches_but_public_old(self):
         state = ReleaseState(
