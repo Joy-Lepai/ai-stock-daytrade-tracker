@@ -355,6 +355,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("看盤：", html)
         self.assertIn("刷新順序", html)
         self.assertIn("operational_health", html)
+        self.assertIn("operator_steps", html)
+        self.assertIn("operator-steps", html)
         self.assertIn("/api/notification/signals", html)
         self.assertIn("notify-sound-toggle", html)
         self.assertIn("notify-desktop-toggle", html)

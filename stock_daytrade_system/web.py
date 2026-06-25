@@ -2040,7 +2040,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           ? `<div class="warn-mini">阻擋：${{escapeHtml(health.blockers.join(" "))}}</div>` : "";
         const warnings = Array.isArray(health.warnings) && health.warnings.length
           ? `<div class="warn-mini">提醒：${{escapeHtml(health.warnings.join(" "))}}</div>` : "";
-        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{blockers}}${{warnings}}`;
+        const steps = Array.isArray(health.operator_steps) && health.operator_steps.length
+          ? `<ol class="operator-steps">${{health.operator_steps.map((step) => `<li>${{escapeHtml(step)}}</li>`).join("")}}</ol>`
+          : "";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{steps}}${{blockers}}${{warnings}}`;
       }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};
@@ -2163,6 +2166,7 @@ def base_css() -> str:
     .health-warn { color:#8a5a00; font-weight:750; }
     .health-bad { color:#b42318; font-weight:750; }
     .warn-mini { flex-basis:100%; color:#7c2d12; font-weight:700; }
+    .operator-steps { flex-basis:100%; margin:2px 0 0 18px; padding-left:16px; color:#344054; font-size:12px; line-height:1.55; }
     button, .topbar a { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:6px; padding:6px 10px; font:inherit; text-decoration:none; cursor:pointer; }
     button:hover, .topbar a:hover { border-color:var(--accent); color:var(--accent); }
     .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:12px 0; }
