@@ -31,6 +31,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('positions)', text)
         self.assertIn('post_close)', text)
         self.assertIn('all)', text)
+        all_block = text.split('all)', 1)[1].split(';;', 1)[0]
+        self.assertIn('/refresh_full_market', all_block)
+        self.assertIn('/refresh_watchlist', all_block)
+        self.assertIn('/refresh_positions', all_block)
+        self.assertIn('/refresh_post_close_validation', all_block)
         self.assertIn("Unknown refresh_layer", text)
         self.assertIn("https://stock.letslepai.com", text)
         self.assertIn("uses: actions/checkout@v4", text)

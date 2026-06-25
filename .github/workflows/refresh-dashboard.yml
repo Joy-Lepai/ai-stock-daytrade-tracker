@@ -101,6 +101,7 @@ jobs:
                 call_endpoint "/refresh_full_market"
                 call_endpoint "/refresh_watchlist"
                 call_endpoint "/refresh_positions"
+                call_endpoint "/refresh_post_close_validation"
                 ;;
               *)
                 echo "Unknown refresh_layer: ${refresh_layer}"
