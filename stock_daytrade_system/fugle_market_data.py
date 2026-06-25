@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+from stock_daytrade_system.cmoney import market_suffix_for_code
 from stock_daytrade_system.resilience import record_source_health, retry_sync
 
 
@@ -652,7 +653,7 @@ def _normalize_symbol(symbol: str) -> str:
     if raw.endswith(".TW") or raw.endswith(".TWO"):
         return raw
     if raw.isdigit():
-        return f"{raw}.TW"
+        return f"{raw}{market_suffix_for_code(raw)}"
     return raw
 
 

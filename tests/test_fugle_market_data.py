@@ -26,6 +26,12 @@ class FugleMarketDataTests(unittest.TestCase):
         self.assertFalse(signal.configured)
         self.assertFalse(signal.ok)
 
+    def test_numeric_tpex_symbol_uses_two_suffix_before_api_call(self):
+        signal = FugleMarketDataClient(FugleMarketDataConfig(enabled=True, api_key="")).fetch_trades("8936")
+
+        self.assertEqual(signal.symbol, "8936.TWO")
+        self.assertEqual(signal.status, "not_configured")
+
     def test_parse_trades_detects_large_buy_sweep(self):
         signal = parse_fugle_trades(
             "2330.TW",

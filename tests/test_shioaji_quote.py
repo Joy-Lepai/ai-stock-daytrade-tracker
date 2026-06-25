@@ -24,6 +24,12 @@ class ShioajiQuoteTests(unittest.TestCase):
         self.assertFalse(quote.configured)
         self.assertFalse(quote.ok)
 
+    def test_numeric_tpex_symbol_uses_two_suffix_before_quote_call(self):
+        quote = ShioajiQuoteClient(ShioajiQuoteConfig(enabled=True)).fetch_snapshot("8936")
+
+        self.assertEqual(quote.symbol, "8936.TWO")
+        self.assertEqual(quote.status, "not_configured")
+
     def test_parse_snapshot_extracts_quote_and_top_of_book(self):
         quote = parse_shioaji_snapshot(
             "2330.TW",
