@@ -10,6 +10,7 @@ from stock_daytrade_system.refresh_service import (
     RefreshCoordinator,
     _layer_has_usable_fresh_success,
     _refresh_operation_summary,
+    _status_allows_strong_long,
 )
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
@@ -254,6 +255,8 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["refresh_guidance"]["severity"], "block")
         self.assertEqual(payload["refresh_guidance"]["action_endpoint"], "/refresh_watchlist")
         self.assertFalse(payload["refresh_guidance"]["can_use_dashboard"])
+        self.assertFalse(payload["allow_strong_long"])
+        self.assertFalse(payload["can_show_any_strong_long"])
         self.assertEqual(payload["refresh_operation_summary"]["severity"], "block")
         self.assertIn("重點觀察", payload["refresh_operation_summary"]["message"])
         self.assertIn("重點觀察", payload["refresh_operation_summary"]["blocking_layer_labels"])
@@ -365,6 +368,32 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(summary["severity"], "block")
         self.assertFalse(summary["can_use_dashboard"])
         self.assertIn("資料異常", summary["message"])
+
+    def test_strong_long_status_requires_fresh_required_layers_and_usable_price_quality(self):
+        market_mode = {"mode": "intraday", "allow_strong_long": True}
+        price_status = {"live_count": 10, "can_show_any_strong_long": True}
+
+        self.assertTrue(
+            _status_allows_strong_long(
+                market_mode=market_mode,
+                price_status=price_status,
+                required_stale_layers=[],
+            )
+        )
+        self.assertFalse(
+            _status_allows_strong_long(
+                market_mode=market_mode,
+                price_status=price_status,
+                required_stale_layers=["watchlist"],
+            )
+        )
+        self.assertFalse(
+            _status_allows_strong_long(
+                market_mode=market_mode,
+                price_status={"live_count": 10, "can_show_any_strong_long": False},
+                required_stale_layers=[],
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -149,6 +149,11 @@ class RefreshCoordinator:
         required_stale_layers = [layer for layer in required_layers if by_layer.get(layer, {}).get("is_stale")]
         any_layer_stale = bool(stale_layers)
         any_required_stale = bool(required_stale_layers)
+        strong_long_allowed = _status_allows_strong_long(
+            market_mode=market_mode.to_dict(),
+            price_status=price_status,
+            required_stale_layers=required_stale_layers,
+        )
         operation_summary = _refresh_operation_summary(
             by_layer,
             required_layers=required_layers,
@@ -199,10 +204,10 @@ class RefreshCoordinator:
             "any_layer_stale": any_layer_stale,
             "any_stale": any_required_stale,
             "refresh_guidance": refresh_guidance,
-            "can_show_any_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
-            "allow_strong_long": bool(market_mode.allow_strong_long and price_status["live_count"] > 0),
-            "reason_if_blocked": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
-            "strong_long_block_reason": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
+            "can_show_any_strong_long": strong_long_allowed,
+            "allow_strong_long": strong_long_allowed,
+            "reason_if_blocked": "" if strong_long_allowed else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
+            "strong_long_block_reason": "" if strong_long_allowed else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
         }
         payload["operational_health"] = build_operational_health(payload)
         return payload
@@ -658,6 +663,18 @@ def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str
     if state == "last_known":
         return "cached"
     return "missing"
+
+
+def _status_allows_strong_long(*, market_mode: dict, price_status: dict, required_stale_layers: list[str]) -> bool:
+    if not bool(market_mode.get("allow_strong_long")):
+        return False
+    if required_stale_layers:
+        return False
+    if int(price_status.get("live_count", 0) or 0) <= 0:
+        return False
+    if not bool(price_status.get("can_show_any_strong_long", True)):
+        return False
+    return True
 
 
 def _layer_has_usable_fresh_success(layer: dict) -> bool:
