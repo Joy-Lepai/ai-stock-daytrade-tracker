@@ -12,10 +12,13 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertIn("timeout-minutes: 10", text)
         self.assertIn("concurrency:", text)
+        self.assertIn('cron: "0,30 23 * * 0-4"', text)
+        self.assertIn('cron: "0,30 0 * * 1-5"', text)
         self.assertIn('cron: "*/5 1-4 * * 1-5"', text)
         self.assertIn('cron: "0-30/5 5 * * 1-5"', text)
         self.assertIn('cron: "45 5 * * 1-5"', text)
         self.assertIn('cron: "0,15,30 6 * * 1-5"', text)
+        self.assertNotIn('cron: "30 0 * * 1-5"', text)
         self.assertNotIn('cron: "*/5 1-5 * * 1-5"', text)
         self.assertIn("stock-dashboard-refresh", text)
         self.assertIn("cancel-in-progress: false", text)
@@ -30,6 +33,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("- all", text)
         self.assertIn("REFRESH_LAYER", text)
         self.assertIn('refresh_layer="${REFRESH_LAYER:-auto}"', text)
+        self.assertIn("TZ=Asia/Taipei date +%H", text)
+        self.assertIn("hour_number=$((10#$hour))", text)
         self.assertIn('if [ "$refresh_layer" != "auto" ]', text)
         self.assertIn('full_market)', text)
         self.assertIn('watchlist)', text)
@@ -57,7 +62,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--base-url \"$DASHBOARD_URL\"", text)
         self.assertIn("FAILED /api/refresh/status operational health", text)
         self.assertIn('13:45-15:00 Asia/Taipei', text)
-        self.assertIn('[ "$hour" = "05" ] && [ "$minute" = "45" ]', text)
+        self.assertIn('[ "$hour_number" -eq 13 ] && [ "$minute_number" -eq 45 ]', text)
+        self.assertIn('[ "$hour_number" -ge 7 ] && [ "$hour_number" -lt 9 ]', text)
         self.assertNotIn('status == "blocked"', text)
 
     def test_verify_public_deployment_workflow_checks_representative_advisors_by_default(self):

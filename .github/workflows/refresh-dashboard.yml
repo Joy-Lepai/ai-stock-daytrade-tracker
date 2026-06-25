@@ -16,8 +16,10 @@ on:
           - post_close
           - all
   schedule:
-    # Taiwan market pre-open: 08:30 Asia/Taipei, weekdays.
-    - cron: "30 0 * * 1-5"
+    # Taiwan market pre-open: 07:00, 07:30, 08:00 and 08:30 Asia/Taipei, weekdays.
+    # 07:00/07:30 TPE are 23:00/23:30 UTC on the previous calendar day.
+    - cron: "0,30 23 * * 0-4"
+    - cron: "0,30 0 * * 1-5"
     # Taiwan regular session: every 5 minutes from 09:00 to 13:30 Asia/Taipei, weekdays.
     # The script below runs full_market only on 15-minute marks.
     - cron: "*/5 1-4 * * 1-5"
@@ -45,8 +47,10 @@ jobs:
       - name: Trigger layered Render refresh
         run: |
           set -uo pipefail
-          minute="$(date -u +%M)"
-          hour="$(date -u +%H)"
+          minute="$(TZ=Asia/Taipei date +%M)"
+          hour="$(TZ=Asia/Taipei date +%H)"
+          minute_number=$((10#$minute))
+          hour_number=$((10#$hour))
           refresh_layer="${REFRESH_LAYER:-auto}"
           failures=0
 
@@ -115,15 +119,15 @@ jobs:
           fi
 
           # Post-close verification windows: 13:45-15:00 Asia/Taipei.
-          if [ "$hour" = "07" ] || [ "$hour" = "06" ] || { [ "$hour" = "05" ] && [ "$minute" = "45" ]; }; then
+          if { [ "$hour_number" -eq 13 ] && [ "$minute_number" -eq 45 ]; } || [ "$hour_number" -eq 14 ] || { [ "$hour_number" -eq 15 ] && [ "$minute_number" -eq 0 ]; }; then
             call_endpoint "/refresh_full_market"
             call_endpoint "/refresh_post_close_validation"
             print_refresh_status
             exit "$failures"
           fi
 
-          # 08:30 pre-open and 15-minute marks during regular session.
-          if [ "$hour" = "00" ] || [ "$minute" = "00" ] || [ "$minute" = "15" ] || [ "$minute" = "30" ] || [ "$minute" = "45" ]; then
+          # Pre-open and 15-minute marks during regular session.
+          if { [ "$hour_number" -ge 7 ] && [ "$hour_number" -lt 9 ]; } || [ "$minute_number" -eq 0 ] || [ "$minute_number" -eq 15 ] || [ "$minute_number" -eq 30 ] || [ "$minute_number" -eq 45 ]; then
             call_endpoint "/refresh_full_market"
           fi
 
