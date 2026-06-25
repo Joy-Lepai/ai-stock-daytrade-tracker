@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from html import escape
@@ -1101,6 +1102,7 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
     observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or f'<p class="muted">{escape(observation_empty)}</p>'
     sector_summary = _top_sector_summary(summary)
     institutional_summary = _institutional_background_summary(summary)
+    front_diagnostics = _front_category_diagnostics(front["views"])
     return (
         '<section class="decision-center">'
         '<h2>今日決策摘要</h2>'
@@ -1116,6 +1118,7 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
+        f'{front_diagnostics}'
         f'<h3>{escape(closest_title)}</h3>'
         f'<div class="signal-grid">{closest_html}</div>'
         f'<h3>{escape(observation_title)}</h3>'
@@ -1967,6 +1970,63 @@ def _front_signal_center_empty_message(key: str) -> str:
     if key == "看空":
         return '<p class="muted">目前沒有看空觀察標的。</p>'
     return '<p class="muted">目前沒有觀察標的。</p>'
+
+
+def _front_category_diagnostics(views: list) -> str:
+    if not views:
+        return ""
+    counts = Counter(str(getattr(view, "category", "") or "") for view in views)
+    reason_counter: Counter[str] = Counter()
+    for view in views:
+        category = str(getattr(view, "category", "") or "")
+        codes = list(getattr(view, "reason_codes", []) or [])
+        if not codes:
+            reason = str(getattr(view, "reason", "") or getattr(view, "subtitle", "") or "")
+            if reason:
+                codes = [reason]
+        for code in codes[:2]:
+            reason_counter[f"{category}：{_front_reason_label(str(code))}"] += 1
+    top_reasons = reason_counter.most_common(4)
+    reason_text = "、".join(f"{label} {count} 檔" for label, count in top_reasons) if top_reasons else "目前沒有明顯集中原因"
+    all_bearish_hint = ""
+    if counts.get("看空", 0) and counts.get("買多", 0) == 0 and counts.get("強烈買多", 0) == 0:
+        all_bearish_hint = " 若看空異常偏多，先檢查 market_mode、price_status、VWAP 與資料日是否正確。"
+    return (
+        '<div class="notice">'
+        '<strong>四分類原因診斷</strong><br>'
+        f'強烈買多 {int(counts.get("強烈買多", 0))} 檔、買多 {int(counts.get("買多", 0))} 檔、'
+        f'觀察 {int(counts.get("觀察", 0))} 檔、看空 {int(counts.get("看空", 0))} 檔。'
+        f'主要原因：{escape(reason_text)}。{escape(all_bearish_hint)}'
+        '</div>'
+    )
+
+
+def _front_reason_label(code: str) -> str:
+    mapping = {
+        "missing_vwap": "缺 VWAP",
+        "missing_volume_ratio": "缺量比",
+        "cached": "使用上一筆",
+        "delayed": "資料延遲",
+        "stale_data": "資料過期",
+        "data_missing": "資料不足",
+        "not_intraday_mode": "非盤中模式",
+        "high_risk": "追價風險高",
+        "below_vwap": "未站上 VWAP",
+        "wait_vwap": "等待 VWAP",
+        "wait_volume": "量比不足",
+        "wait_breakout": "等待突破",
+        "wait_pullback": "等待拉回",
+        "practice_long": "練習觀察",
+        "avoid": "多方失效 / 避開",
+        "failed_breakout": "假突破",
+        "lower_low": "低點下彎",
+        "bearish": "偏空結構",
+        "short": "偏空結構",
+        "strong_buy": "多方完整",
+        "executable": "進場條件較完整",
+        "buy_watch": "買多觀察",
+    }
+    return mapping.get(code, code)
 
 
 def _front_signal_center_column_note(key: str) -> str:

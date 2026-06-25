@@ -57,6 +57,64 @@ def candidate(direction="做多觀察", shares=1000):
     )
 
 
+def long_candidate(**overrides):
+    base = dict(
+        symbol="2330.TW",
+        name="台積電",
+        sector="semiconductor",
+        last_price=100,
+        change_pct=1.2,
+        volume=1_000_000,
+        turnover=100_000_000,
+        avg_volume_20=900_000,
+        daily_volume_ratio=1.1,
+        intraday_volume=500_000,
+        volume_ratio=1.2,
+        vwap=99.5,
+        above_vwap=True,
+        previous_high=99,
+        high_5d=101,
+        high_10d=102,
+        break_prev_high=True,
+        break_5d_high=False,
+        break_10d_high=False,
+        upper_shadow_pct=0.1,
+        institutional_buy_million=None,
+        margin_balance=None,
+        short_balance=None,
+        daytrade_ratio=None,
+        sector_strength=1,
+        news_topics=[],
+        market_state="偏多",
+        bullish_score=72,
+        risk_score=35,
+        grade="B+",
+        entry_status="wait_volume",
+        original_entry_status="wait_volume",
+        adjusted_entry_status="wait_volume",
+        confidence_score=65,
+        confidence_level="medium",
+        confidence_level_label="中等信心",
+        conflicts_count=0,
+        conflicts=[],
+        conflict_summary="",
+        confidence_summary="資料完整度尚可。",
+        confidence_adjustment_reason="",
+        trade_bias="long",
+        trade_bias_label="做多",
+        trade_bias_reason="",
+        trigger_price=100.5,
+        stop_loss=98,
+        target_price=103,
+        opening_range_high=100.2,
+        opening_range_low=98.8,
+        reasons=["站上 VWAP"],
+        risk_reasons=[],
+    )
+    base.update(overrides)
+    return LongCandidate(**base)
+
+
 def opening(direction="偏多確認"):
     return OpeningSignal(
         symbol="2330.TW",
@@ -1033,6 +1091,58 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("開盤後等待確認清單 10 檔", html)
         self.assertNotIn("買多觀察池 10 檔", html)
         self.assertNotIn("使用上一筆 118 檔", html)
+
+    def test_decision_overview_explains_front_category_reasons(self):
+        summary = LongModelSummary(
+            candidates=[
+                long_candidate(
+                    symbol="1216.TW",
+                    name="統一",
+                    entry_status="avoid",
+                    original_entry_status="avoid",
+                    adjusted_entry_status="avoid",
+                    trade_bias="short",
+                    trade_bias_label="看空",
+                    above_vwap=False,
+                    vwap=101,
+                    last_price=99,
+                    reasons=["跌破 VWAP"],
+                ),
+                long_candidate(
+                    symbol="2886.TW",
+                    name="兆豐金",
+                    entry_status="wait_vwap",
+                    original_entry_status="wait_vwap",
+                    adjusted_entry_status="wait_vwap",
+                    above_vwap=False,
+                    vwap=39.8,
+                    last_price=39.6,
+                    reasons=["尚未站上 VWAP"],
+                ),
+            ],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "data_health": {
+                    "status": "正常",
+                    "data_date": "2026-06-25",
+                    "latest_intraday_at": "2026-06-25T10:00:00+08:00",
+                }
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 25, 10, 0))
+
+        self.assertIn("四分類原因診斷", html)
+        self.assertIn("看空 1 檔", html)
+        self.assertIn("觀察 1 檔", html)
+        self.assertIn("多方失效 / 避開", html)
+        self.assertIn("未站上 VWAP", html)
 
     def test_post_close_decision_overview_uses_review_and_next_session_copy(self):
         summary = LongModelSummary(
