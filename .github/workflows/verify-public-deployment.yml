@@ -12,7 +12,7 @@ on:
         required: false
         default: ""
       advisor_symbol:
-        description: "Optional TW symbol for /tw/advisor API smoke test, e.g. 6919 or 2330.TW."
+        description: "Optional TW symbol(s) for /tw/advisor API smoke test, e.g. 6919 or 6919,2886,8150."
         required: false
         default: ""
 

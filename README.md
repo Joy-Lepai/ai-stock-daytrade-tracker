@@ -190,6 +190,14 @@ python3 scripts/verify_public_deployment.py \
   --advisor-symbol 6919
 ```
 
+也可以一次驗證多檔代表案例，例如康霈、兆豐金、南茂：
+
+```bash
+python3 scripts/verify_public_deployment.py \
+  --base-url https://stock.letslepai.com \
+  --advisor-symbol 6919,2886,8150
+```
+
 若要指定應該部署的 commit：
 
 ```bash

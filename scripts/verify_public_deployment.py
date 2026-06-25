@@ -499,6 +499,16 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
     return checks
 
 
+def parse_advisor_symbols(values: list[str] | None) -> list[str]:
+    symbols: list[str] = []
+    for value in values or []:
+        for part in str(value or "").split(","):
+            symbol = part.strip()
+            if symbol:
+                symbols.append(symbol)
+    return symbols
+
+
 def print_checks(title: str, checks: list[Check]) -> int:
     print(f"\n{title}")
     failures = 0
@@ -514,7 +524,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Verify public dashboard deployment and refresh health.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--expected-commit", default=local_git_commit())
-    parser.add_argument("--advisor-symbol", default="", help="Optionally smoke-test /api/tw/scan/symbol for one symbol.")
+    parser.add_argument(
+        "--advisor-symbol",
+        action="append",
+        default=[],
+        help="Optionally smoke-test /api/tw/scan/symbol. Can be repeated or comma-separated, e.g. 6919,2886,8150.",
+    )
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args(argv)
 
@@ -533,22 +548,22 @@ def main(argv: list[str] | None = None) -> int:
     failures += print_checks("Readiness endpoint", validate_readiness_payload(readyz_status, readyz_payload))
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
-    if args.advisor_symbol:
-        direct_path = "/tw/advisor?" + urllib.parse.urlencode({"symbol": args.advisor_symbol})
+    for advisor_symbol in parse_advisor_symbols(args.advisor_symbol):
+        direct_path = "/tw/advisor?" + urllib.parse.urlencode({"symbol": advisor_symbol})
         advisor_direct_html = fetch_text(args.base_url, direct_path, timeout=args.timeout)
         failures += print_checks(
-            f"TW Advisor Direct URL ({args.advisor_symbol})",
-            validate_tw_advisor_direct_html(advisor_direct_html, args.advisor_symbol),
+            f"TW Advisor Direct URL ({advisor_symbol})",
+            validate_tw_advisor_direct_html(advisor_direct_html, advisor_symbol),
         )
         advisor_payload = post_json(
             args.base_url,
             "/api/tw/scan/symbol",
-            {"symbol": args.advisor_symbol},
+            {"symbol": advisor_symbol},
             timeout=max(args.timeout, 30.0),
         )
         failures += print_checks(
-            f"TW Advisor API ({args.advisor_symbol})",
-            validate_tw_advisor_scan(advisor_payload, args.advisor_symbol),
+            f"TW Advisor API ({advisor_symbol})",
+            validate_tw_advisor_scan(advisor_payload, advisor_symbol),
         )
     print()
     if failures:

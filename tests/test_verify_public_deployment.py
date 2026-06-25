@@ -1,6 +1,7 @@
 import unittest
 
 from scripts.verify_public_deployment import (
+    parse_advisor_symbols,
     validate_dashboard_html,
     validate_health_payload,
     validate_liveness_payload,
@@ -14,6 +15,11 @@ from scripts.verify_public_deployment import (
 
 
 class VerifyPublicDeploymentTests(unittest.TestCase):
+    def test_parse_advisor_symbols_accepts_repeated_and_comma_separated_values(self):
+        symbols = parse_advisor_symbols(["6919,2886", "8150.TW", "", " 2330 "])
+
+        self.assertEqual(symbols, ["6919", "2886", "8150.TW", "2330"])
+
     def test_system_version_checks_expected_commit(self):
         payload = {
             "api_status": "ok",
