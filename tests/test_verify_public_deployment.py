@@ -60,6 +60,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "summary": "開盤前準備模式",
                 "next_action": {"label": "不需手動更新"},
                 "watch_readiness": "僅供復盤或開盤前觀察",
+                "refresh_plan": [],
             },
         }
 
@@ -81,6 +82,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "summary": "休市復盤模式",
                 "next_action": {"label": "查看復盤"},
                 "watch_readiness": "僅供復盤或開盤前觀察",
+                "refresh_plan": [],
             },
         }
 
@@ -103,6 +105,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "summary": "重點觀察過期",
                 "next_action": {"label": "更新重點觀察"},
                 "watch_readiness": "暫不適合進場判斷",
+                "refresh_plan": ["/refresh_watchlist"],
             },
         }
 
@@ -126,6 +129,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "summary": "資料異常",
                 "next_action": {"label": "先修正資料"},
                 "watch_readiness": "暫不適合進場判斷",
+                "refresh_plan": ["/refresh_watchlist"],
             },
         }
 
@@ -141,6 +145,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "summary": "非盤中模式",
             "next_action": {"label": "查看復盤"},
             "watch_readiness": "僅供復盤或開盤前觀察",
+            "refresh_plan": [],
             "market_mode": "closed_review",
             "price_status_summary": {"status": "休市復盤"},
             "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
@@ -168,6 +173,24 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has watch readiness", failed)
 
+    def test_health_payload_requires_refresh_plan(self):
+        payload = {
+            "api_status": "ok",
+            "status": "warning",
+            "summary": "非盤中模式",
+            "next_action": {"label": "查看復盤"},
+            "watch_readiness": "僅供復盤或開盤前觀察",
+            "market_mode": "closed_review",
+            "price_status_summary": {"status": "休市復盤"},
+            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
+            "can_show_strong_long": False,
+        }
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health has refresh plan", failed)
+
     def test_blocked_health_cannot_show_strong_buy(self):
         payload = {
             "api_status": "ok",
@@ -175,6 +198,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "summary": "資料異常",
             "next_action": {"label": "先修資料"},
             "watch_readiness": "暫不適合進場判斷",
+            "refresh_plan": ["/refresh_watchlist"],
             "market_mode": "intraday",
             "price_status_summary": {"status": "嚴重缺漏"},
             "deployment": {"runtime_commit": "abc123"},
@@ -200,6 +224,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "summary": "資料異常",
             "next_action": {"label": "先修資料"},
             "watch_readiness": "暫不適合進場判斷",
+            "refresh_plan": ["/refresh_watchlist"],
             "market_mode": "intraday",
             "price_status_summary": {"status": "嚴重缺漏"},
             "deployment": {"runtime_commit": "abc123"},
@@ -217,6 +242,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "summary": "資料異常",
             "next_action": {"label": "先修資料"},
             "watch_readiness": "暫不適合進場判斷",
+            "refresh_plan": ["/refresh_watchlist"],
             "market_mode": "intraday",
             "price_status_summary": {"status": "嚴重缺漏"},
             "deployment": {"runtime_commit": "abc123"},
@@ -260,6 +286,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "summary": "資料異常",
                 "next_action": {"label": "先修資料"},
                 "watch_readiness": "暫不適合進場判斷",
+                "refresh_plan": ["/refresh_watchlist"],
             },
         }
 
@@ -272,7 +299,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
         """
 
         checks = validate_dashboard_html(required_html + " 做多確認")
@@ -293,7 +320,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>0</strong></div>
@@ -311,7 +338,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>

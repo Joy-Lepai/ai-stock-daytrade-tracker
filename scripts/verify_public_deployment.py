@@ -191,6 +191,11 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             bool(health.get("watch_readiness")) if isinstance(health, dict) else False,
             f"watch_readiness={(health.get('watch_readiness') if isinstance(health, dict) else '-') or '-'}",
         ),
+        Check(
+            "operational health has refresh plan",
+            isinstance(health.get("refresh_plan"), list) if isinstance(health, dict) else False,
+            f"refresh_plan={health.get('refresh_plan') if isinstance(health, dict) else '-'}",
+        ),
     ]
     if health_status == "blocked":
         checks.append(
@@ -244,6 +249,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             "health has watch readiness",
             bool(payload.get("watch_readiness")),
             f"watch_readiness={payload.get('watch_readiness') or '-'}",
+        ),
+        Check(
+            "health has refresh plan",
+            isinstance(payload.get("refresh_plan"), list),
+            f"refresh_plan={payload.get('refresh_plan') if isinstance(payload.get('refresh_plan'), list) else '-'}",
         ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
@@ -300,6 +310,7 @@ def validate_dashboard_html(html: str) -> list[Check]:
         "強烈買多漏斗",
         "系統狀態與資料來源",
         "看盤狀態",
+        "刷新順序",
     ]
     forbidden_terms = [
         "強烈看漲",
