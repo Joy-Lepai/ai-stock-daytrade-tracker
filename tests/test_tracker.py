@@ -1026,7 +1026,36 @@ class TrackerStatusTests(unittest.TestCase):
 
         self.assertIn("開盤前準備模式", html)
         self.assertIn("請等開盤後確認今日 VWAP、量比、突破與進場雷達", html)
+        self.assertIn("開盤前重點盯盤 5 檔", html)
+        self.assertIn("開盤後等待確認清單 10 檔", html)
+        self.assertNotIn("買多觀察池 10 檔", html)
         self.assertNotIn("使用上一筆 118 檔", html)
+
+    def test_post_close_decision_overview_uses_review_and_next_session_copy(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-06-25",
+                    "latest_intraday_at": "2026-06-25T13:30:00+08:00",
+                }
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 25, 17, 0))
+
+        self.assertIn("盤後復盤模式", html)
+        self.assertIn("今日盤後復盤重點 5 檔", html)
+        self.assertIn("下個交易日觀察清單 10 檔", html)
+        self.assertNotIn("買多觀察池 10 檔", html)
 
     def test_today_playbook_pre_open_gives_three_step_action_plan(self):
         summary = LongModelSummary(

@@ -1056,10 +1056,11 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
+    closest_title, observation_title, closest_empty, observation_empty = _decision_overview_section_copy(str(mode.get("mode") or ""))
     closest_items = _top_decision_items(summary, front_context, categories={"強烈買多", "買多"}, limit=5)
     observation_items = _top_decision_items(summary, front_context, categories={"觀察"}, limit=10)
-    closest_html = "".join(_focus_card(item, front_context) for item in closest_items) or '<p class="muted">目前沒有接近強烈買多的標的。</p>'
-    observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or '<p class="muted">目前沒有買多觀察池標的。</p>'
+    closest_html = "".join(_focus_card(item, front_context) for item in closest_items) or f'<p class="muted">{escape(closest_empty)}</p>'
+    observation_html = "".join(_focus_card(item, front_context) for item in observation_items) or f'<p class="muted">{escape(observation_empty)}</p>'
     sector_summary = _top_sector_summary(summary)
     institutional_summary = _institutional_background_summary(summary)
     return (
@@ -1077,11 +1078,48 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
-        '<h3>最接近強烈買多 5 檔</h3>'
+        f'<h3>{escape(closest_title)}</h3>'
         f'<div class="signal-grid">{closest_html}</div>'
-        '<h3>買多觀察池 10 檔</h3>'
+        f'<h3>{escape(observation_title)}</h3>'
         f'<div class="signal-grid">{observation_html}</div>'
         '</section>'
+    )
+
+
+def _decision_overview_section_copy(mode: str) -> tuple[str, str, str, str]:
+    if mode == "pre_open_prepare":
+        return (
+            "開盤前重點盯盤 5 檔",
+            "開盤後等待確認清單 10 檔",
+            "開盤前尚未有可列入重點盯盤的標的；請等 09:00 後確認今日 VWAP、量比與突破。",
+            "目前沒有開盤後等待確認標的。",
+        )
+    if mode == "post_close_review":
+        return (
+            "今日盤後復盤重點 5 檔",
+            "下個交易日觀察清單 10 檔",
+            "今日沒有可列為盤後復盤重點的強烈買多 / 買多標的。",
+            "目前沒有下個交易日觀察標的。",
+        )
+    if mode == "closed_review":
+        return (
+            "上一交易日復盤重點 5 檔",
+            "下個交易日觀察清單 10 檔",
+            "上一交易日沒有可列為復盤重點的強烈買多 / 買多標的。",
+            "目前沒有下個交易日觀察標的。",
+        )
+    if mode == "stale_data":
+        return (
+            "資料不足，暫停即時重點盯盤",
+            "資料不足觀察清單",
+            "資料不完整或過期，暫停列出即時強烈買多。",
+            "資料不完整或過期，僅保留可復盤的觀察資料。",
+        )
+    return (
+        "最接近強烈買多 5 檔",
+        "買多觀察池 10 檔",
+        "目前沒有接近強烈買多的標的。",
+        "目前沒有買多觀察池標的。",
     )
 
 
