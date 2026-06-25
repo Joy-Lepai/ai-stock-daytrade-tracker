@@ -204,10 +204,18 @@ python3 scripts/verify_public_deployment.py \
 ./scripts/check_public_readiness.sh
 ```
 
+這個一鍵腳本會先執行 release readiness 檢查；如果本機 commit 還沒推到 GitHub，或公開站還沒部署到本機 HEAD，會先停止，避免拿舊版公開站做功能驗收。
+
 參數順序為 `公開網址 個股代號 預期commit`：
 
 ```bash
 ./scripts/check_public_readiness.sh https://stock.letslepai.com 6919 你的_git_commit
+```
+
+若只是想臨時檢查目前公開站，不要求它等於本機最新版，可以跳過版本鏈路檢查：
+
+```bash
+SKIP_RELEASE_READINESS=1 ./scripts/check_public_readiness.sh
 ```
 
 驗收會檢查：
