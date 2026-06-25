@@ -19,8 +19,8 @@ from stock_daytrade_system.operational_health import build_operational_health
 DEFAULT_BASE_URL = "https://stock.letslepai.com"
 
 
-def fetch_refresh_status(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
-    url = base_url.rstrip("/") + "/api/refresh/status"
+def fetch_json(base_url: str, path: str, *, timeout: float = 12.0) -> dict[str, Any]:
+    url = base_url.rstrip("/") + path
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -31,23 +31,39 @@ def fetch_refresh_status(base_url: str, *, timeout: float = 12.0) -> dict[str, A
         raise RuntimeError(str(exc.reason)) from exc
 
 
+def fetch_health_payload(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
+    try:
+        payload = fetch_json(base_url, "/api/health", timeout=timeout)
+        payload["_health_source"] = "/api/health"
+        return payload
+    except Exception as health_error:
+        payload = fetch_json(base_url, "/api/refresh/status", timeout=timeout)
+        payload["_health_source"] = f"/api/refresh/status fallback after /api/health failed: {health_error}"
+        return payload
+
+
 def render_report(payload: dict[str, Any]) -> tuple[int, str]:
-    health = payload.get("operational_health")
+    health = payload.get("operational_health") if isinstance(payload.get("operational_health"), dict) else None
+    if health is None and payload.get("status") in {"ok", "warning", "blocked"}:
+        health = payload
     if not isinstance(health, dict):
         health = build_operational_health(payload)
     status = str(health.get("status") or "blocked")
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
+    price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
     lines = [
         "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
         f"market_mode: {health.get('market_mode') or payload.get('market_mode') or '-'}",
         f"data_quality: {health.get('data_quality_status') or '-'}",
         "counts: "
-        f"live={health.get('live_count', 0)} "
-        f"delayed={health.get('delayed_count', 0)} "
-        f"cached={health.get('cached_count', 0)} "
-        f"missing={health.get('missing_count', 0)}",
+        f"live={health.get('live_count', price.get('live_count', 0))} "
+        f"delayed={health.get('delayed_count', price.get('delayed_count', 0))} "
+        f"cached={health.get('cached_count', price.get('cached_count', 0))} "
+        f"missing={health.get('missing_count', price.get('missing_count', 0))}",
     ]
+    if payload.get("_health_source"):
+        lines.append(f"source: {payload.get('_health_source')}")
     blockers = health.get("blockers") or []
     warnings = health.get("warnings") or []
     if blockers:
@@ -58,19 +74,19 @@ def render_report(payload: dict[str, Any]) -> tuple[int, str]:
         lines.extend(f"- {item}" for item in warnings)
     next_action = health.get("next_action") or {}
     lines.append(f"next_action: {next_action.get('label') or '-'} {next_action.get('endpoint') or ''}".strip())
-    return (0 if status == "ok" else 1, "\n".join(lines))
+    return (0 if status in {"ok", "warning"} else 1, "\n".join(lines))
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check dashboard operational readiness from /api/refresh/status.")
+    parser = argparse.ArgumentParser(description="Check dashboard operational readiness from /api/health.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=12.0)
     args = parser.parse_args(argv)
     try:
-        payload = fetch_refresh_status(args.base_url, timeout=args.timeout)
+        payload = fetch_health_payload(args.base_url, timeout=args.timeout)
     except Exception as exc:
         print("Operational health")
-        print(f"[FAIL] 無法讀取 /api/refresh/status：{exc}")
+        print(f"[FAIL] 無法讀取 /api/health 或 /api/refresh/status：{exc}")
         print("next_action: 確認網站是否啟動，或稍後重試。")
         return 1
     exit_code, report = render_report(payload)

@@ -289,7 +289,7 @@ Fugle 基本用戶即時行情 WebSocket 最多 5 檔訂閱。本系統不會拿
 python3 scripts/check_operational_health.py --base-url https://stock.letslepai.com
 ```
 
-這個指令會讀 `/api/refresh/status`，並整理成：
+這個指令會優先讀輕量 `/api/health`；若公開站尚未部署新端點，會 fallback 到 `/api/refresh/status`，並整理成：
 
 - 目前是可用、警告，還是阻擋狀態
 - market mode 是否為盤中 / 開盤前 / 休市復盤
