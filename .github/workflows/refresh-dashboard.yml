@@ -18,11 +18,13 @@ on:
   schedule:
     # Taiwan market pre-open: 08:30 Asia/Taipei, weekdays.
     - cron: "30 0 * * 1-5"
-    # Taiwan regular session: every 5 minutes from 09:00 to 13:55 Asia/Taipei, weekdays.
+    # Taiwan regular session: every 5 minutes from 09:00 to 13:30 Asia/Taipei, weekdays.
     # The script below runs full_market only on 15-minute marks.
-    - cron: "*/5 1-5 * * 1-5"
-    # Taiwan post-close verification: 14:15 and 15:00 Asia/Taipei, weekdays.
-    - cron: "15 6 * * 1-5"
+    - cron: "*/5 1-4 * * 1-5"
+    - cron: "0-30/5 5 * * 1-5"
+    # Taiwan post-close verification: 13:45, 14:00, 14:15, 14:30 and 15:00 Asia/Taipei, weekdays.
+    - cron: "45 5 * * 1-5"
+    - cron: "0,15,30 6 * * 1-5"
     - cron: "0 7 * * 1-5"
 
 concurrency:
@@ -112,8 +114,8 @@ jobs:
             exit "$failures"
           fi
 
-          # Post-close verification windows.
-          if [ "$hour" = "06" ] || [ "$hour" = "07" ]; then
+          # Post-close verification windows: 13:45-15:00 Asia/Taipei.
+          if [ "$hour" = "07" ] || [ "$hour" = "06" ] || { [ "$hour" = "05" ] && [ "$minute" = "45" ]; }; then
             call_endpoint "/refresh_full_market"
             call_endpoint "/refresh_post_close_validation"
             print_refresh_status

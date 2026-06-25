@@ -12,6 +12,11 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertIn("timeout-minutes: 10", text)
         self.assertIn("concurrency:", text)
+        self.assertIn('cron: "*/5 1-4 * * 1-5"', text)
+        self.assertIn('cron: "0-30/5 5 * * 1-5"', text)
+        self.assertIn('cron: "45 5 * * 1-5"', text)
+        self.assertIn('cron: "0,15,30 6 * * 1-5"', text)
+        self.assertNotIn('cron: "*/5 1-5 * * 1-5"', text)
         self.assertIn("stock-dashboard-refresh", text)
         self.assertIn("cancel-in-progress: false", text)
         self.assertIn("vars.STOCK_DASHBOARD_URL", text)
@@ -51,6 +56,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("scripts/check_operational_health.py", text)
         self.assertIn("--base-url \"$DASHBOARD_URL\"", text)
         self.assertIn("FAILED /api/refresh/status operational health", text)
+        self.assertIn('13:45-15:00 Asia/Taipei', text)
+        self.assertIn('[ "$hour" = "05" ] && [ "$minute" = "45" ]', text)
         self.assertNotIn('status == "blocked"', text)
 
     def test_verify_public_deployment_workflow_checks_representative_advisors_by_default(self):
