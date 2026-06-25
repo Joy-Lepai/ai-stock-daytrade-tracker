@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.web import (
     WebApp,
+    build_health_payload,
     _current_commit_hash,
     _extract_body,
     _extract_style,
@@ -34,6 +35,42 @@ class WebTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             self.assertIsNone(latest_tracker_file(Path(directory)))
+
+    def test_build_health_payload_summarizes_refresh_and_system_status(self):
+        refresh_payload = {
+            "generated_at": "2026-06-26T09:05:00+08:00",
+            "market_mode": "intraday",
+            "market_mode_label": "盤中",
+            "allow_intraday_signal": True,
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "price_status_summary": {"status": "正常", "live_count": 20},
+            "refresh_guidance": {"severity": "ok"},
+            "operational_health": {
+                "status": "ok",
+                "summary": "系統狀態正常",
+                "next_action": {"label": "不需手動更新"},
+                "can_use_dashboard": True,
+                "can_show_strong_long": True,
+                "data_quality_status": "正常",
+            },
+        }
+        system_payload = {
+            "runtime": {"commit": "abc123"},
+            "tracker_html": {"commit": "abc123"},
+            "consistency": {"runtime_matches_tracker": True, "is_ready": True, "warnings": []},
+            "db": {"data_date": "2026-06-26", "latest_data_at": "2026-06-26T09:05:00+08:00"},
+        }
+
+        payload = build_health_payload(refresh_payload, system_payload)
+
+        self.assertEqual(payload["api_status"], "ok")
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["market_mode"], "intraday")
+        self.assertTrue(payload["can_use_dashboard"])
+        self.assertTrue(payload["can_show_strong_long"])
+        self.assertEqual(payload["deployment"]["runtime_commit"], "abc123")
+        self.assertEqual(payload["db"]["data_date"], "2026-06-26")
 
     def test_tracker_html_needs_refresh_when_static_file_is_old(self):
         html = """

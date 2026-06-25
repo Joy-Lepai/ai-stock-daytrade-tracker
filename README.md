@@ -225,6 +225,7 @@ SKIP_RELEASE_READINESS=1 ./scripts/check_public_readiness.sh
 - 需要的刷新層是否新鮮
 - 非盤中 / 開盤前 / 休市是否禁止顯示即時強烈買多
 - `/api/system/version` 與 `/api/refresh/status` 是否正常回傳
+- `/api/health` 是否正常回傳營運健康、資料品質、部署摘要與下一步
 - `/tw/advisor` 是否顯示個股當沖作戰卡入口
 - 指定個股的 `/api/tw/scan/symbol` 是否回傳資料健康度、市場模式、四分類與進場雷達
 

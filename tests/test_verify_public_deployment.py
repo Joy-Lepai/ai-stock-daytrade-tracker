@@ -2,6 +2,7 @@ import unittest
 
 from scripts.verify_public_deployment import (
     validate_dashboard_html,
+    validate_health_payload,
     validate_refresh_status,
     validate_system_version,
     validate_tw_advisor_direct_html,
@@ -120,6 +121,39 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("stale market mode blocks operation summary", failed)
+
+    def test_health_payload_requires_core_monitoring_fields(self):
+        payload = {
+            "api_status": "ok",
+            "status": "warning",
+            "summary": "非盤中模式",
+            "next_action": {"label": "查看復盤"},
+            "market_mode": "closed_review",
+            "price_status_summary": {"status": "休市復盤"},
+            "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
+            "can_show_strong_long": False,
+        }
+
+        checks = validate_health_payload(payload)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_blocked_health_cannot_show_strong_buy(self):
+        payload = {
+            "api_status": "ok",
+            "status": "blocked",
+            "summary": "資料異常",
+            "next_action": {"label": "先修資料"},
+            "market_mode": "intraday",
+            "price_status_summary": {"status": "嚴重缺漏"},
+            "deployment": {"runtime_commit": "abc123"},
+            "can_show_strong_long": True,
+        }
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("blocked health blocks strong buy", failed)
 
     def test_refresh_status_requires_operational_health(self):
         payload = {

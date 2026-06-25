@@ -207,6 +207,38 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
     return checks
 
 
+def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
+    status = str(payload.get("status") or "")
+    deployment = payload.get("deployment") or {}
+    price = payload.get("price_status_summary") or {}
+    checks = [
+        Check("health API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
+        Check("health status valid", status in {"ok", "warning", "blocked"}, f"status={status or '-'}"),
+        Check("health has summary", bool(payload.get("summary")), f"summary={payload.get('summary') or '-'}"),
+        Check(
+            "health has next action",
+            bool((payload.get("next_action") or {}).get("label")),
+            f"next_action={(payload.get('next_action') or {}).get('label') or '-'}",
+        ),
+        Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
+        Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
+        Check(
+            "health includes deployment summary",
+            bool(deployment),
+            f"runtime={deployment.get('runtime_commit', '-') if isinstance(deployment, dict) else '-'}",
+        ),
+    ]
+    if status == "blocked":
+        checks.append(
+            Check(
+                "blocked health blocks strong buy",
+                not bool(payload.get("can_show_strong_long")),
+                f"status={status} can_show_strong_long={bool(payload.get('can_show_strong_long'))}",
+            )
+        )
+    return checks
+
+
 def validate_dashboard_html(html: str) -> list[Check]:
     required_markers = [
         "今日決策摘要",
@@ -450,11 +482,13 @@ def main(argv: list[str] | None = None) -> int:
 
     system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
     refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
+    health_payload = fetch_json(args.base_url, "/api/health", timeout=args.timeout)
     dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
     advisor_html = fetch_text(args.base_url, "/tw/advisor", timeout=args.timeout)
     failures = 0
     failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
     failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
+    failures += print_checks("Health endpoint", validate_health_payload(health_payload))
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
     if args.advisor_symbol:

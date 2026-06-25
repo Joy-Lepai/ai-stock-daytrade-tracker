@@ -13,7 +13,7 @@ from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
@@ -297,6 +297,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/system/version":
             self._send_json(build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir))
+            return
+        if path == "/api/health":
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            self._send_json(build_health_payload(refresh_payload, system_payload))
             return
         if path == "/api/notification/signals":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
@@ -639,6 +644,45 @@ class StockWebHandler(BaseHTTPRequestHandler):
 def latest_tracker_file(report_dir: Path) -> Optional[Path]:
     files = sorted(report_dir.glob("*-tracker.html"), reverse=True)
     return files[0] if files else None
+
+
+def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[str, Any]) -> dict[str, Any]:
+    health = refresh_payload.get("operational_health") or {}
+    consistency = system_payload.get("consistency") or {}
+    runtime = system_payload.get("runtime") or {}
+    tracker = system_payload.get("tracker_html") or {}
+    db_status = system_payload.get("db") or {}
+    status = str(health.get("status") or "unknown")
+    return {
+        "api_status": "ok",
+        "status": status,
+        "generated_at": refresh_payload.get("generated_at") or system_payload.get("generated_at"),
+        "summary": health.get("summary") or "",
+        "next_action": health.get("next_action") or {},
+        "blockers": health.get("blockers") or [],
+        "warnings": health.get("warnings") or [],
+        "can_use_dashboard": bool(health.get("can_use_dashboard")),
+        "can_show_strong_long": bool(health.get("can_show_strong_long")),
+        "allow_intraday_signal": bool(refresh_payload.get("allow_intraday_signal")),
+        "market_mode": refresh_payload.get("market_mode") or "",
+        "market_mode_label": refresh_payload.get("market_mode_label") or "",
+        "data_quality_status": health.get("data_quality_status") or (refresh_payload.get("price_status_summary") or {}).get("status") or "",
+        "price_status_summary": refresh_payload.get("price_status_summary") or {},
+        "required_stale_layers": refresh_payload.get("required_stale_layers") or [],
+        "stale_layers": refresh_payload.get("stale_layers") or [],
+        "refresh_guidance": refresh_payload.get("refresh_guidance") or {},
+        "deployment": {
+            "runtime_commit": runtime.get("commit") or "",
+            "tracker_commit": tracker.get("commit") or "",
+            "runtime_matches_tracker": bool(consistency.get("runtime_matches_tracker")),
+            "is_ready": bool(consistency.get("is_ready")),
+            "warnings": consistency.get("warnings") or [],
+        },
+        "db": {
+            "data_date": db_status.get("data_date") or "",
+            "latest_data_at": db_status.get("latest_data_at") or "",
+        },
+    }
 
 
 def _tracker_html_needs_refresh(html: str) -> bool:
