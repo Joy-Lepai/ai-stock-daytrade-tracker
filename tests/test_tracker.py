@@ -1099,6 +1099,44 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("Fugle 五檔與逐筆只作背景", html)
         self.assertIn("不會直接把股票升級成強烈買多", html)
 
+    def test_candidate_selection_explainer_uses_full_market_summary_fallback(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            momentum_scan={"summary": {"total": 40, "model_scored": 118}},
+            debug_info={"full_market_pool_symbols": 1081, "full_market_candidate_symbols": 40},
+            diagnostics={
+                "full_market_scan": {
+                    "summary": {
+                        "pool_symbols": 1081,
+                        "twse_count": 692,
+                        "tpex_count": 389,
+                        "candidate_symbols": 40,
+                    },
+                    "source_status": {"twse_ok": True, "tpex_ok": True},
+                },
+                "strong_long_funnel": {
+                    "blocked_high_risk": 35,
+                    "strong_long_candidate_count": 0,
+                    "executable_count": 0,
+                },
+            },
+        )
+
+        html = _candidate_selection_explainer(summary)
+
+        self.assertIn("完整普通股池", html)
+        self.assertIn("<strong>1081</strong>", html)
+        self.assertIn("<strong>692</strong>", html)
+        self.assertIn("<strong>389</strong>", html)
+        self.assertIn("送入模型評分", html)
+        self.assertIn("<strong>118</strong>", html)
+
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(
             candidates=[],

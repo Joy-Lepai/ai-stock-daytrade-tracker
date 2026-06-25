@@ -735,6 +735,17 @@ def _first_number(*values: Optional[float]) -> Optional[float]:
     return None
 
 
+def _first_int(*values) -> int:
+    for value in values:
+        try:
+            if value is None or value == "":
+                continue
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
 def _status_counts(rows: Iterable[TrackedSymbol]) -> Dict[str, int]:
     counts: Dict[str, int] = {}
     for row in rows:
@@ -896,15 +907,33 @@ def _today_playbook_panel(summary: Optional[LongModelSummary], report_time: date
 def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
     diagnostics = summary.diagnostics if summary else {}
     full_scan = (diagnostics.get("full_market_scan") or {}) if diagnostics else {}
-    full_data = full_scan.get("data") or {}
+    full_data = full_scan.get("data") or full_scan.get("summary") or {}
     full_source = full_scan.get("source_status") or {}
     by_status = full_scan.get("by_status") or {}
+    momentum_summary = ((summary.momentum_scan or {}).get("summary") if summary else {}) or {}
+    debug_info = summary.debug_info if summary else {}
     funnel = (diagnostics.get("strong_long_funnel") or {}) if diagnostics else {}
-    pool_count = int(full_data.get("pool_symbols", 0) or 0)
-    twse_count = int(full_data.get("twse_count", 0) or 0)
-    tpex_count = int(full_data.get("tpex_count", 0) or 0)
-    momentum_count = int(funnel.get("momentum_candidate_count", full_data.get("candidate_symbols", 0) or 0) or 0)
-    scored_count = int(funnel.get("model_scored_count", full_data.get("scored_symbols", 0) or 0) or 0)
+    pool_count = _first_int(
+        full_data.get("pool_symbols"),
+        debug_info.get("full_market_pool_symbols"),
+        len(full_scan.get("pool_symbols") or []),
+    )
+    twse_count = _first_int(full_data.get("twse_count"))
+    tpex_count = _first_int(full_data.get("tpex_count"))
+    momentum_count = _first_int(
+        funnel.get("momentum_candidate_count"),
+        full_data.get("candidate_symbols"),
+        debug_info.get("full_market_candidate_symbols"),
+        momentum_summary.get("total"),
+        len(full_scan.get("candidate_symbols") or []),
+    )
+    scored_count = _first_int(
+        funnel.get("model_scored_count"),
+        full_data.get("scored_symbols"),
+        momentum_summary.get("model_scored"),
+        debug_info.get("momentum_scan_model_scored"),
+        len(summary.candidates) if summary else 0,
+    )
     out_of_pool = int(by_status.get("out_of_pool", full_scan.get("out_of_pool_count", 0) or 0) or 0)
     high_risk = int(funnel.get("blocked_high_risk", by_status.get("high_risk", 0) or 0) or 0)
     wait_volume = int(funnel.get("blocked_wait_volume", by_status.get("wait_volume", 0) or 0) or 0)
