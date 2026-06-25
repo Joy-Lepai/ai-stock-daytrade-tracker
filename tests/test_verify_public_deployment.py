@@ -272,7 +272,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
         """
 
         checks = validate_dashboard_html(required_html + " 做多確認")
@@ -293,7 +293,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>0</strong></div>
@@ -311,7 +311,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 買多觀察池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>

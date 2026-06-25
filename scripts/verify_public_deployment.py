@@ -299,6 +299,7 @@ def validate_dashboard_html(html: str) -> list[Check]:
         "漏抓股票診斷",
         "強烈買多漏斗",
         "系統狀態與資料來源",
+        "看盤狀態",
     ]
     forbidden_terms = [
         "強烈看漲",
