@@ -496,6 +496,49 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
                 f"mode={mode} category={category or '-'}",
             )
         )
+    checks.extend(_advisor_scan_front_category_safety_checks(payload, category))
+    return checks
+
+
+def _advisor_scan_front_category_safety_checks(payload: dict[str, Any], category: str) -> list[Check]:
+    candidate = payload.get("candidate") or {}
+    scan = payload.get("scan") or {}
+    health = payload.get("data_health") or {}
+    market_mode = payload.get("market_mode") or {}
+    buy_labels = {"強烈買多", "買多"}
+    is_buy_label = category in buy_labels
+    entry_status = str(candidate.get("entry_status") or scan.get("entry_status") or "")
+    price_status = str(health.get("price_status") or "")
+    mode = str(market_mode.get("mode") or "")
+    above_vwap = candidate.get("above_vwap")
+    if above_vwap is None:
+        above_vwap = scan.get("above_vwap")
+    data_intraday_usable = bool(health.get("can_use_for_intraday_signal"))
+    explicit_non_live = (
+        price_status in {"cached", "delayed", "missing"}
+        or bool(health.get("uses_last_known"))
+        or bool(health.get("uses_cache"))
+        or bool(health.get("is_delayed"))
+        or bool(health.get("is_data_missing"))
+    )
+    unsafe_entry = entry_status in {"high_risk", "wait_vwap", "avoid", "data_missing"}
+    checks = [
+        Check(
+            "advisor buy labels require intraday live data",
+            (not is_buy_label) or (mode == "intraday" and data_intraday_usable and not explicit_non_live),
+            f"category={category or '-'} mode={mode or '-'} price_status={price_status or '-'} intraday_usable={data_intraday_usable}",
+        ),
+        Check(
+            "advisor buy labels require above VWAP when known",
+            (not is_buy_label) or above_vwap is not False,
+            f"category={category or '-'} above_vwap={above_vwap}",
+        ),
+        Check(
+            "advisor buy labels block high risk and wait-vwap entries",
+            (not is_buy_label) or not unsafe_entry,
+            f"category={category or '-'} entry_status={entry_status or '-'}",
+        ),
+    ]
     return checks
 
 

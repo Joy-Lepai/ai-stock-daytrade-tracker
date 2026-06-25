@@ -382,6 +382,55 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("non-intraday advisor scan blocks strong buy", failed)
+        self.assertIn("advisor buy labels require intraday live data", failed)
+
+    def test_tw_advisor_scan_blocks_buy_label_when_not_above_vwap(self):
+        payload = {
+            "symbol": "2886.TW",
+            "front_trade": {"category": "買多"},
+            "decision_card": {"top_reason": "突破但未站上 VWAP"},
+            "entry_radar_summary": {"blocker_summary": "尚未站上 VWAP", "next_trigger": "站回 VWAP"},
+            "candidate": {"entry_status": "wait_vwap", "above_vwap": False},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "2886")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor buy labels require above VWAP when known", failed)
+        self.assertIn("advisor buy labels block high risk and wait-vwap entries", failed)
+
+    def test_tw_advisor_scan_blocks_buy_label_for_high_risk(self):
+        payload = {
+            "symbol": "8150.TW",
+            "front_trade": {"category": "強烈買多"},
+            "decision_card": {"top_reason": "強勢但追價風險高"},
+            "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回"},
+            "candidate": {"entry_status": "high_risk", "above_vwap": True},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "8150")
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor buy labels block high risk and wait-vwap entries", failed)
+
+    def test_tw_advisor_scan_allows_buy_label_when_safety_conditions_are_met(self):
+        payload = {
+            "symbol": "2330.TW",
+            "front_trade": {"category": "買多"},
+            "decision_card": {"top_reason": "方向偏多，等待突破"},
+            "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
+            "candidate": {"entry_status": "wait_breakout", "above_vwap": True},
+            "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
+            "market_mode": {"mode": "intraday"},
+        }
+
+        checks = validate_tw_advisor_scan(payload, "2330")
+
+        self.assertTrue(all(item.ok for item in checks), checks)
 
 
 if __name__ == "__main__":
