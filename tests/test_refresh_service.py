@@ -60,6 +60,8 @@ class RefreshServiceTests(unittest.TestCase):
             self.assertIn("can_show_any_strong_long", payload)
             self.assertIn("refresh_operation_summary", payload)
             self.assertIn("message", payload["refresh_operation_summary"])
+            self.assertIn("operational_health", payload)
+            self.assertIn(payload["operational_health"]["status"], {"ok", "warning", "blocked"})
 
     def test_status_payload_includes_data_source_health(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1954,6 +1954,18 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           : "";
         return `<span class="refresh-layer-item refresh-guidance-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}${{actionButton}}</span>`;
       }};
+      const operationalHealthHtml = (payload) => {{
+        const health = payload.operational_health || {{}};
+        const statusValue = String(health.status || "warning");
+        const cls = statusValue === "ok" ? "health-ok" : statusValue === "blocked" ? "health-bad" : "health-warn";
+        const label = statusValue === "ok" ? "可用" : statusValue === "blocked" ? "阻擋" : "提醒";
+        const next = health.next_action || {{}};
+        const blockers = Array.isArray(health.blockers) && health.blockers.length
+          ? `<div class="warn-mini">阻擋：${{escapeHtml(health.blockers.join(" "))}}</div>` : "";
+        const warnings = Array.isArray(health.warnings) && health.warnings.length
+          ? `<div class="warn-mini">提醒：${{escapeHtml(health.warnings.join(" "))}}</div>` : "";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{blockers}}${{warnings}}`;
+      }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};
         const severity = summary.severity || "ok";
@@ -1966,10 +1978,12 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           if (!response.ok) throw new Error(`HTTP ${{response.status}}`);
           const payload = await response.json();
           const layers = payload.layers || {{}};
-          status.textContent = `模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜必要資料層：${{payload.any_stale ? "需更新" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          const health = payload.operational_health || {{}};
+          status.textContent = `營運健康：${{health.status || "-"}}｜模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜必要資料層：${{payload.any_stale ? "需更新" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
+              operationalHealthHtml(payload),
               operationSummaryHtml(payload),
               refreshGuidanceHtml(payload),
               `<span class="refresh-layer-item"><strong>必要刷新層：</strong>${{escapeHtml((payload.required_refresh_layers || []).join("、") || "-")}}｜必要層過期=${{payload.any_stale ? "是" : "否"}}｜全部過期層=${{escapeHtml((payload.stale_layers || []).join("、") || "無")}}</span>`,

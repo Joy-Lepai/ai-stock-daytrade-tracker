@@ -27,6 +27,7 @@ from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
+from stock_daytrade_system.operational_health import build_operational_health
 from stock_daytrade_system.paper_broker import run_paper_trading
 from stock_daytrade_system.resilience import health_status_compact, health_status_snapshot
 from stock_daytrade_system.scoring import score_market_bias
@@ -161,7 +162,7 @@ class RefreshCoordinator:
             required_layers=required_layers,
             required_stale_layers=required_stale_layers,
         )
-        return {
+        payload = {
             "api_status": "ok",
             "generated_at": now.isoformat(timespec="seconds"),
             "market_mode": market_mode.mode,
@@ -203,6 +204,8 @@ class RefreshCoordinator:
             "reason_if_blocked": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
             "strong_long_block_reason": "" if market_mode.allow_strong_long and price_status["live_count"] > 0 else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
         }
+        payload["operational_health"] = build_operational_health(payload)
+        return payload
 
     def _run_tracked_layer(self, layer: str, runner: Callable[[datetime], tuple[int, str]]) -> RefreshResult:
         lock = self._locks[layer]

@@ -280,6 +280,24 @@ Fugle 基本用戶即時行情 WebSocket 最多 5 檔訂閱。本系統不會拿
 
 注意：指定追蹤只代表「優先拿 Fugle 做盤口確認」，不會直接升級成強烈買多，也不會改 A / B+ / B 條件。
 
+### 營運健康檢查
+
+開盤前、盤中或部署後，可以用同一個指令確認網站目前是否適合拿來看盤：
+
+```bash
+python3 scripts/check_operational_health.py --base-url https://stock.letslepai.com
+```
+
+這個指令會讀 `/api/refresh/status`，並整理成：
+
+- 目前是可用、警告，還是阻擋狀態
+- market mode 是否為盤中 / 開盤前 / 休市復盤
+- live / delayed / cached / missing 各幾檔
+- 哪些刷新層過期
+- 下一步應該更新全市場、重點觀察，還是持倉觸發
+
+若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
+
 ## 建議排程
 
 公開 Render 站目前可用 web service 內建排程更新 tracker，資料會寫在同一個 web service 的 `reports/` 與 SQLite 檔案中：
