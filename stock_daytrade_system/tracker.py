@@ -806,18 +806,11 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
     reason = _no_strong_long_reason(front, checklist, health, mode)
     can_trade = "可作為盤中追蹤依據" if mode.get("allow_intraday_signal") else "不提供即時進場判斷"
     confidence = _mode_aware_data_confidence(health, mode)
-    return (
-        '<section class="decision-center">'
-        '<h2>台股做多當沖追蹤器 v1</h2>'
-        f'<section class="notice">{escape(str(mode.get("message", "")))}</section>'
+    now_action = _market_mode_now_action(front, checklist, health, mode)
+    details = (
+        '<details class="debug-block">'
+        '<summary>模式細節</summary>'
         '<div class="summary">'
-        f'{_metric_text("現在模式", str(mode.get("label", "未知")))}'
-        f'{_metric("強烈買多", int(front.get("強烈買多", 0)))}'
-        f'{_metric("買多", int(front.get("買多", 0)))}'
-        f'{_metric("觀察", int(front.get("觀察", 0)))}'
-        f'{_metric("看空", int(front.get("看空", 0)))}'
-        f'{_metric_text("資料可信度", confidence)}'
-        f'{_metric_text("即時交易依據", can_trade)}'
         f'{_metric_text("market_mode", str(mode.get("mode") or "-"))}'
         f'{_metric_text("是否交易日", "是" if mode.get("is_trading_day") else "否")}'
         f'{_metric_text("是否休市日", "是" if mode.get("is_holiday") else "否")}'
@@ -825,9 +818,48 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric_text("資料日期", str(mode.get("data_date") or "-"))}'
         f'{_metric_text("盤中訊號", "允許" if mode.get("allow_intraday_signal") else "禁止")}'
         '</div>'
+        '</details>'
+    )
+    return (
+        '<section class="decision-center">'
+        '<h2>台股做多當沖追蹤器 v1</h2>'
+        f'<section class="notice">{escape(str(mode.get("message", "")))}</section>'
+        '<div class="summary">'
+        f'{_metric_text("現在模式", str(mode.get("label", "未知")))}'
+        f'{_metric_text("現在要做", now_action)}'
+        f'{_metric("強烈買多", int(front.get("強烈買多", 0)))}'
+        f'{_metric("買多", int(front.get("買多", 0)))}'
+        f'{_metric("觀察", int(front.get("觀察", 0)))}'
+        f'{_metric("看空", int(front.get("看空", 0)))}'
+        f'{_metric_text("資料可信度", confidence)}'
+        f'{_metric_text("即時交易依據", can_trade)}'
+        '</div>'
         f'<div class="notice"><strong>主要原因</strong><br>{escape(reason)}</div>'
+        f'{details}'
         '</section>'
     )
+
+
+def _market_mode_now_action(front: dict, checklist: dict, health: dict, mode: dict) -> str:
+    mode_name = str(mode.get("mode") or "")
+    if mode_name == "intraday":
+        strong = int(front.get("強烈買多", 0) or 0)
+        buy = int(front.get("買多", 0) or 0)
+        executable = int(checklist.get("executable", 0) or 0)
+        if executable > 0:
+            return f"先看進場雷達通過 {executable} 檔，逐檔確認停損與部位。"
+        if strong > 0 or buy > 0:
+            return f"盯強烈買多 {strong} 檔與買多 {buy} 檔，等待觸發，不提前追。"
+        return "沒有即時可進場條件，先等量能、VWAP 或突破確認。"
+    if mode_name == "pre_open_prepare":
+        return "只整理觀察清單，09:00 後等 VWAP、量比與突破。"
+    if mode_name == "closed_review":
+        return "休市只做復盤與下個交易日準備，不看即時進場。"
+    if mode_name == "post_close_review":
+        return "盤後驗證今天表現，整理明天觀察清單。"
+    if mode_name == "stale_data" or health.get("status") in {"異常", "嚴重缺漏"}:
+        return "先修資料更新，資料恢復前不做進場判斷。"
+    return "先確認資料可信度與刷新狀態，再看觀察清單。"
 
 
 def _no_strong_long_reason(front: dict, checklist: dict, health: dict, mode: dict) -> str:

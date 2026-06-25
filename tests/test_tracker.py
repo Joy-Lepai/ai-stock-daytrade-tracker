@@ -994,6 +994,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("休市復盤模式", html)
         self.assertIn("以下顯示上一交易日資料", html)
         self.assertIn("休市復盤：使用上一交易日資料", html)
+        self.assertIn("現在要做", html)
+        self.assertIn("休市只做復盤與下個交易日準備", html)
+        self.assertIn("模式細節", html)
         self.assertNotIn("資料異常模式", html)
         self.assertNotIn("資料已過期或缺漏嚴重", html)
 
