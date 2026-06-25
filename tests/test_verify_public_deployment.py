@@ -3,6 +3,8 @@ import unittest
 from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_health_payload,
+    validate_liveness_payload,
+    validate_readiness_payload,
     validate_refresh_status,
     validate_system_version,
     validate_tw_advisor_direct_html,
@@ -154,6 +156,46 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("blocked health blocks strong buy", failed)
+
+    def test_liveness_payload_requires_alive_status(self):
+        payload = {"api_status": "ok", "status": "alive", "service": "tw-daytrade-tracker"}
+
+        checks = validate_liveness_payload(200, payload)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_readiness_payload_accepts_503_when_blocked(self):
+        payload = {
+            "api_status": "ok",
+            "status": "blocked",
+            "summary": "資料異常",
+            "next_action": {"label": "先修資料"},
+            "market_mode": "intraday",
+            "price_status_summary": {"status": "嚴重缺漏"},
+            "deployment": {"runtime_commit": "abc123"},
+            "can_show_strong_long": False,
+        }
+
+        checks = validate_readiness_payload(503, payload)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_readiness_payload_rejects_200_when_blocked(self):
+        payload = {
+            "api_status": "ok",
+            "status": "blocked",
+            "summary": "資料異常",
+            "next_action": {"label": "先修資料"},
+            "market_mode": "intraday",
+            "price_status_summary": {"status": "嚴重缺漏"},
+            "deployment": {"runtime_commit": "abc123"},
+            "can_show_strong_long": False,
+        }
+
+        checks = validate_readiness_payload(200, payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("readyz HTTP status matches health status", failed)
 
     def test_refresh_status_requires_operational_health(self):
         payload = {

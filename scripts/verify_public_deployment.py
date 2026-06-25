@@ -23,13 +23,28 @@ class Check:
 
 
 def fetch_json(base_url: str, path: str, timeout: float = 15.0) -> dict[str, Any]:
+    _status, payload = fetch_json_with_status(base_url, path, timeout=timeout, allow_http_error=False)
+    return payload
+
+
+def fetch_json_with_status(
+    base_url: str,
+    path: str,
+    timeout: float = 15.0,
+    *,
+    allow_http_error: bool = True,
+) -> tuple[int, dict[str, Any]]:
     url = base_url.rstrip("/") + path
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
+            status = int(response.status)
             body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"{url} returned HTTP {exc.code}") from exc
+        if not allow_http_error:
+            raise RuntimeError(f"{url} returned HTTP {exc.code}") from exc
+        status = int(exc.code)
+        body = exc.read().decode("utf-8", errors="replace")
     except urllib.error.URLError as exc:
         raise RuntimeError(f"{url} failed: {exc.reason}") from exc
     try:
@@ -38,7 +53,7 @@ def fetch_json(base_url: str, path: str, timeout: float = 15.0) -> dict[str, Any
         raise RuntimeError(f"{url} returned non-JSON response") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"{url} returned unexpected JSON type")
-    return payload
+    return status, payload
 
 
 def post_json(base_url: str, path: str, payload: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
@@ -236,6 +251,29 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
                 f"status={status} can_show_strong_long={bool(payload.get('can_show_strong_long'))}",
             )
         )
+    return checks
+
+
+def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:
+    return [
+        Check("healthz HTTP ok", http_status == 200, f"http_status={http_status}"),
+        Check("healthz API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
+        Check("healthz status alive", payload.get("status") == "alive", f"status={payload.get('status') or '-'}"),
+        Check("healthz service present", bool(payload.get("service")), f"service={payload.get('service') or '-'}"),
+    ]
+
+
+def validate_readiness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:
+    checks = validate_health_payload(payload)
+    status = str(payload.get("status") or "")
+    expected = 503 if status == "blocked" else 200
+    checks.append(
+        Check(
+            "readyz HTTP status matches health status",
+            http_status == expected,
+            f"http_status={http_status} health_status={status or '-'} expected={expected}",
+        )
+    )
     return checks
 
 
@@ -483,12 +521,16 @@ def main(argv: list[str] | None = None) -> int:
     system_payload = fetch_json(args.base_url, "/api/system/version", timeout=args.timeout)
     refresh_payload = fetch_json(args.base_url, "/api/refresh/status", timeout=args.timeout)
     health_payload = fetch_json(args.base_url, "/api/health", timeout=args.timeout)
+    healthz_status, healthz_payload = fetch_json_with_status(args.base_url, "/healthz", timeout=args.timeout)
+    readyz_status, readyz_payload = fetch_json_with_status(args.base_url, "/readyz", timeout=args.timeout)
     dashboard_html = fetch_text(args.base_url, "/dashboard", timeout=args.timeout)
     advisor_html = fetch_text(args.base_url, "/tw/advisor", timeout=args.timeout)
     failures = 0
     failures += print_checks("Deployment", validate_system_version(system_payload, args.expected_commit))
     failures += print_checks("Refresh status", validate_refresh_status(refresh_payload))
     failures += print_checks("Health endpoint", validate_health_payload(health_payload))
+    failures += print_checks("Liveness endpoint", validate_liveness_payload(healthz_status, healthz_payload))
+    failures += print_checks("Readiness endpoint", validate_readiness_payload(readyz_status, readyz_payload))
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
     if args.advisor_symbol:
