@@ -25,6 +25,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("print_refresh_status", text)
         self.assertIn("/api/refresh/status", text)
         self.assertIn("python3 -m json.tool", text)
+        self.assertIn("operational_health", text)
+        self.assertIn("Operational health", text)
+        self.assertIn('status == "blocked"', text)
+        self.assertIn("FAILED /api/refresh/status operational health", text)
 
 
 if __name__ == "__main__":

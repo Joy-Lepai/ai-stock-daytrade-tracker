@@ -51,8 +51,42 @@ jobs:
             echo
             echo "Refresh status snapshot"
             if curl --fail --show-error --silent --max-time 30 \
-              "${DASHBOARD_URL}/api/refresh/status" | python3 -m json.tool; then
-              echo "OK /api/refresh/status"
+              "${DASHBOARD_URL}/api/refresh/status" > refresh-status.json; then
+              python3 -m json.tool refresh-status.json
+              if python3 - <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open("refresh-status.json", encoding="utf-8"))
+          health = payload.get("operational_health") or {}
+          status = health.get("status") or "missing"
+          summary = health.get("summary") or "-"
+          next_action = (health.get("next_action") or {}).get("label") or "-"
+          blockers = health.get("blockers") or []
+          warnings = health.get("warnings") or []
+          print()
+          print(f"Operational health: {status}")
+          print(f"Summary: {summary}")
+          print(f"Next action: {next_action}")
+          if blockers:
+              print("Blockers:")
+              for item in blockers:
+                  print(f"- {item}")
+          if warnings:
+              print("Warnings:")
+              for item in warnings:
+                  print(f"- {item}")
+          if status == "blocked":
+              sys.exit(2)
+          if status not in {"ok", "warning"}:
+              sys.exit(3)
+          PY
+              then
+                echo "OK /api/refresh/status"
+              else
+                echo "FAILED /api/refresh/status operational health"
+                failures=$((failures + 1))
+              fi
             else
               echo "FAILED /api/refresh/status"
               failures=$((failures + 1))
