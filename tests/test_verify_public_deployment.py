@@ -4,6 +4,7 @@ from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_refresh_status,
     validate_system_version,
+    validate_tw_advisor_direct_html,
     validate_tw_advisor_scan,
     validate_tw_advisor_html,
 )
@@ -141,6 +142,22 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("advisor has combat-card entry copy", failed)
+
+    def test_tw_advisor_direct_html_requires_query_bootstrap_and_scan_api(self):
+        required_html = """
+        個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
+        強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
+        本系統僅供資料整理
+        new URLSearchParams(window.location.search).get("symbol")
+        /api/tw/scan/symbol
+        """
+
+        checks = validate_tw_advisor_direct_html(required_html, "6919")
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+        checks = validate_tw_advisor_direct_html(required_html.replace("/api/tw/scan/symbol", ""), "6919")
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("advisor direct page can call scan API", failed)
 
     def test_tw_advisor_scan_requires_core_payload(self):
         payload = {

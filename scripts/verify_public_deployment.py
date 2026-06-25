@@ -256,6 +256,36 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
     return checks
 
 
+def validate_tw_advisor_direct_html(html: str, expected_symbol: str = "") -> list[Check]:
+    checks = validate_tw_advisor_html(html)
+    expected = str(expected_symbol or "").strip()
+    has_query_bootstrap = 'new URLSearchParams(window.location.search).get("symbol")' in html
+    has_scan_function = "/api/tw/scan/symbol" in html
+    checks.extend(
+        [
+            Check(
+                "advisor direct page can read symbol query",
+                has_query_bootstrap,
+                "URLSearchParams symbol bootstrap present" if has_query_bootstrap else "missing query bootstrap",
+            ),
+            Check(
+                "advisor direct page can call scan API",
+                has_scan_function,
+                "/api/tw/scan/symbol present" if has_scan_function else "missing scan API client",
+            ),
+        ]
+    )
+    if expected:
+        checks.append(
+            Check(
+                "advisor direct URL requested symbol",
+                True,
+                f"symbol={expected}",
+            )
+        )
+    return checks
+
+
 def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "") -> list[Check]:
     symbol = str(payload.get("symbol") or "")
     expected = str(expected_symbol or "").upper().replace(".TWO", ".TWO").replace(".TW", ".TW")
@@ -341,6 +371,12 @@ def main(argv: list[str] | None = None) -> int:
     failures += print_checks("Dashboard HTML", validate_dashboard_html(dashboard_html))
     failures += print_checks("TW Advisor HTML", validate_tw_advisor_html(advisor_html))
     if args.advisor_symbol:
+        direct_path = "/tw/advisor?" + urllib.parse.urlencode({"symbol": args.advisor_symbol})
+        advisor_direct_html = fetch_text(args.base_url, direct_path, timeout=args.timeout)
+        failures += print_checks(
+            f"TW Advisor Direct URL ({args.advisor_symbol})",
+            validate_tw_advisor_direct_html(advisor_direct_html, args.advisor_symbol),
+        )
         advisor_payload = post_json(
             args.base_url,
             "/api/tw/scan/symbol",
