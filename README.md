@@ -240,7 +240,7 @@ SKIP_RELEASE_READINESS=1 ./scripts/check_public_readiness.sh
 - 指定個股若顯示「買多 / 強烈買多」，是否同時具備停損價、下一步觸發條件與失效條件
 - 指定個股若為 `high_risk`、`wait_vwap`、`avoid`、非盤中、延遲或使用上一筆資料，是否不會被包裝成「買多 / 強烈買多」
 
-也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址、預期 commit 與 advisor symbol，即可在 Actions 裡看到 PASS / FAIL。
+也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址與預期 commit，即可在 Actions 裡看到 PASS / FAIL；`advisor_symbol` 預設會驗證 `6919,2886,8150` 三檔代表案例，也可以自行覆蓋成其他股票。
 
 ### Shioaji 永豐金報價接入（選用）
 
