@@ -19,6 +19,16 @@ class CheckPublicReadinessScriptTests(unittest.TestCase):
 
         self.assertIn('if [[ "$SKIP_RELEASE_READINESS" != "1" ]]', script)
 
+    def test_script_prints_release_push_guidance_when_blocked(self):
+        script = (ROOT / "scripts" / "check_public_readiness.sh").read_text()
+
+        self.assertIn("repo_path", script)
+        self.assertIn("remote_url", script)
+        self.assertIn("push_method", script)
+        self.assertIn("push_reason", script)
+        self.assertIn("github_desktop_repo_hint", script)
+        self.assertIn("${BASE_URL%/}/operator", script)
+
 
 class OperationalRunbookDocsTests(unittest.TestCase):
     def test_readme_documents_operator_runbook_health_entrypoint(self):

@@ -23,17 +23,25 @@ if [[ "$SKIP_RELEASE_READINESS" != "1" ]]; then
   )
   if ! python3 scripts/check_release_readiness.py "${readiness_args[@]}" > "$readiness_json"; then
     echo "Release readiness blocked."
-    python3 - "$readiness_json" <<'PY'
+    python3 - "$readiness_json" "$BASE_URL" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as fh:
     payload = json.load(fh)
+base_url = sys.argv[2].rstrip("/")
+push_method = payload.get("push_method") or {}
 
 print(f"status: {payload.get('status', '-')}")
+print(f"repo_path: {payload.get('repo_path') or '-'}")
+print(f"remote_url: {payload.get('remote_url') or '-'}")
 print(f"local_head: {str(payload.get('local_head') or '-')[:12]}")
 print(f"origin_main: {str(payload.get('origin_main') or '-')[:12]}")
 print(f"public_runtime: {str(payload.get('public_runtime') or '-')[:12]}")
+print(f"push_method: {push_method.get('recommended') or '-'}")
+print(f"push_reason: {push_method.get('reason') or '-'}")
+print(f"github_desktop_repo_hint: {payload.get('github_desktop_repo_hint') or '-'}")
+print(f"operator_page: {base_url}/operator")
 print(f"next_action: {payload.get('next_action') or '-'}")
 print("operator_gate:")
 print(f"- can_push: {payload.get('can_push')}")
@@ -51,6 +59,8 @@ PY
   rm -f "$readiness_json"
   trap - EXIT
 fi
+
+echo "Operator runbook: ${BASE_URL%/}/operator"
 
 args=(
   --base-url "$BASE_URL"
