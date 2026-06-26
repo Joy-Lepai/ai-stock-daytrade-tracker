@@ -1248,6 +1248,50 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("下個交易日觀察清單 10 檔", html)
         self.assertNotIn("買多觀察池 10 檔", html)
 
+    def test_pre_open_bearish_heavy_overview_explains_not_short_signal(self):
+        bearish_items = [
+            long_candidate(
+                symbol=f"88{i}.TW",
+                name=f"測試{i}",
+                entry_status="avoid",
+                original_entry_status="avoid",
+                adjusted_entry_status="avoid",
+                trade_bias="short",
+                trade_bias_label="看空",
+                above_vwap=False,
+                vwap=100,
+                last_price=98,
+                volume_ratio=1.2,
+                stop_loss=96,
+                reasons=["跌破 VWAP"],
+            )
+            for i in range(5)
+        ]
+        summary = LongModelSummary(
+            candidates=bearish_items,
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-06-24",
+                    "latest_intraday_at": "2026-06-24T13:30:00+08:00",
+                }
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 25, 8, 50))
+
+        self.assertIn("開盤前準備模式", html)
+        self.assertIn("非買多比例偏高", html)
+        self.assertIn("不代表全市場都適合做空", html)
+        self.assertIn("等待開盤確認", html)
+
     def test_today_playbook_pre_open_gives_three_step_action_plan(self):
         summary = LongModelSummary(
             candidates=[],

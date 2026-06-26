@@ -1095,6 +1095,7 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
+    reminder += _non_intraday_bearish_guard_copy(front_counts, str(mode.get("mode") or ""))
     closest_title, observation_title, closest_empty, observation_empty = _decision_overview_section_copy(str(mode.get("mode") or ""))
     closest_items = _top_decision_items(summary, front_context, categories={"強烈買多", "買多"}, limit=5)
     observation_items = _top_decision_items(summary, front_context, categories={"觀察"}, limit=10)
@@ -1125,6 +1126,21 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'<div class="signal-grid">{observation_html}</div>'
         '</section>'
     )
+
+
+def _non_intraday_bearish_guard_copy(front_counts: dict, mode: str) -> str:
+    if mode == "intraday":
+        return ""
+    strong = int(front_counts.get("強烈買多", 0) or 0)
+    buy = int(front_counts.get("買多", 0) or 0)
+    watch = int(front_counts.get("觀察", 0) or 0)
+    bearish = int(front_counts.get("看空", 0) or 0)
+    if strong or buy:
+        return ""
+    total = max(strong + buy + watch + bearish, 1)
+    if (watch + bearish) / total < 0.6:
+        return ""
+    return " 目前非買多比例偏高，這不代表全市場都適合做空；非盤中模式只用來復盤與等待開盤確認。"
 
 
 def _decision_overview_section_copy(mode: str) -> tuple[str, str, str, str]:
