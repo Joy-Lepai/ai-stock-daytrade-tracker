@@ -796,6 +796,7 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "watch_readiness_message": health.get("watch_readiness_message") or "",
         "now_steps": _compact_operator_steps(do_now, steps),
         "no_signal_triage": no_signal_triage,
+        "front_category_summary": health.get("front_category_summary") or {},
         "checklist": checklist[:5],
         "do_not_do": _compact_text_list(do_not_do or decision.get("blocked_actions") or []),
         "refresh_actions": _compact_text_list(refresh_plan or ([next_action.get("endpoint")] if next_action.get("endpoint") else [])),
@@ -836,6 +837,7 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
       {_operator_metric('可否盤中判斷', _yes_no(payload.get('can_use_intraday_signals')), 'operator-intraday')}
       {_operator_metric('可否信任強烈買多', _yes_no(payload.get('can_trust_strong_buy')), 'operator-strong-buy')}
     </section>
+    {_operator_front_category_panel(payload)}
     <section class="decision-center">
       <h2>現在照這樣做</h2>
       {_operator_list(payload.get('now_steps'), '目前沒有下一步指令。', 'operator-now-steps')}
@@ -917,6 +919,28 @@ def operator_page_css() -> str:
 def _operator_metric(label: str, value: Any, element_id: str = "") -> str:
     id_attr = f' id="{_escape(element_id)}"' if element_id else ""
     return f'<div class="metric"><span class="muted">{_escape(str(label))}</span><strong{id_attr}>{_escape(str(value))}</strong></div>'
+
+
+def _operator_front_category_panel(payload: dict[str, Any]) -> str:
+    summary = payload.get("front_category_summary") if isinstance(payload.get("front_category_summary"), dict) else {}
+    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+    strong = summary.get("strong_buy_count", counts.get("強烈買多", 0))
+    buy = summary.get("buy_count", counts.get("買多", 0))
+    watch = summary.get("watch_count", counts.get("觀察", 0))
+    bearish = summary.get("bearish_count", counts.get("看空", 0))
+    reason = summary.get("no_signal_reason") or "尚未取得四分類摘要；先確認 full_market / watchlist 是否完成刷新。"
+    return f"""
+    <section class="decision-center">
+      <h2>四分類摘要</h2>
+      <div class="operator-grid operator-front-summary">
+        {_operator_metric('強烈買多', strong, 'operator-front-strong')}
+        {_operator_metric('買多', buy, 'operator-front-buy')}
+        {_operator_metric('觀察', watch, 'operator-front-watch')}
+        {_operator_metric('看空', bearish, 'operator-front-bearish')}
+      </div>
+      <p id="operator-front-reason" class="muted">{_escape(str(reason))}</p>
+    </section>
+    """
 
 
 def _operator_list(items: Any, empty_text: str, element_id: str = "") -> str:
@@ -1018,6 +1042,13 @@ def operator_runbook_script() -> str:
         text("operator-data-quality", payload.data_quality_status || "-");
         text("operator-intraday", yesNo(payload.can_use_intraday_signals));
         text("operator-strong-buy", yesNo(payload.can_trust_strong_buy));
+        const front = payload.front_category_summary || {};
+        const counts = front.counts || {};
+        text("operator-front-strong", front.strong_buy_count ?? counts["強烈買多"] ?? 0);
+        text("operator-front-buy", front.buy_count ?? counts["買多"] ?? 0);
+        text("operator-front-watch", front.watch_count ?? counts["觀察"] ?? 0);
+        text("operator-front-bearish", front.bearish_count ?? counts["看空"] ?? 0);
+        text("operator-front-reason", front.no_signal_reason || "尚未取得四分類摘要；先確認 full_market / watchlist 是否完成刷新。");
         text("operator-runtime-commit", payload.deployment?.runtime_commit || "-");
         text("operator-tracker-commit", payload.deployment?.tracker_commit || "-");
         text("operator-generated-at", payload.generated_at || "-");

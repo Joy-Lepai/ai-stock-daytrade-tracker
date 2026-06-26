@@ -192,6 +192,14 @@ class WebTests(unittest.TestCase):
                     "can_trust_strong_buy": True,
                 },
                 "operator_mode": "盤中作戰模式",
+                "front_category_summary": {
+                    "counts": {"強烈買多": 1, "買多": 2, "觀察": 3, "看空": 4},
+                    "strong_buy_count": 1,
+                    "buy_count": 2,
+                    "watch_count": 3,
+                    "bearish_count": 4,
+                    "no_signal_reason": "",
+                },
                 "do_now": ["先看強烈買多候選", "確認進場雷達", "檢查停損距離"],
                 "do_not_do": ["不要追 high_risk"],
                 "decision_checklist": ["是否站上 VWAP？", "量比是否足夠？"],
@@ -221,6 +229,7 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["now_steps"][:2], ["先看強烈買多候選", "確認進場雷達"])
         self.assertTrue(payload["no_signal_triage"])
         self.assertIn("強烈買多漏斗", " ".join(payload["no_signal_triage"]))
+        self.assertEqual(payload["front_category_summary"]["strong_buy_count"], 1)
         self.assertEqual(payload["checklist"], ["是否站上 VWAP？", "量比是否足夠？"])
         self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
@@ -286,6 +295,7 @@ class WebTests(unittest.TestCase):
         payload = build_operator_runbook_payload(refresh_payload, system_payload)
 
         triage = " ".join(payload["no_signal_triage"])
+        self.assertEqual(payload["front_category_summary"]["bearish_count"], 32)
         self.assertIn("強烈買多 0 檔、買多 0 檔、觀察 8 檔、看空 32 檔", triage)
         self.assertIn("這不是做空建議", triage)
 
@@ -306,6 +316,14 @@ class WebTests(unittest.TestCase):
                 "market_mode_label": "盤中",
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
+                "front_category_summary": {
+                    "counts": {"強烈買多": 1, "買多": 2, "觀察": 3, "看空": 4},
+                    "strong_buy_count": 1,
+                    "buy_count": 2,
+                    "watch_count": 3,
+                    "bearish_count": 4,
+                    "no_signal_reason": "目前有強烈買多候選，仍需確認進場雷達。",
+                },
                 "now_steps": ["先看強烈買多候選", "確認進場雷達"],
                 "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
                 "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
@@ -323,6 +341,13 @@ class WebTests(unittest.TestCase):
         self.assertIn("可以進入盤中追蹤", html)
         self.assertIn("先看強烈買多，再確認進場雷達", html)
         self.assertIn("現在照這樣做", html)
+        self.assertIn("四分類摘要", html)
+        self.assertIn("operator-front-strong", html)
+        self.assertIn("operator-front-buy", html)
+        self.assertIn("operator-front-watch", html)
+        self.assertIn("operator-front-bearish", html)
+        self.assertIn("operator-front-reason", html)
+        self.assertIn("目前有強烈買多候選，仍需確認進場雷達。", html)
         self.assertIn("沒有訊號時先查", html)
         self.assertIn("operator-no-signal-triage", html)
         self.assertIn("若沒有強烈買多，先看強烈買多漏斗。", html)
