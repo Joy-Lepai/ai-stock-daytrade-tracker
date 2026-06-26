@@ -151,9 +151,18 @@ def load_ahead_count(head: str, origin: str, *, runner: Callable[..., str] = sub
         return 0
     raw = optional_git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner, default="-1")
     try:
-        return int(raw)
+        parsed = int(raw)
+        if parsed >= 0:
+            return parsed
     except (TypeError, ValueError):
-        return -1
+        pass
+    tracking = optional_git_output(
+        ["for-each-ref", "--format=%(upstream:track)", "refs/heads/main"],
+        runner=runner,
+        default="",
+    )
+    parsed_tracking = parse_ahead_count(tracking)
+    return parsed_tracking if parsed_tracking > 0 else -1
 
 
 def load_unpushed_commits(ahead_count: int, *, runner: Callable[..., str] = subprocess.check_output) -> list[str]:
