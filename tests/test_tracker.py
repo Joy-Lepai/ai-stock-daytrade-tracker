@@ -916,6 +916,9 @@ class TrackerStatusTests(unittest.TestCase):
                     },
                     "pinned_symbols": ["6919.TW"],
                     "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
+                    "selection_explanation": "本次從 5 檔重點候選中，依進場接近度、風險可控度、量能與使用者指定，挑出前 2 / 5 檔。",
+                    "next_candidate_symbol": "2330.TW",
+                    "next_candidate_gap": 80,
                     "allocation_summary": {
                         "summary": "練習買多 1 檔、高風險觀察 1 檔",
                         "warning": "高風險標的只作風險降溫觀察，不作進場確認。",
@@ -929,6 +932,7 @@ class TrackerStatusTests(unittest.TestCase):
                             "priority_score": 720,
                             "priority_reason": "等待突破，需追蹤觸發價",
                             "not_selected_reason": "Fugle 基本用戶名額 5 檔已滿，目前列為候補。",
+                            "promotion_condition": "接近或突破觸發價，且前 5 檔有標的失效時可升入。",
                         }
                     ],
                     "selected": [
@@ -944,6 +948,9 @@ class TrackerStatusTests(unittest.TestCase):
                             "trigger_price": 32.3,
                             "stop_loss": 31.4,
                             "priority_score": 955,
+                            "selection_label": "第 1 優先追蹤",
+                            "selection_reason": "屬練習買多或 B+ 觀察，適合用即時盤口累積樣本。",
+                            "watch_now": "看進場雷達是否從觀察轉為可考慮，並只用虛擬交易練習。",
                             "can_use_for_entry_confirmation": True,
                             "entry_confirmation_can_consider": True,
                             "confirmation_quality": "high_precision",
@@ -966,6 +973,9 @@ class TrackerStatusTests(unittest.TestCase):
                             "vwap": 106.9,
                             "volume_ratio": 5.4,
                             "priority_score": 800,
+                            "selection_label": "第 2 優先追蹤",
+                            "selection_reason": "高風險標的只用來觀察風險是否降溫，不作進場確認。",
+                            "watch_now": "看是否拉回 VWAP 附近、停損距離縮小，且大單敲出減少。",
                             "can_use_for_entry_confirmation": False,
                             "entry_confirmation_can_consider": False,
                             "confirmation_quality": "limited",
@@ -994,6 +1004,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("實際 API 呼叫", html)
         self.assertIn("API 預算", html)
         self.assertIn("估計 1.2/min", html)
+        self.assertIn("為什麼選這些", html)
+        self.assertIn("依進場接近度", html)
+        self.assertIn("下一候補：2330.TW", html)
         self.assertIn("方案能力", html)
         self.assertIn("不支援日內快照", html)
         self.assertIn("不自動下單", html)
@@ -1013,10 +1026,14 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("2330.TW｜台積電", html)
         self.assertIn("即時 API 資源不足", html)
         self.assertIn("2884.TW｜玉山金", html)
+        self.assertIn("第 1 優先追蹤", html)
+        self.assertIn("現在看：看進場雷達是否從觀察轉為可考慮", html)
         self.assertIn("可做進場前確認", html)
         self.assertIn("6919.TW｜康霈生技", html)
+        self.assertIn("第 2 優先追蹤", html)
         self.assertIn("僅作風險觀察", html)
         self.assertIn("主要缺口：缺逐筆、追價風險高", html)
+        self.assertIn("升入條件：接近或突破觸發價", html)
         self.assertIn("可做盤口確認", html)
 
     def test_fugle_priority_pool_warns_when_api_is_not_configured(self):

@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 
-FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v1_basic_5_2026-06-21"
+FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v2_selection_explain_2026-06-26"
 DEFAULT_FUGLE_BASIC_SUBSCRIPTIONS = 5
 DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE = 60
 
@@ -73,6 +73,13 @@ def build_fugle_priority_pool(
     standby = scored[limit : limit + 10]
     allocation_summary = _allocation_summary(selected, limit)
     capability_summary = _capability_summary(limit)
+    selected_payload = [_selected_payload(item, index + 1, limit) for index, item in enumerate(selected)]
+    standby_payload = [
+        _standby_payload(item, limit + index + 1, limit)
+        for index, item in enumerate(standby)
+    ]
+    next_candidate = standby_payload[0] if standby_payload else None
+    cutoff_score = selected[-1].priority_score if selected else None
     return {
         "version": FUGLE_PRIORITY_POOL_VERSION,
         "mode": "basic_user_5_symbols",
@@ -83,16 +90,14 @@ def build_fugle_priority_pool(
         "considered_count": len(scored),
         "selected_count": len(selected),
         "excluded_count": max(len(scored) - len(selected), 0),
+        "selection_explanation": _selection_explanation(selected, standby, limit),
+        "selection_cutoff_score": cutoff_score,
+        "next_candidate_symbol": (next_candidate or {}).get("symbol") or "",
+        "next_candidate_gap": _priority_gap(cutoff_score, (standby[0].priority_score if standby else None)),
         "allocation_summary": allocation_summary,
         "pinned_symbols": sorted(pinned),
-        "selected": [item.to_dict() for item in selected],
-        "standby": [
-            {
-                **item.to_dict(),
-                "not_selected_reason": f"Fugle 基本用戶名額 {limit} 檔已滿，目前列為候補。",
-            }
-            for item in standby
-        ],
+        "selected": selected_payload,
+        "standby": standby_payload,
         "selection_policy": [
             "優先追蹤 executable / practice_long / B+ / 等待突破 / 等待 VWAP / 等待量能。",
             "Fugle 基本用戶最多追 5 檔，避免全市場打 API 或超過訂閱限制。",
@@ -103,6 +108,96 @@ def build_fugle_priority_pool(
         if selected
         else "目前沒有需要使用 Fugle 即時追蹤的重點標的。",
     }
+
+
+def _selected_payload(item: FuglePriorityItem, rank: int, limit: int) -> dict:
+    payload = item.to_dict()
+    payload.update(
+        {
+            "selection_rank": rank,
+            "selection_label": f"第 {rank} 優先追蹤",
+            "selection_reason": _selection_reason(item),
+            "watch_now": _watch_now(item),
+            "replacement_risk": "若轉 high_risk / avoid、資料失效或離觸發條件變遠，下一輪可能讓位給候補。"
+            if rank == limit
+            else "若條件失效，會依順位讓位給更接近觸發的候補。",
+        }
+    )
+    return payload
+
+
+def _standby_payload(item: FuglePriorityItem, rank: int, limit: int) -> dict:
+    payload = item.to_dict()
+    payload.update(
+        {
+            "selection_rank": rank,
+            "selection_label": f"候補第 {rank - limit}",
+            "not_selected_reason": f"Fugle 基本用戶名額 {limit} 檔已滿，目前列為候補。",
+            "promotion_condition": _promotion_condition(item),
+        }
+    )
+    return payload
+
+
+def _selection_explanation(selected: list[FuglePriorityItem], standby: list[FuglePriorityItem], limit: int) -> str:
+    if not selected:
+        return "目前沒有接近進場、等待觸發或使用者指定的標的需要佔用 Fugle 即時追蹤名額。"
+    head = f"本次從 {len(selected) + len(standby)} 檔重點候選中，依進場接近度、風險可控度、量能與使用者指定，挑出前 {len(selected)} / {limit} 檔。"
+    if standby:
+        return head + " 名額外標的保留候補，不代表模型排除。"
+    return head + " 目前尚有名額或候補不足。"
+
+
+def _priority_gap(cutoff_score: Optional[float], next_score: Optional[float]) -> Optional[float]:
+    if cutoff_score is None or next_score is None:
+        return None
+    return round(max(float(cutoff_score) - float(next_score), 0.0), 2)
+
+
+def _selection_reason(item: FuglePriorityItem) -> str:
+    if item.entry_status == "executable":
+        return "已達進場雷達通過狀態，需要五檔、逐筆與最新價墊高確認。"
+    if item.entry_status == "practice_long":
+        return "屬練習買多或 B+ 觀察，適合用即時盤口累積樣本。"
+    if item.trigger_readiness in {"ready", "near"}:
+        return "接近 B+ 觸發條件，需要盯 VWAP、量能與觸發價。"
+    if item.entry_status == "wait_breakout":
+        return "接近突破條件，需確認是否有效突破而非假突破。"
+    if item.entry_status == "wait_vwap":
+        return "等待站回 VWAP，需確認站回後是否有買盤支持。"
+    if item.entry_status == "wait_volume":
+        return "等待量能放大，需確認是否有大單與委買支撐。"
+    if item.entry_status == "high_risk":
+        return "高風險標的只用來觀察風險是否降溫，不作進場確認。"
+    return item.priority_reason or "依重點候選順位入池。"
+
+
+def _watch_now(item: FuglePriorityItem) -> str:
+    if item.entry_status == "high_risk":
+        return "看是否拉回 VWAP 附近、停損距離縮小，且大單敲出減少。"
+    if item.entry_status == "wait_vwap":
+        return "看是否站回 VWAP 並維持，委買量是否補強。"
+    if item.entry_status == "wait_volume":
+        return "看量比是否放大到 1.0x 以上，且是否出現大單敲進。"
+    if item.entry_status == "wait_breakout":
+        return "看是否突破觸發價後站穩，並觀察五檔賣壓是否下降。"
+    if item.entry_status == "practice_long":
+        return "看進場雷達是否從觀察轉為可考慮，並只用虛擬交易練習。"
+    if item.entry_status == "executable":
+        return "先確認五檔買盤、逐筆大單、最新價墊高與停損距離。"
+    return "看資料是否轉 live、VWAP 是否守住、量能是否延續。"
+
+
+def _promotion_condition(item: FuglePriorityItem) -> str:
+    if item.entry_status == "wait_volume":
+        return "量比補到 1.0x 附近，或前 5 檔有標的失效時可升入。"
+    if item.entry_status == "wait_vwap":
+        return "站回 VWAP 並維持，或前 5 檔有標的失效時可升入。"
+    if item.entry_status == "wait_breakout":
+        return "接近或突破觸發價，且前 5 檔有標的失效時可升入。"
+    if item.entry_status == "high_risk":
+        return "追價風險降溫、停損距離縮小後才考慮升入。"
+    return "順位分超過第 5 檔，或前 5 檔條件失效時可升入。"
 
 
 def _allocation_summary(selected: list[FuglePriorityItem], limit: int) -> dict:

@@ -1375,6 +1375,14 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     allocation_warning = str(allocation.get("warning") or "")
     allocation_warning_html = f'<br><span class="muted">{escape(allocation_warning)}</span>' if allocation_warning else ""
     api_budget_text = str(pool.get("api_budget_message") or "Fugle API 預算尚未估算。")
+    selection_explanation = str(pool.get("selection_explanation") or "Fugle 追蹤池尚未整理入選說明。")
+    next_candidate = str(pool.get("next_candidate_symbol") or "")
+    next_gap = pool.get("next_candidate_gap")
+    next_candidate_note = (
+        f'<br><span class="muted">下一候補：{escape(next_candidate)}，距離第 5 名順位分差 {_fmt(next_gap)}。</span>'
+        if next_candidate
+        else ""
+    )
     capability = pool.get("capability_summary") or {}
     capability_text = str(capability.get("summary") or "Fugle 能力狀態尚未整理。")
     capability_note = str(capability.get("trading_note") or "Fugle 只作行情確認，不作自動下單。")
@@ -1405,6 +1413,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}</section>'
             f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
             f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
+            f'<section class="notice"><strong>為什麼選這些：</strong>{escape(selection_explanation)}{next_candidate_note}</section>'
             f'{service_warning}'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
             f'{acceptance_html}'
@@ -1414,7 +1423,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         )
     body = "".join(
         '<tr>'
-        f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</a></strong><br><span class="muted">{escape(str(item.get("tracking_purpose", "")))}</span></td>'
+        f'<td><strong><a href="{_advisor_link(str(item.get("symbol", "")))}">{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</a></strong><br><span class="muted">{escape(str(item.get("selection_label") or item.get("tracking_purpose", "")))}</span><br><span class="muted">{escape(str(item.get("tracking_purpose", "")))}</span></td>'
         f'<td>{escape(str(item.get("grade", "-")))}</td>'
         f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
         f'<td>{_fmt(item.get("last_price"))}</td>'
@@ -1428,7 +1437,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'<td><strong>{escape(_confirmation_quality_label(item))}</strong><br><span class="muted">{escape(str(item.get("confirmation_quality_reason") or "等待下一次雷達更新。"))}</span></td>'
         f'<td class="notes"><strong>{escape(str(item.get("entry_confirmation_status_label") or "等待確認"))}</strong><br>{escape(str(item.get("entry_confirmation_summary") or "等待 Fugle 更新進場雷達。"))}<br><span class="muted">下一步：{escape(str(item.get("entry_confirmation_next_step") or "等待下一次重點追蹤刷新。"))}</span></td>'
         f'<td>{escape("可做盤口確認" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
-        f'<td class="notes">{escape(str(item.get("priority_reason", "")))}</td>'
+        f'<td class="notes">{escape(str(item.get("selection_reason") or item.get("priority_reason", "")))}<br><span class="muted">現在看：{escape(str(item.get("watch_now") or "等待下一次重點追蹤刷新。"))}</span></td>'
         '</tr>'
         for item in rows
     )
@@ -1452,6 +1461,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{allocation_warning_html}</section>'
         f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
         f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
+        f'<section class="notice"><strong>為什麼選這些：</strong>{escape(selection_explanation)}{next_candidate_note}</section>'
         f'{service_warning}'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
         f'{acceptance_html}'
@@ -1478,11 +1488,13 @@ def _fugle_standby_panel(rows: list[dict]) -> str:
         symbol = str(item.get("symbol") or "")
         name = str(item.get("name") or "")
         reason = str(item.get("not_selected_reason") or "Fugle 基本用戶 5 檔名額已滿。")
+        promotion = str(item.get("promotion_condition") or "前 5 檔條件失效，或此檔更接近觸發時可升入。")
         priority = _fmt(item.get("priority_score"))
         purpose = str(item.get("tracking_purpose") or "")
         items.append(
             f'<li><a href="{_advisor_link(symbol)}">{escape(symbol)}｜{escape(name)}</a>'
-            f'｜順位分 {priority}｜{escape(purpose)}<br><span class="muted">{escape(reason)} {escape(str(item.get("priority_reason") or ""))}</span></li>'
+            f'｜順位分 {priority}｜{escape(purpose)}<br><span class="muted">{escape(reason)} {escape(str(item.get("priority_reason") or ""))}</span>'
+            f'<br><span class="muted">升入條件：{escape(promotion)}</span></li>'
         )
     return (
         '<details class="developer-info">'
