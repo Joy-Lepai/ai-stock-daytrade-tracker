@@ -413,6 +413,11 @@ def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
             f"now_steps={payload.get('now_steps') if isinstance(payload.get('now_steps'), list) else '-'}",
         ),
         Check(
+            "operator runbook has no-signal triage",
+            isinstance(payload.get("no_signal_triage"), list) and bool(payload.get("no_signal_triage")),
+            f"no_signal_triage={payload.get('no_signal_triage') if isinstance(payload.get('no_signal_triage'), list) else '-'}",
+        ),
+        Check(
             "operator runbook has checklist",
             isinstance(payload.get("checklist"), list) and bool(payload.get("checklist")),
             f"checklist={payload.get('checklist') if isinstance(payload.get('checklist'), list) else '-'}",
@@ -431,6 +436,8 @@ def validate_operator_page_html(html: str) -> list[Check]:
         "開盤前 / 盤中作戰手冊",
         "目前判斷",
         "現在照這樣做",
+        "沒有訊號時先查",
+        "operator-no-signal-triage",
         "進場前檢查",
         "今天不要做",
         "手動刷新建議",

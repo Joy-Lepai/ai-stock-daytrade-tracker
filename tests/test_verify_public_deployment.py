@@ -249,6 +249,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "decision": "可盯盤",
             "first_action": "先看強烈買多，再確認進場雷達",
             "now_steps": ["先看強烈買多候選"],
+            "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
             "checklist": ["是否站上 VWAP？"],
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
@@ -266,6 +267,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "decision": "可盯盤",
             "first_action": "",
             "now_steps": ["先看強烈買多候選"],
+            "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
             "checklist": ["是否站上 VWAP？"],
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
@@ -276,11 +278,31 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         self.assertIn("operator runbook has first action", failed)
 
+    def test_operator_runbook_payload_requires_no_signal_triage(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "先看強烈買多，再確認進場雷達",
+            "now_steps": ["先看強烈買多候選"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator runbook has no-signal triage", failed)
+
     def test_operator_page_html_requires_user_action_sections(self):
         html = """
         開盤前 / 盤中作戰手冊
         目前判斷
         現在照這樣做
+        沒有訊號時先查
+        operator-no-signal-triage
         進場前檢查
         今天不要做
         手動刷新建議
@@ -301,6 +323,8 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         開盤前 / 盤中作戰手冊
         目前判斷
         現在照這樣做
+        沒有訊號時先查
+        operator-no-signal-triage
         進場前檢查
         今天不要做
         手動刷新建議
