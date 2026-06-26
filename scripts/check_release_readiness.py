@@ -162,7 +162,11 @@ def load_ahead_count(head: str, origin: str, *, runner: Callable[..., str] = sub
         default="",
     )
     parsed_tracking = parse_ahead_count(tracking)
-    return parsed_tracking if parsed_tracking > 0 else -1
+    if parsed_tracking > 0:
+        return parsed_tracking
+    log_raw = optional_git_output(["log", "--oneline", "origin/main..HEAD"], runner=runner, default="")
+    log_lines = [line for line in log_raw.splitlines() if line.strip()]
+    return len(log_lines) if log_lines else -1
 
 
 def load_unpushed_commits(ahead_count: int, *, runner: Callable[..., str] = subprocess.check_output) -> list[str]:

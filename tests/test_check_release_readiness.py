@@ -75,6 +75,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, command)
             if command[-3:] == ["for-each-ref", "--format=%(upstream:track)", "refs/heads/main"]:
                 raise subprocess.CalledProcessError(1, command)
+            if command[-3:] == ["log", "--oneline", "origin/main..HEAD"]:
+                raise subprocess.CalledProcessError(1, command)
             if command == ["git", "status", "-sb", "--untracked-files=no"]:
                 return "## main...origin/main [ahead 15]\n"
             if command[-4:] == ["log", "--oneline", "--max-count=10", "origin/main..HEAD"]:
@@ -104,6 +106,18 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             raise AssertionError(command)
 
         self.assertEqual(load_ahead_count("local", "origin", runner=fake_runner), 20)
+
+    def test_load_ahead_count_counts_log_lines_when_tracking_is_unavailable(self):
+        def fake_runner(command, **kwargs):
+            if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
+                raise subprocess.CalledProcessError(1, command)
+            if command[-3:] == ["for-each-ref", "--format=%(upstream:track)", "refs/heads/main"]:
+                raise subprocess.CalledProcessError(1, command)
+            if command[-3:] == ["log", "--oneline", "origin/main..HEAD"]:
+                return "abc123 First\nbcd234 Second\n"
+            raise AssertionError(command)
+
+        self.assertEqual(load_ahead_count("local", "origin", runner=fake_runner), 2)
 
     def test_load_unpushed_commits_returns_empty_when_not_ahead(self):
         def fake_runner(command, **kwargs):
