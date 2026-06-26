@@ -338,6 +338,12 @@ python3 scripts/check_operational_health.py \
 
 若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
 
+`operational_health.opening_preflight` 是開盤檢查燈號：
+
+- `green / 可進入盤中追蹤`：資料與刷新層可用，可依強烈買多漏斗與進場雷達逐檔確認。
+- `yellow / 復盤、開盤前觀察或等待訊號`：只做觀察或等待確認，不把畫面當作即時進場訊號。
+- `red / 暫停使用即時訊號`：先依 `next_action_endpoint` 修資料或刷新層，資料恢復前不看強烈買多。
+
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
 
 每次 workflow 不論成功或失敗，都會上傳 `refresh-diagnostics` artifact，內含：
@@ -362,15 +368,17 @@ python3 scripts/check_operational_health.py \
 08:55-09:00 開盤前：
 
 1. 先開 `/dashboard`，確認市場模式是「開盤前準備模式」或資料已準備完成。
-2. 看「今日作戰流程」與「開盤前重點盯盤」，只挑觀察股，不提前當成即時買多。
-3. 若狀態面板顯示必要刷新層過期，依 `operator_steps` 先跑 `/refresh_full_market`，再跑 `/refresh_watchlist`。
+2. 看狀態列的「開盤檢查」：綠燈才進入盤中追蹤；黃燈只觀察；紅燈先照下一步修資料。
+3. 看「今日作戰流程」與「開盤前重點盯盤」，只挑觀察股，不提前當成即時買多。
+4. 若狀態面板顯示必要刷新層過期，依 `operator_steps` 先跑 `/refresh_full_market`，再跑 `/refresh_watchlist`。
 
 09:00 後盤中：
 
-1. 先看「今日資料可信度」與 live / delayed / cached / missing 數量。
-2. 只把 live 且資料完整的標的納入盤中判斷；delayed、cached、missing 只能觀察。
-3. 先看「四分類原因診斷」與「強烈買多漏斗」，確認買多少的主因是量比、VWAP、突破、資料，還是風險。
-4. 點進個股作戰卡，確認 VWAP、量比、下一步觸發條件、失效條件與進場雷達，不為了交易而交易。
+1. 先看「開盤檢查」是否為綠燈；若是黃燈或紅燈，不使用即時強烈買多。
+2. 再看「今日資料可信度」與 live / delayed / cached / missing 數量。
+3. 只把 live 且資料完整的標的納入盤中判斷；delayed、cached、missing 只能觀察。
+4. 先看「四分類原因診斷」與「強烈買多漏斗」，確認買多少的主因是量比、VWAP、突破、資料，還是風險。
+5. 點進個股作戰卡，確認 VWAP、量比、下一步觸發條件、失效條件與進場雷達，不為了交易而交易。
 
 持倉中：
 
