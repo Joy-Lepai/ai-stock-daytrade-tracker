@@ -84,6 +84,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("scripts/verify_public_deployment.py", text)
         self.assertIn("--advisor-symbol", text)
         self.assertIn("github.event.inputs.advisor_symbol", text)
+        self.assertIn("tee public-deployment-verification.txt", text)
+        self.assertIn("scripts/check_operational_health.py", text)
+        self.assertIn("--json > public-operational-health.json", text)
+        self.assertIn("Upload public deployment diagnostics", text)
+        self.assertIn("uses: actions/upload-artifact@v4", text)
+        self.assertIn("public-deployment-diagnostics", text)
+        self.assertIn("public-deployment-verification.txt", text)
+        self.assertIn("public-operational-health.json", text)
+        self.assertIn('exit "$failures"', text)
 
 
 if __name__ == "__main__":
