@@ -96,8 +96,7 @@ def load_release_state(
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
-    ahead_raw = optional_git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner, default="-1")
-    ahead_count = parse_ahead_count(ahead_raw)
+    ahead_count = 0 if head == origin else -1
     status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
     first_line = status.splitlines()[0] if status else ""
     public_runtime = ""
