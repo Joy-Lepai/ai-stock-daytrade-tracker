@@ -31,16 +31,22 @@ python3 -m stock_daytrade_system.cli report
 reports/YYYY-MM-DD-premarket.md
 ```
 
-開盤後 15 分鐘，可執行開盤確認：
+開盤前或開盤後要看盤，建議先執行一鍵開盤檢查。它會先確認本機 / GitHub / 公開站版本是否對齊，再確認 `/api/health` 營運健康；若版本未推送、公開站未部署，或資料層 blocked，會停止並提示下一步，避免用舊版或壞資料看盤：
 
 ```bash
-python3 -m stock_daytrade_system.cli open-check
+scripts/run_open_check.sh
 ```
 
-輸出檔案會放在：
+若兩個安全 gate 都通過，最後才會產生舊版 opening markdown 報告：
 
 ```text
 reports/YYYY-MM-DD-opening.md
+```
+
+若只想跑公開站健康檢查、不產生 markdown，可設定：
+
+```bash
+RUN_LEGACY_OPEN_REPORT=0 scripts/run_open_check.sh
 ```
 
 若想看集中式追蹤器：
