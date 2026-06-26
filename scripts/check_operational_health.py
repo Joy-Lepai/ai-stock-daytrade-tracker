@@ -88,6 +88,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
         "summary": health.get("summary") or "",
+        "operator_briefing": dict(health.get("operator_briefing") or {}),
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
         "watch_readiness_label": _watch_readiness_label(status, health, payload),
@@ -127,6 +128,17 @@ def build_failure_json(error: Exception | str) -> dict[str, Any]:
         "status": "blocked",
         "exit_code": 1,
         "summary": f"無法讀取 /api/health 或 /api/refresh/status：{message}",
+        "operator_briefing": {
+            "headline": "健康檢查讀取失敗",
+            "posture": "暫停進場判斷",
+            "watch_readiness": "blocked",
+            "next_check": "確認網站是否啟動，或稍後重試。",
+            "next_action_label": "確認網站是否啟動，或稍後重試。",
+            "next_action_endpoint": "",
+            "risk_gate": "讀不到健康狀態時，不可依公開畫面做即時進場判斷。",
+            "do_now": ["確認網站是否啟動", "稍後重試健康檢查"],
+            "do_not_do": ["不要依此狀態判斷盤中訊號"],
+        },
         "watch_readiness": "blocked",
         "watch_readiness_message": "網站健康檢查讀取失敗",
         "watch_readiness_label": "暫不適合進場判斷，先確認網站是否啟動。",
@@ -170,6 +182,13 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     ]
     if payload.get("_health_source"):
         lines.append(f"source: {payload.get('_health_source')}")
+    briefing = health.get("operator_briefing") if isinstance(health.get("operator_briefing"), dict) else {}
+    if briefing:
+        lines.append("operator_briefing:")
+        lines.append(f"- headline: {briefing.get('headline') or '-'}")
+        lines.append(f"- posture: {briefing.get('posture') or '-'}")
+        lines.append(f"- next_check: {briefing.get('next_check') or '-'}")
+        lines.append(f"- risk_gate: {briefing.get('risk_gate') or '-'}")
     blockers = health.get("blockers") or []
     warnings = health.get("warnings") or []
     if blockers:

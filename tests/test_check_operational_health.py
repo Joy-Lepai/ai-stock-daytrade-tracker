@@ -11,6 +11,12 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
             {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "operator_briefing": {
+                    "headline": "資料可用，照強烈買多漏斗與進場雷達看盤",
+                    "posture": "盤中作戰",
+                    "next_check": "先看強烈買多候選。",
+                    "risk_gate": "high_risk 不可當作買多。",
+                },
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
                 "market_mode": "intraday",
@@ -23,6 +29,9 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS]", report)
+        self.assertIn("operator_briefing:", report)
+        self.assertIn("headline: 資料可用", report)
+        self.assertIn("next_check: 先看強烈買多候選。", report)
         self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
         self.assertIn("live=20", report)
         self.assertIn("/api/health", report)
@@ -49,6 +58,12 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
             {
                 "status": "blocked",
                 "summary": "必要資料層過期",
+                "operator_briefing": {
+                    "headline": "先修資料，不看即時訊號",
+                    "posture": "暫停進場判斷",
+                    "next_check": "必要資料層過期",
+                    "risk_gate": "資料恢復前不可看強烈買多。",
+                },
                 "market_mode": "pre_open_prepare",
                 "data_quality_status": "部分延遲",
                 "price_status_summary": {"live_count": 0, "delayed_count": 120},
@@ -89,6 +104,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["operator_briefing"]["posture"], "暫停進場判斷")
         self.assertEqual(report["exit_code"], 1)
         self.assertEqual(report["operator_mode"], "refresh_required")
         self.assertEqual(report["primary_focus"], "先刷新全市場")
@@ -219,6 +235,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         payload = script.json.loads(stream.getvalue())
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["operator_briefing"]["posture"], "暫停進場判斷")
         self.assertIn("down", payload["summary"])
         self.assertEqual(payload["refresh_plan"], [])
 
