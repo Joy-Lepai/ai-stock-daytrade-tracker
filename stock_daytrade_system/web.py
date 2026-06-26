@@ -1192,6 +1192,10 @@ def _operator_no_signal_triage(health: dict[str, Any]) -> list[str]:
         )
         if no_signal_reason:
             triage.append(no_signal_reason)
+        if strong_count <= 0 and buy_count > 0:
+            triage.append("目前不是完全沒有多方標的；先看買多清單的下一步觸發條件，尚未通過前不要提前進場。")
+        if strong_count <= 0 and buy_count <= 0 and bearish_count > max(watch_count, 0):
+            triage.append("看空數量偏多代表多方條件不足或資料/結構偏弱，不是叫你主動放空。")
     if blockers:
         triage.append(f"先修阻擋原因：{blockers[0]}")
     if required_stale_layers:
