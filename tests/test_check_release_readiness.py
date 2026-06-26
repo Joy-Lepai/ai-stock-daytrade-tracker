@@ -270,6 +270,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["ahead_count"], 3)
+        self.assertTrue(payload["ahead_known"])
+        self.assertTrue(payload["local_differs_from_origin"])
         self.assertEqual(payload["unpushed_commits"], [])
         self.assertTrue(payload["can_push"])
         self.assertEqual(payload["repo_path"], "/Users/example/AI股票系統")
@@ -283,6 +285,25 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertFalse(payload["can_trust_public"])
         self.assertIn("local pushed to origin/main", payload["failed_checks"])
         self.assertIn("Repository → Push", payload["next_action"])
+
+    def test_release_report_payload_marks_unknown_ahead_but_different_origin(self):
+        state = ReleaseState(
+            head="local123456",
+            origin="origin999999",
+            ahead_count=-1,
+            dirty=False,
+            status_line="## main...origin/main [different]",
+            public_runtime="",
+            public_tracker="",
+        )
+
+        payload = release_report_payload(state, evaluate_release_state(state))
+
+        self.assertFalse(payload["ahead_known"])
+        self.assertEqual(payload["ahead_count"], -1)
+        self.assertTrue(payload["local_differs_from_origin"])
+        self.assertTrue(payload["can_push"])
+        self.assertFalse(payload["can_deploy_render"])
 
     def test_release_report_payload_marks_public_unreachable_for_automation(self):
         state = ReleaseState(

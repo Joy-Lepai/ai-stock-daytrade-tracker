@@ -317,6 +317,8 @@ def release_steps(state: ReleaseState) -> list[str]:
 def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> dict[str, Any]:
     failures = [check for check in checks if not check.ok]
     push_guidance = push_method_guidance(state)
+    local_differs_from_origin = state.head != state.origin
+    ahead_known = state.ahead_count >= 0
     public_reachable = bool(state.public_runtime) and not state.public_runtime.startswith("ERROR:")
     if not state.public_runtime:
         public_status = "not_checked"
@@ -334,6 +336,8 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "remote_url": state.remote_url,
         "push_method": push_guidance,
         "ahead_count": state.ahead_count,
+        "ahead_known": ahead_known,
+        "local_differs_from_origin": local_differs_from_origin,
         "unpushed_commits": list(state.unpushed_commits),
         "worktree_clean": not state.dirty,
         "status_line": state.status_line,
