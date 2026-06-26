@@ -245,6 +245,7 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
     status = str(payload.get("status") or "")
     deployment = payload.get("deployment") or {}
     price = payload.get("price_status_summary") or {}
+    briefing = payload.get("operator_briefing") or {}
     checks = [
         Check("health API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
         Check("health status valid", status in {"ok", "warning", "blocked"}, f"status={status or '-'}"),
@@ -270,6 +271,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             f"operator_steps={payload.get('operator_steps') if isinstance(payload.get('operator_steps'), list) else '-'}",
         ),
         Check("health has operator mode", bool(payload.get("operator_mode")), f"operator_mode={payload.get('operator_mode') or '-'}"),
+        Check(
+            "health has operator briefing",
+            bool(briefing.get("headline")) and bool(briefing.get("next_check")),
+            f"briefing={briefing.get('headline') or '-'} / {briefing.get('next_check') or '-'}",
+        ),
         Check("health has primary focus", bool(payload.get("primary_focus")), f"primary_focus={payload.get('primary_focus') or '-'}"),
         Check(
             "health has do now actions",

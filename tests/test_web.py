@@ -52,6 +52,12 @@ class WebTests(unittest.TestCase):
             "operational_health": {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "operator_briefing": {
+                    "headline": "資料可用，照強烈買多漏斗與進場雷達看盤",
+                    "posture": "盤中作戰",
+                    "next_check": "先看強烈買多候選。",
+                    "risk_gate": "high_risk 不可當作買多。",
+                },
                 "operator_mode": "盤中作戰模式",
                 "primary_focus": "先看強烈買多與買多",
                 "do_now": ["先看強烈買多候選"],
@@ -78,6 +84,8 @@ class WebTests(unittest.TestCase):
 
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["operator_briefing"]["posture"], "盤中作戰")
+        self.assertIn("強烈買多", payload["operator_briefing"]["headline"])
         self.assertEqual(payload["operator_mode"], "盤中作戰模式")
         self.assertEqual(payload["primary_focus"], "先看強烈買多與買多")
         self.assertEqual(payload["do_now"], ["先看強烈買多候選"])

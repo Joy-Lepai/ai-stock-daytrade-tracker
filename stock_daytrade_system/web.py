@@ -680,6 +680,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "status": status,
         "generated_at": refresh_payload.get("generated_at") or system_payload.get("generated_at"),
         "summary": health.get("summary") or "",
+        "operator_briefing": health.get("operator_briefing") or {},
         "operator_mode": health.get("operator_mode") or "",
         "primary_focus": health.get("primary_focus") or "",
         "do_now": health.get("do_now") or [],
@@ -2031,6 +2032,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
       }};
       const operationalHealthHtml = (payload) => {{
         const health = payload.operational_health || {{}};
+        const briefing = health.operator_briefing || {{}};
         const statusValue = String(health.status || "warning");
         const cls = statusValue === "ok" ? "health-ok" : statusValue === "blocked" ? "health-bad" : "health-warn";
         const label = statusValue === "ok" ? "可用" : statusValue === "blocked" ? "阻擋" : "提醒";
@@ -2054,7 +2056,10 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           ? `<div class="warn-mini">現在要做：${{health.do_now.map((item) => escapeHtml(item)).join(" / ")}}</div>` : "";
         const doNot = Array.isArray(health.do_not_do) && health.do_not_do.length
           ? `<div class="warn-mini">不要做：${{health.do_not_do.map((item) => escapeHtml(item)).join(" / ")}}</div>` : "";
-        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{mode}}${{doNow}}${{doNot}}${{steps}}${{blockers}}${{warnings}}`;
+        const briefingHtml = briefing.headline
+          ? `<div class="warn-mini"><strong>作戰簡報：</strong>${{escapeHtml(briefing.headline)}}｜姿態：${{escapeHtml(briefing.posture || "-")}}｜下一個檢查：${{escapeHtml(briefing.next_check || "-")}}｜風控閘門：${{escapeHtml(briefing.risk_gate || "-")}}</div>`
+          : "";
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{briefingHtml}}${{mode}}${{doNow}}${{doNot}}${{steps}}${{blockers}}${{warnings}}`;
       }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};

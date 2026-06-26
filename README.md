@@ -311,6 +311,7 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 
 - 目前是可用、警告，還是阻擋狀態
 - 目前作戰模式：盤中作戰、盤中保守、開盤前準備、復盤準備，或資料修復
+- `operator_briefing`：一眼可讀的作戰簡報，包含 headline、看盤姿態、下一個檢查點與風控閘門
 - 現在要做什麼、不要做什麼，以及進場前檢查清單
 - market mode 是否為盤中 / 開盤前 / 休市復盤
 - live / delayed / cached / missing 各幾檔

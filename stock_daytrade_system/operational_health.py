@@ -85,10 +85,21 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         warnings=warnings,
         refresh_plan=refresh_plan,
     )
+    briefing = _operator_briefing(
+        status=status,
+        market_mode=market_mode,
+        watch_readiness=watch_readiness,
+        next_action=next_action,
+        operator_mode=operator_mode,
+        blockers=blockers,
+        warnings=warnings,
+        can_show_strong=can_show_strong and not blockers,
+    )
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
+        "operator_briefing": briefing,
         "operator_mode": operator_mode["mode"],
         "primary_focus": operator_mode["primary_focus"],
         "do_now": operator_mode["do_now"],
@@ -114,6 +125,56 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "allow_intraday_signal": allow_intraday_signal,
         "can_show_strong_long": can_show_strong and not blockers,
         "can_use_dashboard": status != "blocked",
+    }
+
+
+def _operator_briefing(
+    *,
+    status: str,
+    market_mode: str,
+    watch_readiness: dict[str, str],
+    next_action: dict[str, str],
+    operator_mode: dict[str, Any],
+    blockers: list[str],
+    warnings: list[str],
+    can_show_strong: bool,
+) -> dict[str, Any]:
+    if status == "blocked":
+        headline = "先修資料，不看即時訊號"
+        posture = "暫停進場判斷"
+        next_check = blockers[0] if blockers else "先確認資料源與刷新層。"
+        risk_gate = "資料恢復前，強烈買多與買多都不可作為盤中依據。"
+    elif market_mode in REVIEW_MODES:
+        headline = "休市 / 盤後只做復盤與明日觀察"
+        posture = "復盤觀察"
+        next_check = "整理下個交易日觀察清單，開盤後等待 live 價格、VWAP 與量比。"
+        risk_gate = "非盤中模式不顯示即時強烈買多。"
+    elif status == "warning":
+        headline = "可以看盤，但要先避開資料有疑慮的股票"
+        posture = "保守看盤"
+        next_check = warnings[0] if warnings else "只看 live 且資料完整的股票。"
+        risk_gate = "cached、delayed、missing 一律只能觀察。"
+    elif can_show_strong:
+        headline = "資料可用，照強烈買多漏斗與進場雷達看盤"
+        posture = "盤中作戰"
+        next_check = "先看強烈買多候選，再逐檔確認 VWAP、量比、突破與停損距離。"
+        risk_gate = "high_risk、未站上 VWAP、停損距離過大都不可當作買多。"
+    else:
+        headline = "資料可用，但目前沒有強烈買多可執行"
+        posture = "等待確認"
+        next_check = "等待量能、VWAP、突破或進場雷達轉強。"
+        risk_gate = "沒有訊號就空手，不為了交易而交易。"
+
+    return {
+        "headline": headline,
+        "posture": posture,
+        "watch_readiness": watch_readiness.get("label") or "",
+        "next_check": next_check,
+        "next_action_label": next_action.get("label") or "",
+        "next_action_endpoint": next_action.get("endpoint") or "",
+        "risk_gate": risk_gate,
+        "do_now": list(operator_mode.get("do_now") or [])[:3],
+        "do_not_do": list(operator_mode.get("do_not_do") or [])[:3],
     }
 
 

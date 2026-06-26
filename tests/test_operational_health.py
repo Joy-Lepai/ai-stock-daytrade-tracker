@@ -36,6 +36,9 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertIn("強烈買多", health["primary_focus"])
         self.assertIn("不要追 high_risk。", health["do_not_do"])
         self.assertIn("是否站上 VWAP？", health["decision_checklist"])
+        self.assertEqual(health["operator_briefing"]["posture"], "盤中作戰")
+        self.assertIn("強烈買多", health["operator_briefing"]["headline"])
+        self.assertIn("VWAP", health["operator_briefing"]["next_check"])
 
     def test_stale_required_layer_blocks_dashboard(self):
         payload = {
@@ -66,6 +69,9 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["operator_mode"], "資料修復模式")
         self.assertIn("/refresh_watchlist", health["do_now"][0])
         self.assertIn("重點觀察", " ".join(health["blockers"]))
+        self.assertEqual(health["operator_briefing"]["posture"], "暫停進場判斷")
+        self.assertIn("先修資料", health["operator_briefing"]["headline"])
+        self.assertIn("重點觀察", health["operator_briefing"]["next_check"])
 
     def test_refresh_plan_prioritizes_full_market_before_watchlist(self):
         payload = {
