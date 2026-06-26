@@ -211,6 +211,11 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             _opening_preflight_valid(health.get("opening_preflight") if isinstance(health, dict) else None),
             _opening_preflight_detail(health.get("opening_preflight") if isinstance(health, dict) else None),
         ),
+        Check(
+            "operational health has operator decision",
+            _operator_decision_valid(health.get("operator_decision") if isinstance(health, dict) else None),
+            _operator_decision_detail(health.get("operator_decision") if isinstance(health, dict) else None),
+        ),
     ]
     if health_status == "blocked":
         checks.append(
@@ -311,6 +316,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             _opening_preflight_valid(payload.get("opening_preflight")),
             _opening_preflight_detail(payload.get("opening_preflight")),
         ),
+        Check(
+            "health has operator decision",
+            _operator_decision_valid(payload.get("operator_decision")),
+            _operator_decision_detail(payload.get("operator_decision")),
+        ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
         Check(
@@ -365,6 +375,28 @@ def _opening_preflight_detail(value: Any) -> str:
     return (
         f"light={value.get('light') or '-'} label={value.get('label') or '-'} "
         f"reason={value.get('reason') or '-'} next_action={value.get('next_action') or '-'}"
+    )
+
+
+def _operator_decision_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return (
+        bool(value.get("decision"))
+        and bool(value.get("headline"))
+        and bool(value.get("reason"))
+        and bool(value.get("first_action"))
+        and isinstance(value.get("can_trade_now"), bool)
+    )
+
+
+def _operator_decision_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "operator_decision=-"
+    return (
+        f"decision={value.get('decision') or '-'} headline={value.get('headline') or '-'} "
+        f"reason={value.get('reason') or '-'} first_action={value.get('first_action') or '-'} "
+        f"can_trade_now={value.get('can_trade_now') if isinstance(value.get('can_trade_now'), bool) else '-'}"
     )
 
 

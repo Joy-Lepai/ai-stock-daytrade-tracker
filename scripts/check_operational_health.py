@@ -89,6 +89,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
         "exit_code": 0 if status in {"ok", "warning"} else 1,
         "summary": health.get("summary") or "",
         "opening_preflight": dict(health.get("opening_preflight") or {}),
+        "operator_decision": dict(health.get("operator_decision") or {}),
         "operator_briefing": dict(health.get("operator_briefing") or {}),
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
@@ -139,6 +140,13 @@ def build_failure_json(error: Exception | str) -> dict[str, Any]:
             "risk_gate": "讀不到健康狀態時，不可依公開畫面做即時進場判斷。",
             "do_now": ["確認網站是否啟動", "稍後重試健康檢查"],
             "do_not_do": ["不要依此狀態判斷盤中訊號"],
+        },
+        "operator_decision": {
+            "decision": "暫停",
+            "headline": "健康檢查讀取失敗",
+            "reason": message,
+            "first_action": "確認網站是否啟動，或稍後重試。",
+            "can_trade_now": False,
         },
         "watch_readiness": "blocked",
         "watch_readiness_message": "網站健康檢查讀取失敗",
@@ -191,6 +199,14 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         lines.append(f"- reason: {preflight.get('reason') or '-'}")
         lines.append(f"- next_action: {preflight.get('next_action') or '-'}")
         lines.append(f"- can_trust_strong_buy: {bool(preflight.get('can_trust_strong_buy'))}")
+    decision = health.get("operator_decision") if isinstance(health.get("operator_decision"), dict) else {}
+    if decision:
+        lines.append("operator_decision:")
+        lines.append(f"- decision: {decision.get('decision') or '-'}")
+        lines.append(f"- headline: {decision.get('headline') or '-'}")
+        lines.append(f"- reason: {decision.get('reason') or '-'}")
+        lines.append(f"- first_action: {decision.get('first_action') or '-'}")
+        lines.append(f"- can_trade_now: {bool(decision.get('can_trade_now'))}")
     briefing = health.get("operator_briefing") if isinstance(health.get("operator_briefing"), dict) else {}
     if briefing:
         lines.append("operator_briefing:")

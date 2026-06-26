@@ -26,6 +26,15 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "next_action": "等待盤中 live 資料再判斷。",
         }
 
+    def _operator_decision(self, decision="復盤", can_trade_now=False):
+        return {
+            "decision": decision,
+            "headline": "現在只做復盤與觀察",
+            "reason": "目前不是盤中即時模式，不提供即時進場判斷。",
+            "first_action": "整理下個交易日觀察清單",
+            "can_trade_now": can_trade_now,
+        }
+
     def _health_payload(self, **overrides):
         payload = {
             "api_status": "ok",
@@ -51,6 +60,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
             "can_show_strong_long": False,
             "opening_preflight": self._opening_preflight(),
+            "operator_decision": self._operator_decision(),
         }
         payload.update(overrides)
         return payload
@@ -129,6 +139,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
                 "opening_preflight": self._opening_preflight(label="開盤前觀察"),
+                "operator_decision": self._operator_decision("復盤"),
             },
         }
 
@@ -152,6 +163,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
                 "opening_preflight": self._opening_preflight(),
+                "operator_decision": self._operator_decision(),
             },
         }
 
@@ -176,6 +188,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
                 "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
+                "operator_decision": self._operator_decision("暫停"),
             },
         }
 
@@ -201,6 +214,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
                 "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
+                "operator_decision": self._operator_decision("暫停"),
             },
         }
 
@@ -272,6 +286,15 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has opening preflight", failed)
 
+    def test_health_payload_requires_operator_decision(self):
+        payload = self._health_payload()
+        payload.pop("operator_decision")
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health has operator decision", failed)
+
     def test_blocked_health_cannot_show_strong_buy(self):
         payload = self._health_payload(
             status="blocked",
@@ -285,6 +308,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=True,
             opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
+            operator_decision=self._operator_decision("暫停"),
         )
 
         checks = validate_health_payload(payload)
@@ -305,6 +329,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=False,
             opening_preflight=self._opening_preflight("yellow", "復盤 / 開盤前觀察"),
+            operator_decision=self._operator_decision("暫停"),
         )
 
         checks = validate_health_payload(payload)
@@ -340,6 +365,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=False,
             opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
+            operator_decision=self._operator_decision("暫停"),
         )
 
         checks = validate_readiness_payload(503, payload)
@@ -359,6 +385,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=False,
             opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
+            operator_decision=self._operator_decision("暫停"),
         )
 
         checks = validate_readiness_payload(200, payload)
@@ -399,6 +426,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "不需手動更新"},
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
+                "operator_decision": self._operator_decision("保守觀察"),
             },
         }
 
@@ -406,6 +434,30 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("operational health has opening preflight", failed)
+
+    def test_refresh_status_requires_operator_decision(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": False,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "開盤前準備模式",
+                "next_action": {"label": "不需手動更新"},
+                "watch_readiness": "僅供復盤或開盤前觀察",
+                "refresh_plan": [],
+                "opening_preflight": self._opening_preflight(label="開盤前觀察"),
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("operational health has operator decision", failed)
 
     def test_non_intraday_refresh_status_cannot_have_green_opening_preflight(self):
         payload = {
@@ -423,6 +475,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
                 "opening_preflight": self._opening_preflight("green", "可進入盤中追蹤"),
+                "operator_decision": self._operator_decision("復盤"),
             },
         }
 
@@ -447,6 +500,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
                 "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
+                "operator_decision": self._operator_decision("暫停"),
             },
         }
 

@@ -24,6 +24,13 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                     "next_check": "先看強烈買多候選。",
                     "risk_gate": "high_risk 不可當作買多。",
                 },
+                "operator_decision": {
+                    "decision": "可盯盤",
+                    "headline": "可以進入盤中追蹤",
+                    "reason": "資料可用。",
+                    "first_action": "先看強烈買多",
+                    "can_trade_now": True,
+                },
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
                 "market_mode": "intraday",
@@ -38,9 +45,12 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("[PASS]", report)
         self.assertIn("operator_briefing:", report)
         self.assertIn("opening_preflight:", report)
+        self.assertIn("operator_decision:", report)
         self.assertIn("light: green", report)
         self.assertIn("label: 可進入盤中追蹤", report)
         self.assertIn("can_trust_strong_buy: True", report)
+        self.assertIn("decision: 可盯盤", report)
+        self.assertIn("can_trade_now: True", report)
         self.assertIn("headline: 資料可用", report)
         self.assertIn("next_check: 先看強烈買多候選。", report)
         self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
@@ -117,6 +127,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["status"], "blocked")
         self.assertEqual(report["opening_preflight"]["light"], "red")
         self.assertEqual(report["opening_preflight"]["label"], "暫停使用即時訊號")
+        self.assertEqual(report["operator_decision"]["decision"], "暫停")
+        self.assertFalse(report["operator_decision"]["can_trade_now"])
         self.assertEqual(report["operator_briefing"]["posture"], "暫停進場判斷")
         self.assertEqual(report["exit_code"], 1)
         self.assertEqual(report["operator_mode"], "refresh_required")

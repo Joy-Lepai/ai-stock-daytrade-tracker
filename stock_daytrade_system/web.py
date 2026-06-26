@@ -681,6 +681,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "generated_at": refresh_payload.get("generated_at") or system_payload.get("generated_at"),
         "summary": health.get("summary") or "",
         "opening_preflight": health.get("opening_preflight") or {},
+        "operator_decision": health.get("operator_decision") or {},
         "operator_briefing": health.get("operator_briefing") or {},
         "operator_mode": health.get("operator_mode") or "",
         "primary_focus": health.get("primary_focus") or "",
@@ -2035,12 +2036,17 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const health = payload.operational_health || {{}};
         const briefing = health.operator_briefing || {{}};
         const preflight = health.opening_preflight || {{}};
+        const decision = health.operator_decision || {{}};
         const statusValue = String(health.status || "warning");
         const cls = statusValue === "ok" ? "health-ok" : statusValue === "blocked" ? "health-bad" : "health-warn";
         const label = statusValue === "ok" ? "可用" : statusValue === "blocked" ? "阻擋" : "提醒";
         const preflightCls = preflight.light === "green" ? "health-ok" : preflight.light === "red" ? "health-bad" : "health-warn";
         const preflightHtml = preflight.label
           ? `<div class="warn-mini"><strong>開盤檢查：</strong><span class="${{preflightCls}}">${{escapeHtml(preflight.label)}}</span>｜${{escapeHtml(preflight.reason || "-")}}｜下一步：${{escapeHtml(preflight.next_action || "-")}}</div>`
+          : "";
+        const decisionCls = decision.can_trade_now ? "health-ok" : statusValue === "blocked" ? "health-bad" : "health-warn";
+        const decisionHtml = decision.headline
+          ? `<div class="warn-mini"><strong>現在決策：</strong><span class="${{decisionCls}}">${{escapeHtml(decision.decision || "-")}}</span>｜${{escapeHtml(decision.headline)}}｜原因：${{escapeHtml(decision.reason || "-")}}｜第一步：${{escapeHtml(decision.first_action || "-")}}</div>`
           : "";
         const watchReadiness = health.watch_readiness
           ? `｜看盤狀態：${{escapeHtml(health.watch_readiness)}}${{health.watch_readiness_message ? "，" + escapeHtml(health.watch_readiness_message) : ""}}`
@@ -2065,7 +2071,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const briefingHtml = briefing.headline
           ? `<div class="warn-mini"><strong>作戰簡報：</strong>${{escapeHtml(briefing.headline)}}｜姿態：${{escapeHtml(briefing.posture || "-")}}｜下一個檢查：${{escapeHtml(briefing.next_check || "-")}}｜風控閘門：${{escapeHtml(briefing.risk_gate || "-")}}</div>`
           : "";
-        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{preflightHtml}}${{briefingHtml}}${{mode}}${{doNow}}${{doNot}}${{steps}}${{blockers}}${{warnings}}`;
+        return `<span class="refresh-layer-item refresh-guidance-item"><strong>營運健康：</strong><span class="${{cls}}">${{label}}</span>｜${{escapeHtml(health.summary || "尚無營運健康摘要。")}}${{watchReadiness}}${{refreshPlan}}｜下一步：${{escapeHtml(next.label || "-")}}</span>${{preflightHtml}}${{decisionHtml}}${{briefingHtml}}${{mode}}${{doNow}}${{doNot}}${{steps}}${{blockers}}${{warnings}}`;
       }};
       const operationSummaryHtml = (payload) => {{
         const summary = payload.refresh_operation_summary || {{}};

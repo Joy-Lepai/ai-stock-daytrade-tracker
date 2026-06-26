@@ -63,6 +63,13 @@ class WebTests(unittest.TestCase):
                     "next_check": "先看強烈買多候選。",
                     "risk_gate": "high_risk 不可當作買多。",
                 },
+                "operator_decision": {
+                    "decision": "可盯盤",
+                    "headline": "可以進入盤中追蹤",
+                    "reason": "資料可用。",
+                    "first_action": "先看強烈買多",
+                    "can_trade_now": True,
+                },
                 "operator_mode": "盤中作戰模式",
                 "primary_focus": "先看強烈買多與買多",
                 "do_now": ["先看強烈買多候選"],
@@ -90,6 +97,8 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["operator_briefing"]["posture"], "盤中作戰")
+        self.assertEqual(payload["operator_decision"]["decision"], "可盯盤")
+        self.assertTrue(payload["operator_decision"]["can_trade_now"])
         self.assertEqual(payload["opening_preflight"]["light"], "green")
         self.assertEqual(payload["opening_preflight"]["label"], "可進入盤中追蹤")
         self.assertTrue(payload["opening_preflight"]["can_trust_strong_buy"])
@@ -389,7 +398,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("營運健康", html)
         self.assertIn("開盤檢查", html)
         self.assertIn("opening_preflight", html)
+        self.assertIn("operator_decision", html)
         self.assertIn("看盤狀態", html)
+        self.assertIn("現在決策", html)
         self.assertIn("看盤：", html)
         self.assertIn("作戰模式", html)
         self.assertIn("現在要做", html)

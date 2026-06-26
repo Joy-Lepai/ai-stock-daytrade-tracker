@@ -104,11 +104,25 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         allow_intraday_signal=allow_intraday_signal,
         can_show_strong=can_show_strong and not blockers,
     )
+    operator_decision = _operator_decision(
+        status=status,
+        market_mode=market_mode,
+        watch_readiness=watch_readiness,
+        opening_preflight=preflight,
+        operator_briefing=briefing,
+        operator_mode=operator_mode,
+        next_action=next_action,
+        blockers=blockers,
+        warnings=warnings,
+        allow_intraday_signal=allow_intraday_signal,
+        can_show_strong=can_show_strong and not blockers,
+    )
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
         "opening_preflight": preflight,
+        "operator_decision": operator_decision,
         "operator_briefing": briefing,
         "operator_mode": operator_mode["mode"],
         "primary_focus": operator_mode["primary_focus"],
@@ -135,6 +149,80 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "allow_intraday_signal": allow_intraday_signal,
         "can_show_strong_long": can_show_strong and not blockers,
         "can_use_dashboard": status != "blocked",
+    }
+
+
+def _operator_decision(
+    *,
+    status: str,
+    market_mode: str,
+    watch_readiness: dict[str, str],
+    opening_preflight: dict[str, Any],
+    operator_briefing: dict[str, Any],
+    operator_mode: dict[str, Any],
+    next_action: dict[str, str],
+    blockers: list[str],
+    warnings: list[str],
+    allow_intraday_signal: bool,
+    can_show_strong: bool,
+) -> dict[str, Any]:
+    if status == "blocked":
+        headline = "現在不要看即時買多"
+        decision = "暫停"
+        reason = blockers[0] if blockers else "資料或刷新狀態未準備好。"
+        first_action = next_action.get("label") or "先修資料"
+        allowed_actions = ["修復資料", "查看復盤", "等待刷新完成"]
+        blocked_actions = ["即時進場", "強烈買多判斷", "依候選股追價"]
+        can_trade_now = False
+    elif market_mode in REVIEW_MODES:
+        headline = "現在只做復盤與觀察"
+        decision = "復盤"
+        reason = "目前不是盤中即時模式，不提供即時進場判斷。"
+        first_action = "整理下個交易日觀察清單"
+        allowed_actions = ["看上一交易日復盤", "整理觀察清單", "檢查資料健康度"]
+        blocked_actions = ["即時強烈買多", "盤中進場判斷"]
+        can_trade_now = False
+    elif status == "warning":
+        headline = "可以看盤，但先保守"
+        decision = "保守觀察"
+        reason = warnings[0] if warnings else "部分資料或刷新層有提醒。"
+        first_action = "只看 live 且資料完整的股票"
+        allowed_actions = ["查看 live 標的", "等待觸發條件", "修正資料提醒"]
+        blocked_actions = ["依 delayed / cached / missing 進場", "追 high_risk"]
+        can_trade_now = False
+    elif allow_intraday_signal and can_show_strong:
+        headline = "可以進入盤中追蹤"
+        decision = "可盯盤"
+        reason = "資料與刷新層可用，但仍需逐檔通過進場雷達與風控。"
+        first_action = "先看強烈買多，再確認進場雷達"
+        allowed_actions = ["盯強烈買多", "確認 VWAP / 量比 / 突破", "檢查停損距離"]
+        blocked_actions = ["忽略停損", "追 high_risk", "用法人或族群背景直接進場"]
+        can_trade_now = True
+    else:
+        headline = "資料可用，但現在等訊號"
+        decision = "等待"
+        reason = "目前沒有可顯示強烈買多的標的。"
+        first_action = "等待 VWAP、量比、突破或雷達轉強"
+        allowed_actions = ["等待確認", "查看觀察清單", "設定提醒"]
+        blocked_actions = ["為了交易而交易", "把觀察股當進場股"]
+        can_trade_now = False
+
+    return {
+        "decision": decision,
+        "headline": headline,
+        "reason": reason,
+        "first_action": first_action,
+        "can_trade_now": can_trade_now,
+        "can_open_dashboard": bool(opening_preflight.get("can_open_dashboard")),
+        "can_use_intraday_signals": bool(opening_preflight.get("can_use_intraday_signals")),
+        "can_trust_strong_buy": bool(opening_preflight.get("can_trust_strong_buy")),
+        "watch_readiness": watch_readiness.get("label") or "",
+        "operator_posture": operator_briefing.get("posture") or "",
+        "operator_mode": operator_mode.get("mode") or "",
+        "next_action_label": next_action.get("label") or "",
+        "next_action_endpoint": next_action.get("endpoint") or "",
+        "allowed_actions": allowed_actions,
+        "blocked_actions": blocked_actions,
     }
 
 
