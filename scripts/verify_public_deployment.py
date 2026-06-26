@@ -157,6 +157,7 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
     required_layers = list(payload.get("required_refresh_layers") or [])
     required_stale = list(payload.get("required_stale_layers") or [])
     price = payload.get("price_status_summary") or {}
+    front = payload.get("front_category_summary") or {}
     operation = payload.get("refresh_operation_summary") or {}
     health = payload.get("operational_health") or {}
     operation_severity = str(operation.get("severity") or "")
@@ -175,6 +176,11 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             "price status summary present",
             bool(price),
             f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}",
+        ),
+        Check(
+            "front category summary present",
+            _front_category_summary_valid(front),
+            _front_category_summary_detail(front),
         ),
         Check(
             "refresh operation summary present",
@@ -264,6 +270,7 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
     status = str(payload.get("status") or "")
     deployment = payload.get("deployment") or {}
     price = payload.get("price_status_summary") or {}
+    front = payload.get("front_category_summary") or {}
     briefing = payload.get("operator_briefing") or {}
     checks = [
         Check("health API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
@@ -323,6 +330,7 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
         ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
+        Check("health includes front category summary", _front_category_summary_valid(front), _front_category_summary_detail(front)),
         Check(
             "health includes deployment summary",
             bool(deployment),
@@ -356,6 +364,38 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             )
         )
     return checks
+
+
+def _front_category_summary_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    counts = value.get("counts")
+    if not isinstance(counts, dict):
+        return False
+    return (
+        "強烈買多" in counts
+        and "買多" in counts
+        and "觀察" in counts
+        and "看空" in counts
+        and "strong_buy_count" in value
+        and "buy_count" in value
+        and "watch_count" in value
+        and "bearish_count" in value
+        and bool(value.get("no_signal_reason"))
+    )
+
+
+def _front_category_summary_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "front_category_summary=-"
+    counts = value.get("counts") if isinstance(value.get("counts"), dict) else {}
+    return (
+        f"strong={value.get('strong_buy_count', counts.get('強烈買多', '-'))} "
+        f"buy={value.get('buy_count', counts.get('買多', '-'))} "
+        f"watch={value.get('watch_count', counts.get('觀察', '-'))} "
+        f"bearish={value.get('bearish_count', counts.get('看空', '-'))} "
+        f"reason={value.get('no_signal_reason') or '-'}"
+    )
 
 
 def _opening_preflight_valid(value: Any) -> bool:

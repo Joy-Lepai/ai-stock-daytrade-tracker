@@ -37,6 +37,19 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "can_trade_now": can_trade_now,
         }
 
+    def _front_category_summary(self):
+        return {
+            "counts": {"強烈買多": 0, "買多": 0, "觀察": 4, "看空": 1},
+            "total": 5,
+            "strong_buy_count": 0,
+            "buy_count": 0,
+            "watch_count": 4,
+            "bearish_count": 1,
+            "data_missing_count": 0,
+            "bearish_ratio": 20,
+            "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
+        }
+
     def _health_payload(self, **overrides):
         payload = {
             "api_status": "ok",
@@ -59,6 +72,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "refresh_plan": [],
             "market_mode": "closed_review",
             "price_status_summary": {"status": "休市復盤"},
+            "front_category_summary": self._front_category_summary(),
             "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
             "can_show_strong_long": False,
             "opening_preflight": self._opening_preflight(),
@@ -133,6 +147,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "stale_layers": ["positions"],
             "allow_strong_long": False,
             "price_status_summary": {"status": "部分延遲"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
             "operational_health": {
                 "status": "warning",
@@ -157,6 +172,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": True,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "休市復盤模式。"},
             "operational_health": {
                 "status": "warning",
@@ -182,6 +198,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": ["watchlist"],
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "warn", "message": "重點觀察需更新。"},
             "operational_health": {
                 "status": "blocked",
@@ -208,6 +225,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": False,
             "price_status_summary": {"status": "嚴重缺漏"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
             "operational_health": {
                 "status": "blocked",
@@ -240,6 +258,15 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has watch readiness", failed)
+
+    def test_health_payload_requires_front_category_summary(self):
+        payload = self._health_payload()
+        payload.pop("front_category_summary")
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health includes front category summary", failed)
 
     def test_operator_runbook_payload_requires_user_action_fields(self):
         payload = {
@@ -504,6 +531,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
         }
 
@@ -514,6 +542,31 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("operational health status valid", failed)
         self.assertIn("operational health has next action", failed)
 
+    def test_refresh_status_requires_front_category_summary(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": False,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "等待訊號",
+                "next_action": {"label": "不需手動更新"},
+                "watch_readiness": "可看但需保守",
+                "refresh_plan": [],
+                "opening_preflight": self._opening_preflight(label="等待訊號"),
+                "operator_decision": self._operator_decision("等待"),
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("front category summary present", failed)
+
     def test_refresh_status_requires_opening_preflight(self):
         payload = {
             "api_status": "ok",
@@ -522,6 +575,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
             "operational_health": {
                 "status": "warning",
@@ -546,6 +600,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
             "operational_health": {
                 "status": "warning",
@@ -570,6 +625,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": False,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "休市復盤模式。"},
             "operational_health": {
                 "status": "warning",
@@ -595,6 +651,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "required_stale_layers": [],
             "allow_strong_long": True,
             "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
             "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
             "operational_health": {
                 "status": "blocked",
