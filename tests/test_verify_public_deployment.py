@@ -280,6 +280,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "checklist": ["是否站上 VWAP？"],
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
+            "front_category_summary": self._front_category_summary(),
         }
 
         checks = validate_operator_runbook_payload(payload)
@@ -298,6 +299,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "checklist": ["是否站上 VWAP？"],
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
+            "front_category_summary": self._front_category_summary(),
         }
 
         checks = validate_operator_runbook_payload(payload)
@@ -316,12 +318,32 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "checklist": ["是否站上 VWAP？"],
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
+            "front_category_summary": self._front_category_summary(),
         }
 
         checks = validate_operator_runbook_payload(payload)
         failed = [item.name for item in checks if not item.ok]
 
         self.assertIn("operator runbook has no-signal triage", failed)
+
+    def test_operator_runbook_payload_requires_front_category_summary(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "先看強烈買多，再確認進場雷達",
+            "now_steps": ["先看強烈買多候選"],
+            "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator runbook includes front category summary", failed)
 
     def test_operator_page_html_requires_user_action_sections(self):
         html = """
@@ -330,6 +352,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         現在照這樣做
         沒有訊號時先查
         operator-no-signal-triage
+        四分類摘要
+        operator-front-strong
+        operator-front-buy
+        operator-front-watch
+        operator-front-bearish
+        operator-front-reason
         進場前檢查
         今天不要做
         手動刷新建議
@@ -352,6 +380,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         現在照這樣做
         沒有訊號時先查
         operator-no-signal-triage
+        四分類摘要
+        operator-front-strong
+        operator-front-buy
+        operator-front-watch
+        operator-front-bearish
+        operator-front-reason
         進場前檢查
         今天不要做
         手動刷新建議

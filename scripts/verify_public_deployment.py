@@ -441,6 +441,7 @@ def _operator_decision_detail(value: Any) -> str:
 
 
 def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
+    front = payload.get("front_category_summary") or {}
     return [
         Check("operator runbook API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
         Check("operator runbook has decision", bool(payload.get("decision")), f"decision={payload.get('decision') or '-'}"),
@@ -468,6 +469,11 @@ def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
             f"do_not_do={payload.get('do_not_do') if isinstance(payload.get('do_not_do'), list) else '-'}",
         ),
         Check("operator runbook includes data quality", bool(payload.get("data_quality_status")), f"data_quality={payload.get('data_quality_status') or '-'}"),
+        Check(
+            "operator runbook includes front category summary",
+            _front_category_summary_valid(front),
+            _front_category_summary_detail(front),
+        ),
     ]
 
 
@@ -475,6 +481,12 @@ def validate_operator_page_html(html: str) -> list[Check]:
     required_markers = [
         "開盤前 / 盤中作戰手冊",
         "目前判斷",
+        "四分類摘要",
+        "operator-front-strong",
+        "operator-front-buy",
+        "operator-front-watch",
+        "operator-front-bearish",
+        "operator-front-reason",
         "現在照這樣做",
         "沒有訊號時先查",
         "operator-no-signal-triage",
