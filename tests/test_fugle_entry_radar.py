@@ -120,6 +120,8 @@ class FugleEntryRadarTests(unittest.TestCase):
 
         item = payload["selected"][0]
         self.assertEqual(payload["confirmation_success_count"], 1)
+        self.assertIn("Fugle 雷達本次", payload["api_budget_message"])
+        self.assertIn("狀態：安全", payload["api_budget_message"])
         self.assertEqual(item["orderbook_status"], "supportive")
         self.assertEqual(item["large_trade_status"], "buy_sweep")
         self.assertIn("大單敲進", item["large_trade_summary"])
@@ -186,6 +188,7 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(payload["confirmation_skipped_count"], 1)
         self.assertEqual(payload["planned_api_calls"], 15)
         self.assertEqual(payload["actual_api_calls"], 15)
+        self.assertIn("15 次 API 呼叫", payload["api_budget_message"])
         self.assertEqual(client.quote_calls, 5)
         self.assertEqual(client.trade_calls, 5)
         self.assertEqual(client.candle_calls, 5)

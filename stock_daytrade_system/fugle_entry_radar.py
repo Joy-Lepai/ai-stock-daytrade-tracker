@@ -17,6 +17,8 @@ from stock_daytrade_system.tw_scan_service import (
 
 FUGLE_ENTRY_RADAR_VERSION = "fugle_entry_radar_v2_confirmation_quality_2026-06-26"
 DEFAULT_FUGLE_PRIORITY_POOL_LIMIT = 5
+DEFAULT_FUGLE_REFRESH_INTERVAL_SECONDS = 300
+DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE = 60
 
 
 def enrich_fugle_priority_pool(
@@ -44,6 +46,7 @@ def enrich_fugle_priority_pool(
                 "confirmation_failed_count": 0,
                 "planned_api_calls": 0,
                 "actual_api_calls": 0,
+                "api_budget_message": _api_budget_message(0, 0),
             }
         )
         return payload
@@ -57,6 +60,7 @@ def enrich_fugle_priority_pool(
                 "confirmation_failed_count": len(rows),
                 "planned_api_calls": 0,
                 "actual_api_calls": 0,
+                "api_budget_message": _api_budget_message(0, 0),
                 "entry_radar_status": "disabled" if not client.config.enabled else "not_configured",
                 "entry_radar_message": f"{reason}，已保留 5 檔追蹤池，但不抓五檔 / 逐筆資料。",
                 "selected": [_unavailable_item(item, reason=reason) for item in rows],
@@ -105,6 +109,7 @@ def enrich_fugle_priority_pool(
             "tracking_limit": tracking_limit,
             "planned_api_calls": len(rows_to_fetch) * 3,
             "actual_api_calls": api_calls,
+            "api_budget_message": _api_budget_message(api_calls, len(rows_to_fetch) * 3),
             "entry_radar_status": "ok" if success_count and not failed_count and not skipped_items else "partial",
             "entry_radar_message": (
                 f"Fugle 進場雷達只追蹤前 {tracking_limit} 檔；"
@@ -269,6 +274,26 @@ def _priority_pool_limit() -> int:
     except (TypeError, ValueError):
         value = DEFAULT_FUGLE_PRIORITY_POOL_LIMIT
     return max(1, min(value, 20))
+
+
+def _api_budget_message(actual_calls: int, planned_calls: int) -> str:
+    interval_seconds = max(_env_int("FUGLE_PRIORITY_REFRESH_SECONDS", DEFAULT_FUGLE_REFRESH_INTERVAL_SECONDS), 60)
+    calls_per_minute_limit = _env_int("FUGLE_REST_CALLS_PER_MINUTE", DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE)
+    calls = int(actual_calls or planned_calls or 0)
+    estimated_per_minute = (float(calls) / interval_seconds) * 60
+    status = "安全" if estimated_per_minute <= calls_per_minute_limit * 0.8 else "接近上限"
+    return (
+        f"Fugle 雷達本次 {calls} 次 API 呼叫；"
+        f"若每 {interval_seconds // 60} 分鐘刷新，估計 {estimated_per_minute:.1f}/min，"
+        f"基本限制 {calls_per_minute_limit}/min，狀態：{status}。"
+    )
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _float(value) -> Optional[float]:
