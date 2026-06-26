@@ -269,6 +269,23 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             isinstance(payload.get("operator_steps"), list) and bool(payload.get("operator_steps")),
             f"operator_steps={payload.get('operator_steps') if isinstance(payload.get('operator_steps'), list) else '-'}",
         ),
+        Check("health has operator mode", bool(payload.get("operator_mode")), f"operator_mode={payload.get('operator_mode') or '-'}"),
+        Check("health has primary focus", bool(payload.get("primary_focus")), f"primary_focus={payload.get('primary_focus') or '-'}"),
+        Check(
+            "health has do now actions",
+            isinstance(payload.get("do_now"), list) and bool(payload.get("do_now")),
+            f"do_now={payload.get('do_now') if isinstance(payload.get('do_now'), list) else '-'}",
+        ),
+        Check(
+            "health has do not do actions",
+            isinstance(payload.get("do_not_do"), list) and bool(payload.get("do_not_do")),
+            f"do_not_do={payload.get('do_not_do') if isinstance(payload.get('do_not_do'), list) else '-'}",
+        ),
+        Check(
+            "health has decision checklist",
+            isinstance(payload.get("decision_checklist"), list) and bool(payload.get("decision_checklist")),
+            f"decision_checklist={payload.get('decision_checklist') if isinstance(payload.get('decision_checklist'), list) else '-'}",
+        ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
         Check(

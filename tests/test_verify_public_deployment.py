@@ -26,6 +26,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "next_action": {"label": "查看復盤"},
             "watch_readiness": "僅供復盤或開盤前觀察",
             "operator_steps": ["先看復盤與下個交易日觀察清單"],
+            "operator_mode": "休市復盤模式",
+            "primary_focus": "檢查上一交易日結果",
+            "do_now": ["看上一交易日復盤"],
+            "do_not_do": ["不要把昨日資料當即時買多"],
+            "decision_checklist": ["資料是否為 live？"],
             "refresh_plan": [],
             "market_mode": "closed_review",
             "price_status_summary": {"status": "休市復盤"},
@@ -218,6 +223,18 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has operator steps", failed)
+
+    def test_health_payload_requires_operator_guidance_fields(self):
+        payload = self._health_payload(operator_mode="", primary_focus="", do_now=[], do_not_do=[], decision_checklist=[])
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health has operator mode", failed)
+        self.assertIn("health has primary focus", failed)
+        self.assertIn("health has do now actions", failed)
+        self.assertIn("health has do not do actions", failed)
+        self.assertIn("health has decision checklist", failed)
 
     def test_blocked_health_cannot_show_strong_buy(self):
         payload = self._health_payload(
