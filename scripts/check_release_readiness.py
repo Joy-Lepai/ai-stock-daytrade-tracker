@@ -62,6 +62,13 @@ def git_command_timeout() -> float:
         return DEFAULT_GIT_TIMEOUT_SECONDS
 
 
+def optional_git_output(args: list[str], *, runner: Callable[..., str] = subprocess.check_output, default: str = "") -> str:
+    try:
+        return git_output(args, runner=runner)
+    except ReleaseReadinessError:
+        return default
+
+
 def describe_git_failure(args: list[str], exc: subprocess.CalledProcessError) -> str:
     command = "git " + " ".join(args)
     code = int(exc.returncode or 0)
@@ -89,8 +96,9 @@ def load_release_state(
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
-    ahead_count = parse_ahead_count(git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner))
-    status = git_output(["status", "-sb", "--no-ahead-behind"], runner=runner)
+    ahead_raw = optional_git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner, default="-1")
+    ahead_count = parse_ahead_count(ahead_raw)
+    status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
     first_line = status.splitlines()[0] if status else ""
     public_runtime = ""
     public_tracker = ""
@@ -114,7 +122,7 @@ def load_release_state(
 
 def parse_ahead_count(status_line: str) -> int:
     value = (status_line or "").strip()
-    if value.isdigit():
+    if re.fullmatch(r"-?\d+", value):
         return int(value)
     match = re.search(r"\bahead\s+(\d+)", status_line or "")
     return int(match.group(1)) if match else 0
@@ -144,12 +152,14 @@ def commit_matches(actual: str, expected: str) -> bool:
 
 
 def evaluate_release_state(state: ReleaseState) -> list[ReleaseCheck]:
+    pushed = state.head == state.origin and state.ahead_count in {0, -1}
+    ahead_detail = "unknown" if state.ahead_count < 0 else str(state.ahead_count)
     checks = [
         ReleaseCheck("worktree clean", not state.dirty, "clean" if not state.dirty else "有未提交或未 staged 的修改"),
         ReleaseCheck(
             "local pushed to origin/main",
-            state.head == state.origin and state.ahead_count == 0,
-            f"local={short(state.head)} origin={short(state.origin)} ahead={state.ahead_count}",
+            pushed,
+            f"local={short(state.head)} origin={short(state.origin)} ahead={ahead_detail}",
         ),
     ]
     if state.public_runtime:
@@ -174,7 +184,7 @@ def evaluate_release_state(state: ReleaseState) -> list[ReleaseCheck]:
 def recommended_next_action(state: ReleaseState) -> str:
     if state.dirty:
         return "先 commit 目前修改，再檢查是否需要 push。"
-    if state.head != state.origin or state.ahead_count:
+    if state.head != state.origin or state.ahead_count > 0:
         return "本機 commit 尚未推到 GitHub：請先在 GitHub Desktop 選 Repository → Push，成功後再到 Render Deploy latest commit。"
     if state.public_runtime.startswith("ERROR:"):
         return "無法讀取公開站版本：請確認網站是否啟動，再跑公開站驗收。"
@@ -192,7 +202,7 @@ def release_steps(state: ReleaseState) -> list[str]:
             "commit 完成後重跑 release readiness。",
             "確認本機乾淨後，再推送 GitHub 與部署 Render。",
         ]
-    if state.head != state.origin or state.ahead_count:
+    if state.head != state.origin or state.ahead_count > 0:
         return [
             "在 GitHub Desktop 選正確 repo，執行 Repository → Push。",
             "推送後重跑本腳本，確認 origin/main 等於 local HEAD。",
@@ -242,7 +252,7 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "next_action": recommended_next_action(state),
         "release_steps": release_steps(state),
         "can_push": (not state.dirty) and (state.head != state.origin or state.ahead_count > 0),
-        "can_deploy_render": (not state.dirty) and state.head == state.origin and state.ahead_count == 0,
+        "can_deploy_render": (not state.dirty) and state.head == state.origin and state.ahead_count in {0, -1},
         "can_trust_public": not failures,
     }
 

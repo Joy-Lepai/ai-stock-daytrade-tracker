@@ -13,6 +13,7 @@ from scripts.check_release_readiness import (
     is_worktree_dirty,
     load_release_state,
     main,
+    optional_git_output,
     parse_ahead_count,
     recommended_next_action,
     release_report_payload,
@@ -37,7 +38,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "origincommit\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
                 return "72\n"
-            if command[-3:] == ["status", "-sb", "--no-ahead-behind"]:
+            if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 return "## main...origin/main\n"
             raise AssertionError(command)
 
@@ -45,8 +46,27 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertEqual(state.ahead_count, 72)
         self.assertEqual(state.status_line, "## main...origin/main")
-        self.assertIn(["git", "status", "-sb", "--no-ahead-behind"], calls)
+        self.assertIn(["git", "status", "-sb", "--no-ahead-behind", "--untracked-files=no"], calls)
         self.assertNotIn(["git", "status", "-sb"], calls)
+
+    def test_load_release_state_keeps_working_when_ahead_count_times_out(self):
+        def fake_runner(command, **kwargs):
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                return "localcommit\n"
+            if command[-2:] == ["rev-parse", "origin/main"]:
+                return "origincommit\n"
+            if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
+                raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
+            if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
+                return "## main...origin/main\n"
+            raise AssertionError(command)
+
+        state = load_release_state(runner=fake_runner, fetch_public=False)
+
+        self.assertEqual(state.ahead_count, -1)
+        checks = evaluate_release_state(state)
+        self.assertIn("ahead=unknown", checks[1].detail)
+        self.assertFalse(checks[1].ok)
 
     def test_dirty_worktree_detection_ignores_header(self):
         self.assertFalse(is_worktree_dirty("## main...origin/main\n"))
@@ -158,6 +178,12 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "timed out"):
             git_output(["status", "-sb"], runner=timeout_runner, timeout=1)
+
+    def test_optional_git_output_returns_default_on_timeout(self):
+        def timeout_runner(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout"))
+
+        self.assertEqual(optional_git_output(["rev-list"], runner=timeout_runner, default="-1"), "-1")
 
     def test_git_output_wraps_runner_failure(self):
         def failing_runner(*args, **kwargs):
