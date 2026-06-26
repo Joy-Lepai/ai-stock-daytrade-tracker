@@ -75,6 +75,13 @@ jobs:
             echo
             echo "Refresh status snapshot"
             if curl --fail --show-error --silent --max-time 30 \
+              "${DASHBOARD_URL}/api/operator/runbook" > operator-runbook.json; then
+              echo "OK /api/operator/runbook"
+            else
+              echo "FAILED /api/operator/runbook"
+              python3 -c 'import json, os; print(json.dumps({"status": "unavailable", "summary": "Operator runbook fetch failed.", "dashboard_url": os.environ.get("DASHBOARD_URL", ""), "next_action": "Open /operator after deployment is live, then check /api/refresh/status and Render logs."}, ensure_ascii=False, indent=2))' > operator-runbook.json
+            fi
+            if curl --fail --show-error --silent --max-time 30 \
               "${DASHBOARD_URL}/api/refresh/status" > refresh-status.json; then
               python3 -m json.tool refresh-status.json
               if python3 scripts/check_operational_health.py --base-url "$DASHBOARD_URL" --timeout 30 | tee operational-health.txt; then
@@ -154,4 +161,5 @@ jobs:
             refresh-status.json
             operational-health.txt
             operational-health.json
+            operator-runbook.json
           if-no-files-found: ignore

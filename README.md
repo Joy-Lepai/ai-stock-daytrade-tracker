@@ -354,6 +354,7 @@ python3 scripts/check_operational_health.py \
 - `refresh-status.json`：完整 `/api/refresh/status` 快照。
 - `operational-health.txt`：可讀的營運健康報告、刷新順序與下一步。
 - `operational-health.json`：給自動化讀取的狀態、operator mode、`operator_briefing`、阻擋原因與刷新計畫。
+- `operator-runbook.json`：原始 `/api/operator/runbook` 作戰手冊，包含開盤檢查、沒有訊號時先查、手動刷新順序與不要做的事。
 
 如果 GitHub Actions 顯示失敗，先下載這個 artifact 看「作戰模式」、「阻擋原因」與「刷新計畫」，再決定要不要手動跑 `/refresh_full_market`、`/refresh_watchlist` 或 Render Deploy。
 
