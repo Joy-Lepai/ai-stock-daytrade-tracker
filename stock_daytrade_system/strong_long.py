@@ -142,6 +142,7 @@ def build_strong_long_funnel(
         {"reason": reason, "count": count}
         for reason, count in sorted(blockers.items(), key=lambda row: (-row[1], row[0]))[:8]
     ]
+    action_plan = _blocker_action_plan(top_blockers)
     return {
         "version": STRONG_LONG_VERSION,
         "total_market_count": int(total_market_count or 0),
@@ -166,6 +167,9 @@ def build_strong_long_funnel(
         "strong_long_candidate_count": sum(1 for result in results if result.is_candidate),
         "executable_count": sum(1 for item in rows if _string(_get(item, "entry_status")) == "executable"),
         "top_blockers": top_blockers,
+        "action_plan": action_plan,
+        "primary_action": action_plan[0]["action"] if action_plan else "先累積漏斗資料，再判斷主要卡關。",
+        "primary_wait_condition": action_plan[0]["wait_for"] if action_plan else "等待下一次刷新。",
     }
 
 
@@ -187,6 +191,76 @@ def _candidate_next_step(entry: str) -> str:
         "wait_pullback": "等待拉回 VWAP 附近不破，再重新評估。",
         "practice_long": "可列入盯盤與虛擬交易練習，等待系統觸發。",
     }.get(entry, "持續盯盤，等觸發價與風控條件確認。")
+
+
+def _blocker_action_plan(top_blockers: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    plan: list[dict[str, Any]] = []
+    for item in top_blockers[:5]:
+        reason = str(item.get("reason") or "")
+        count = int(item.get("count") or 0)
+        action, wait_for, avoid = _blocker_action_copy(reason)
+        plan.append(
+            {
+                "reason": reason,
+                "count": count,
+                "action": action,
+                "wait_for": wait_for,
+                "avoid": avoid,
+            }
+        )
+    return plan
+
+
+def _blocker_action_copy(reason: str) -> tuple[str, str, str]:
+    if reason in {"非盤中模式", "資料不是今天", "資料過期", "分層資料未達即時條件", "使用上一筆", "資料延遲", "資料不足"}:
+        return (
+            "先確認資料層，不做即時進場判斷。",
+            "等待資料恢復 live、watchlist / positions 層更新成功。",
+            "不要把休市、延遲或快取資料當成強烈買多。",
+        )
+    if reason in {"缺 VWAP", "未站上 VWAP"}:
+        return (
+            "先等價格站回 VWAP 並維持。",
+            "價格站上 VWAP，且下一次刷新仍守住。",
+            "不要在 VWAP 下方提前追多。",
+        )
+    if reason in {"缺量比", "量比未達 1.0"}:
+        return (
+            "先等量能補上。",
+            "量比放大到 1.0 以上，且價格沒有跌回 VWAP。",
+            "不要把無量反彈當成可進場。",
+        )
+    if reason in {"尚未突破或接近突破價"}:
+        return (
+            "先等突破確認。",
+            "突破昨日高點、觸發價或盤中關鍵高點後再重算。",
+            "不要在尚未突破前把觀察股當成買多。",
+        )
+    if reason in {"多方分數低於 75", "信心分數低於 60"}:
+        return (
+            "先看是否只是觀察股。",
+            "等待 VWAP、量能、突破與資料可信度同時改善。",
+            "不要因單一題材或法人背景直接升級。",
+        )
+    if reason in {"風險分數高於 55", "距離 VWAP 過遠", "停損距離不合理或缺停損價", "長上影或假突破風險", "high_risk"}:
+        return (
+            "先降追價風險。",
+            "等待拉回 VWAP 附近、停損距離縮小或長上影壓力解除。",
+            "不要追高；high_risk 只能觀察。",
+        )
+    if reason in {"wait_volume"}:
+        return ("等量能確認。", "量比放大到 1.0 以上。", "不要提前視為強烈買多。")
+    if reason in {"wait_vwap"}:
+        return ("等站回 VWAP。", "價格站回 VWAP 並維持。", "不要在 VWAP 下方做多。")
+    if reason in {"wait_breakout"}:
+        return ("等突破觸發價。", "突破觸發價或昨日高點。", "不要把接近突破當成已突破。")
+    if reason in {"avoid"}:
+        return ("先避開。", "等待多方結構重新成立。", "不要把 avoid 包裝成買多。")
+    return (
+        "先看個股作戰卡的最大卡關。",
+        "等待下一次刷新後，確認 VWAP、量比、突破與風控是否改善。",
+        "不要為了交易而交易。",
+    )
 
 
 def _breakout_ready(price: Optional[float], prev_high: Optional[float], trigger_price: Optional[float], break_prev_high: bool) -> bool:

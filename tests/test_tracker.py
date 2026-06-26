@@ -22,6 +22,7 @@ from stock_daytrade_system.tracker import (
     _market_mode_panel,
     _recommendation_checklist_table,
     _signal_center,
+    _strong_long_funnel_panel,
     _today_playbook_panel,
     _tomorrow_continuation_candidates,
     _tomorrow_long_watch_pool,
@@ -1444,6 +1445,50 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("wait_volume 8 檔", html)
         self.assertIn("wait_vwap 5 檔", html)
         self.assertIn("wait_breakout 4 檔", html)
+
+    def test_strong_long_funnel_panel_shows_operator_action_plan(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "strong_long_funnel": {
+                    "total_market_count": 1125,
+                    "momentum_candidate_count": 40,
+                    "model_candidates_count": 40,
+                    "strong_long_candidate_count": 0,
+                    "executable_count": 0,
+                    "top_blockers": [
+                        {"reason": "風險分數高於 55", "count": 12},
+                        {"reason": "量比未達 1.0", "count": 8},
+                    ],
+                    "action_plan": [
+                        {
+                            "reason": "風險分數高於 55",
+                            "count": 12,
+                            "action": "先降追價風險。",
+                            "wait_for": "等待拉回 VWAP 附近、停損距離縮小或長上影壓力解除。",
+                            "avoid": "不要追高；high_risk 只能觀察。",
+                        }
+                    ],
+                    "primary_action": "先降追價風險。",
+                    "primary_wait_condition": "等待拉回 VWAP 附近、停損距離縮小或長上影壓力解除。",
+                },
+            },
+        )
+
+        html = _strong_long_funnel_panel(summary)
+
+        self.assertIn("現在先做", html)
+        self.assertIn("先降追價風險", html)
+        self.assertIn("等到什麼", html)
+        self.assertIn("卡關處理順序", html)
+        self.assertIn("不要追高", html)
+        self.assertIn("high_risk 只能觀察", html)
 
     def test_render_uses_mvp_sections_and_debug_without_legacy_auto_blocks(self):
         summary = LongModelSummary(

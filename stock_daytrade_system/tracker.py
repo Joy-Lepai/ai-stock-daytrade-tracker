@@ -2940,6 +2940,7 @@ def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
     if not funnel:
         return '<section class="notice">目前沒有強烈買多漏斗資料。</section>'
     top_blockers = funnel.get("top_blockers") or []
+    action_plan = funnel.get("action_plan") or []
     blocker_text = "、".join(
         f"{item.get('reason')} {int(item.get('count', 0))} 檔"
         for item in top_blockers[:5]
@@ -2972,11 +2973,28 @@ def _strong_long_funnel_panel(summary: Optional[LongModelSummary]) -> str:
         f"<tr><td>{escape(str(item.get('reason', '-')))}</td><td>{int(item.get('count', 0) or 0)}</td></tr>"
         for item in top_blockers
     ) or '<tr><td colspan="2">目前沒有卡關資料。</td></tr>'
+    action_rows = "".join(
+        "<tr>"
+        f"<td>{escape(str(item.get('reason', '-')))}<br><span class=\"muted\">{int(item.get('count', 0) or 0)} 檔</span></td>"
+        f"<td>{escape(str(item.get('action', '-')))}</td>"
+        f"<td>{escape(str(item.get('wait_for', '-')))}</td>"
+        f"<td>{escape(str(item.get('avoid', '-')))}</td>"
+        "</tr>"
+        for item in action_plan[:5]
+    ) or '<tr><td colspan="4">目前沒有卡關處理建議。</td></tr>'
+    primary_action = str(funnel.get("primary_action") or "先累積漏斗資料，再判斷主要卡關。")
+    primary_wait = str(funnel.get("primary_wait_condition") or "等待下一次刷新。")
     return (
         '<section class="decision-center">'
         '<section class="notice">強烈買多候選不等於進場；仍需通過更嚴格的觸發、風控與資料安全規則。</section>'
         f'<div class="summary">{metrics}</div>'
+        f'<section class="notice"><strong>現在先做：</strong>{escape(primary_action)}<br><strong>等到什麼：</strong>{escape(primary_wait)}</section>'
         f'<p class="muted"><strong>主要卡關原因：</strong>{escape(blocker_text)}</p>'
+        '<h3>卡關處理順序</h3>'
+        '<div class="table-wrap"><table><thead><tr><th>卡關</th><th>現在先做</th><th>等到什麼</th><th>不要做</th></tr></thead><tbody>'
+        f'{action_rows}'
+        '</tbody></table></div>'
+        '<h3>卡關統計</h3>'
         '<div class="table-wrap"><table><thead><tr><th>卡關原因</th><th>檔數</th></tr></thead><tbody>'
         f'{blocker_rows}'
         '</tbody></table></div>'

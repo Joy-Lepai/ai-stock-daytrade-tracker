@@ -71,6 +71,27 @@ class StrongLongTests(unittest.TestCase):
         self.assertEqual(payload["blocked_high_risk_count"], 1)
         self.assertEqual(payload["blocked_wait_volume_count"], 1)
         self.assertTrue(payload["top_blockers"])
+        self.assertTrue(payload["action_plan"])
+        self.assertTrue(payload["primary_action"])
+        self.assertTrue(payload["primary_wait_condition"])
+
+    def test_funnel_action_plan_translates_blockers_to_operator_steps(self):
+        payload = build_strong_long_funnel(
+            [
+                candidate(symbol="2317.TW", entry_status="high_risk", risk_score=70),
+                candidate(symbol="2303.TW", volume_ratio=0.6, entry_status="wait_volume"),
+            ],
+            total_market_count=1125,
+            momentum_candidate_count=40,
+            live_count=120,
+        )
+
+        actions = " ".join(str(item.get("action", "")) for item in payload["action_plan"])
+        avoids = " ".join(str(item.get("avoid", "")) for item in payload["action_plan"])
+
+        self.assertIn("先降追價風險", actions)
+        self.assertIn("不要追高", avoids)
+        self.assertIn("high_risk 只能觀察", avoids)
 
 
 if __name__ == "__main__":
