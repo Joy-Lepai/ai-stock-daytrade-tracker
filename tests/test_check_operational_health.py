@@ -51,6 +51,10 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS]", report)
+        self.assertIn("operator_task_card:", report)
+        self.assertIn("status: 可盯盤：強烈買多 1 檔", report)
+        self.assertIn("first_step: 先看強烈買多，再逐檔確認進場雷達與停損距離", report)
+        self.assertIn("refresh: 不需手動刷新", report)
         self.assertIn("operator_briefing:", report)
         self.assertIn("opening_preflight:", report)
         self.assertIn("operator_decision:", report)
@@ -146,6 +150,10 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["operator_task_card"]["status_label"], "等待觸發：買多 1 檔、觀察 7 檔")
+        self.assertEqual(report["operator_task_card"]["first_step"], "先看買多清單的下一步觸發條件，不提前追")
+        self.assertEqual(report["operator_task_card"]["refresh_command"], "POST /refresh_watchlist")
+        self.assertEqual(report["operator_task_card"]["operator_page"], "https://stock.letslepai.com/operator")
         self.assertEqual(report["source"], "/api/operator/runbook")
         self.assertEqual(report["operator_url"], "https://stock.letslepai.com/operator")
         self.assertEqual(report["operator_decision"]["decision"], "可盯盤")
@@ -228,6 +236,9 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(exit_code, 1)
+        self.assertIn("operator_task_card:", report)
+        self.assertIn("status: 暫停：先修資料或刷新層", report)
+        self.assertIn("refresh: POST /refresh_full_market", report)
         self.assertIn("watch_readiness: 暫不適合進場判斷", report)
         self.assertIn("required_stale_layers: full_market, watchlist", report)
         self.assertIn("manual_endpoint: POST /refresh_full_market", report)
@@ -257,6 +268,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["operator_task_card"]["status_label"], "暫停：先修資料或刷新層")
+        self.assertEqual(report["operator_task_card"]["refresh_command"], "POST /refresh_full_market")
         self.assertEqual(report["opening_preflight"]["light"], "red")
         self.assertEqual(report["opening_preflight"]["label"], "暫停使用即時訊號")
         self.assertEqual(report["operator_decision"]["decision"], "暫停")

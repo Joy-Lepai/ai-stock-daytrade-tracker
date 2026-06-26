@@ -145,10 +145,12 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
     front = health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {}
     next_action = _next_action(payload, health)
     plan = refresh_plan(payload, health)
+    task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
     return {
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
         "summary": health.get("summary") or "",
+        "operator_task_card": task_card,
         "operator_url": f"{base_url.rstrip('/')}/operator",
         "opening_preflight": dict(health.get("opening_preflight") or {}),
         "operator_decision": dict(health.get("operator_decision") or {}),
@@ -241,10 +243,18 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
     front = health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {}
+    next_action = _next_action(payload, health)
+    plan = refresh_plan(payload, health)
+    task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
     lines = [
         "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
         f"operator_page: {base_url.rstrip('/')}/operator",
+        "operator_task_card:",
+        f"- status: {task_card.get('status_label') or '-'}",
+        f"- first_step: {task_card.get('first_step') or '-'}",
+        f"- do_not: {task_card.get('do_not') or '-'}",
+        f"- refresh: {task_card.get('refresh_command') or '-'}",
         f"watch_readiness: {_watch_readiness_label(status, health, payload)}",
         f"market_mode: {health.get('market_mode') or payload.get('market_mode') or '-'}",
         f"data_quality: {health.get('data_quality_status') or '-'}",
@@ -310,14 +320,12 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         lines.append(f"required_stale_layers: {', '.join(str(item) for item in required_stale)}")
     if stale_layers:
         lines.append(f"stale_layers: {', '.join(str(item) for item in stale_layers)}")
-    next_action = _next_action(payload, health)
     action_label = str(next_action.get("label") or "-")
     action_endpoint = str(next_action.get("endpoint") or "")
     lines.append(f"next_action: {action_label} {action_endpoint}".strip())
     if action_endpoint.startswith("/refresh"):
         lines.append(f"manual_endpoint: POST {action_endpoint}")
         lines.append(f"manual_curl: curl -X POST {base_url.rstrip('/')}{action_endpoint}")
-    plan = refresh_plan(payload, health)
     if plan:
         lines.append(f"refresh_plan: {' -> '.join(plan)}")
     return (0 if status in {"ok", "warning"} else 1, "\n".join(lines))
@@ -348,6 +356,58 @@ def _front_category_report(summary: dict[str, Any]) -> dict[str, Any]:
         "bearish": _safe_int(summary.get("bearish_count", counts.get("看空", 0))),
         "data_missing": _safe_int(summary.get("data_missing_count", counts.get("資料不足", 0))),
         "no_signal_reason": str(summary.get("no_signal_reason") or ""),
+    }
+
+
+def _operator_task_card(
+    health: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    next_action: dict[str, Any],
+    refresh_plan: list[str],
+    base_url: str = DEFAULT_BASE_URL,
+) -> dict[str, str]:
+    status = str(health.get("status") or "blocked")
+    decision = health.get("operator_decision") if isinstance(health.get("operator_decision"), dict) else {}
+    preflight = health.get("opening_preflight") if isinstance(health.get("opening_preflight"), dict) else {}
+    front = _front_category_report(health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {})
+    strong = _safe_int(front.get("strong_buy"))
+    buy = _safe_int(front.get("buy"))
+    watch = _safe_int(front.get("watch"))
+    bearish = _safe_int(front.get("bearish"))
+    mode = str(health.get("market_mode") or payload.get("market_mode") or "")
+    can_trust_strong = bool(
+        decision.get("can_trust_strong_buy")
+        if "can_trust_strong_buy" in decision
+        else preflight.get("can_trust_strong_buy") if "can_trust_strong_buy" in preflight else health.get("can_show_strong_long")
+    )
+    blockers = [str(item) for item in (health.get("blockers") or []) if str(item).strip()]
+    warnings = [str(item) for item in (health.get("warnings") or []) if str(item).strip()]
+    do_not = [str(item) for item in (health.get("do_not_do") or []) if str(item).strip()]
+    endpoint = str(next_action.get("endpoint") or "")
+
+    if status == "blocked":
+        status_label = "暫停：先修資料或刷新層"
+        first_step = next_action.get("label") or (blockers[0] if blockers else "先修資料")
+    elif mode != "intraday":
+        status_label = "非盤中：只做復盤與觀察"
+        first_step = "看上一交易日復盤與下個交易日觀察清單"
+    elif can_trust_strong and strong > 0:
+        status_label = f"可盯盤：強烈買多 {strong} 檔"
+        first_step = "先看強烈買多，再逐檔確認進場雷達與停損距離"
+    elif buy > 0:
+        status_label = f"等待觸發：買多 {buy} 檔、觀察 {watch} 檔"
+        first_step = "先看買多清單的下一步觸發條件，不提前追"
+    else:
+        status_label = f"沒有可用買多：觀察 {watch} 檔、看空 {bearish} 檔"
+        first_step = front.get("no_signal_reason") or (warnings[0] if warnings else "先看最大卡關原因與資料狀態")
+
+    return {
+        "status_label": str(status_label),
+        "first_step": str(first_step),
+        "do_not": do_not[0] if do_not else "不要把觀察、high_risk、delayed、cached 當成可進場",
+        "refresh_command": f"POST {endpoint}" if endpoint.startswith("/refresh") else (" -> ".join(refresh_plan) if refresh_plan else "不需手動刷新"),
+        "operator_page": f"{base_url.rstrip('/')}/operator",
     }
 
 
