@@ -1,5 +1,6 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from stock_daytrade_system.fugle_priority_pool import build_fugle_priority_pool
 
@@ -24,22 +25,23 @@ def item(symbol, entry_status, grade="B", bullish=70, risk=35, confidence=65, vo
 
 class FuglePriorityPoolTests(unittest.TestCase):
     def test_selects_top_five_without_changing_model(self):
-        payload = build_fugle_priority_pool(
-            [
-                item("2330.TW", "wait_volume"),
-                item("2317.TW", "executable", grade="A", bullish=85, risk=25),
-                item("2884.TW", "practice_long", grade="B+"),
-                item("3711.TW", "wait_breakout"),
-                item("6919.TW", "high_risk", grade="C", risk=72, volume_ratio=5),
-                item("1101.TW", "wait_vwap"),
-                item("9999.TW", "avoid", grade="D"),
-            ],
-            b_plus_triggers=[{"symbol": "2884.TW", "trigger_readiness": "near"}],
-            pinned_symbols=["6919.tw"],
-            max_symbols=5,
-            enabled=True,
-            configured=True,
-        )
+        with patch.dict("os.environ", {"FUGLE_PLAN": "basic", "FUGLE_REST_CALLS_PER_MINUTE": "60"}, clear=False):
+            payload = build_fugle_priority_pool(
+                [
+                    item("2330.TW", "wait_volume"),
+                    item("2317.TW", "executable", grade="A", bullish=85, risk=25),
+                    item("2884.TW", "practice_long", grade="B+"),
+                    item("3711.TW", "wait_breakout"),
+                    item("6919.TW", "high_risk", grade="C", risk=72, volume_ratio=5),
+                    item("1101.TW", "wait_vwap"),
+                    item("9999.TW", "avoid", grade="D"),
+                ],
+                b_plus_triggers=[{"symbol": "2884.TW", "trigger_readiness": "near"}],
+                pinned_symbols=["6919.tw"],
+                max_symbols=5,
+                enabled=True,
+                configured=True,
+            )
 
         selected = payload["selected"]
         symbols = [row["symbol"] for row in selected]
@@ -58,6 +60,17 @@ class FuglePriorityPoolTests(unittest.TestCase):
         self.assertTrue(next(row for row in selected if row["symbol"] == "2317.TW")["can_use_for_entry_confirmation"])
         self.assertIn("不會改 A / B+ / B 條件", " ".join(payload["selection_policy"]))
         self.assertEqual(payload["pinned_symbols"], ["6919.TW"])
+        capability = payload["capability_summary"]
+        self.assertEqual(capability["plan"], "basic")
+        self.assertEqual(capability["websocket_subscription_limit"], 5)
+        self.assertEqual(capability["rest_calls_per_minute"], 60)
+        self.assertTrue(capability["quote_supported"])
+        self.assertTrue(capability["trades_supported"])
+        self.assertTrue(capability["candles_supported"])
+        self.assertFalse(capability["snapshot_supported"])
+        self.assertFalse(capability["technical_indicators_supported"])
+        self.assertIn("不支援日內快照", capability["summary"])
+        self.assertIn("不自動下單", capability["trading_note"])
         allocation = payload["allocation_summary"]
         self.assertEqual(allocation["limit"], 5)
         self.assertEqual(allocation["used"], 5)

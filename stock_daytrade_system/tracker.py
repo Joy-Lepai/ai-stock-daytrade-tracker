@@ -1359,6 +1359,9 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     allocation_warning = str(allocation.get("warning") or "")
     allocation_warning_html = f'<br><span class="muted">{escape(allocation_warning)}</span>' if allocation_warning else ""
     api_budget_text = str(pool.get("api_budget_message") or "Fugle API 預算尚未估算。")
+    capability = pool.get("capability_summary") or {}
+    capability_text = str(capability.get("summary") or "Fugle 能力狀態尚未整理。")
+    capability_note = str(capability.get("trading_note") or "Fugle 只作行情確認，不作自動下單。")
     service_warning = ""
     if not pool.get("enabled") or not pool.get("configured"):
         service_warning = (
@@ -1384,6 +1387,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'{_metric("已選標的", 0)}'
             '</div>'
             f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}</section>'
+            f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
             f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
             f'{service_warning}'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
@@ -1430,6 +1434,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         '</div>'
         f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}'
         f'{allocation_warning_html}</section>'
+        f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
         f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
         f'{service_warning}'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'

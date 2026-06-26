@@ -898,6 +898,13 @@ class TrackerStatusTests(unittest.TestCase):
                     "excluded_count": 3,
                     "actual_api_calls": 6,
                     "api_budget_message": "Fugle 雷達本次 6 次 API 呼叫；若每 5 分鐘刷新，估計 1.2/min，基本限制 60/min，狀態：安全。",
+                    "capability_summary": {
+                        "plan": "basic",
+                        "websocket_subscription_limit": 5,
+                        "rest_calls_per_minute": 60,
+                        "summary": "Fugle basic 方案：最多追蹤 5 檔、REST 約 60/min；不支援日內快照，不支援技術指標 API。",
+                        "trading_note": "Fugle 只作行情確認；本系統不串券商下單，也不自動下單。",
+                    },
                     "pinned_symbols": ["6919.TW"],
                     "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。",
                     "allocation_summary": {
@@ -978,6 +985,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("實際 API 呼叫", html)
         self.assertIn("API 預算", html)
         self.assertIn("估計 1.2/min", html)
+        self.assertIn("方案能力", html)
+        self.assertIn("不支援日內快照", html)
+        self.assertIn("不自動下單", html)
         self.assertIn("名額配置", html)
         self.assertIn("練習買多 1 檔", html)
         self.assertIn("高風險標的只作風險降溫觀察", html)

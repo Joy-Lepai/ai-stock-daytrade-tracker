@@ -10,6 +10,7 @@ from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v1_basic_5_2026-06-21"
 DEFAULT_FUGLE_BASIC_SUBSCRIPTIONS = 5
+DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE = 60
 
 
 @dataclass(frozen=True)
@@ -71,9 +72,11 @@ def build_fugle_priority_pool(
     selected = scored[:limit]
     standby = scored[limit : limit + 10]
     allocation_summary = _allocation_summary(selected, limit)
+    capability_summary = _capability_summary(limit)
     return {
         "version": FUGLE_PRIORITY_POOL_VERSION,
         "mode": "basic_user_5_symbols",
+        "capability_summary": capability_summary,
         "max_symbols": limit,
         "enabled": bool(enabled) if enabled is not None else _env_bool("FUGLE_ENABLED"),
         "configured": bool(configured) if configured is not None else bool(os.environ.get("FUGLE_API_KEY")),
@@ -93,6 +96,7 @@ def build_fugle_priority_pool(
         "selection_policy": [
             "優先追蹤 executable / practice_long / B+ / 等待突破 / 等待 VWAP / 等待量能。",
             "Fugle 基本用戶最多追 5 檔，避免全市場打 API 或超過訂閱限制。",
+            capability_summary["summary"],
             "此池只用於即時確認，不會改 A / B+ / B 條件，也不會自動下單。",
         ],
         "message": "已依基本用戶 5 檔限制挑選即時追蹤標的。"
@@ -129,6 +133,37 @@ def _allocation_summary(selected: list[FuglePriorityItem], limit: int) -> dict:
         "by_tracking_purpose": dict(sorted(by_purpose.items())),
         "summary": "、".join(summary_parts) if summary_parts else "目前沒有配置即時追蹤名額。",
         "warning": "高風險標的只作風險降溫觀察，不作進場確認。" if high_risk else "",
+    }
+
+
+def _capability_summary(limit: int) -> dict:
+    plan = str(os.environ.get("FUGLE_PLAN") or "basic").strip().lower() or "basic"
+    rest_limit = _env_int("FUGLE_REST_CALLS_PER_MINUTE", DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE)
+    snapshot_supported = _env_bool("FUGLE_SNAPSHOT_SUPPORTED") if os.environ.get("FUGLE_SNAPSHOT_SUPPORTED") else plan != "basic"
+    technical_supported = (
+        _env_bool("FUGLE_TECHNICAL_INDICATORS_SUPPORTED")
+        if os.environ.get("FUGLE_TECHNICAL_INDICATORS_SUPPORTED")
+        else plan != "basic"
+    )
+    quote_supported = True
+    trades_supported = True
+    candles_supported = True
+    summary = (
+        f"Fugle {plan} 方案：最多追蹤 {limit} 檔、REST 約 {rest_limit}/min；"
+        f"{'支援' if snapshot_supported else '不支援'}日內快照，"
+        f"{'支援' if technical_supported else '不支援'}技術指標 API。"
+    )
+    return {
+        "plan": plan,
+        "websocket_subscription_limit": limit,
+        "rest_calls_per_minute": rest_limit,
+        "quote_supported": quote_supported,
+        "trades_supported": trades_supported,
+        "candles_supported": candles_supported,
+        "snapshot_supported": bool(snapshot_supported),
+        "technical_indicators_supported": bool(technical_supported),
+        "summary": summary,
+        "trading_note": "Fugle 只作行情確認；本系統不串券商下單，也不自動下單。",
     }
 
 
@@ -281,3 +316,10 @@ def _float(value, default=None) -> Optional[float]:
 
 def _env_bool(name: str) -> bool:
     return str(os.environ.get(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except (TypeError, ValueError):
+        return default
