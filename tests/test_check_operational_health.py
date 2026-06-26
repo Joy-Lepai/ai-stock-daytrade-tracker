@@ -11,6 +11,13 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
             {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "opening_preflight": {
+                    "light": "green",
+                    "label": "可進入盤中追蹤",
+                    "reason": "資料可用。",
+                    "next_action": "先看強烈買多",
+                    "can_trust_strong_buy": True,
+                },
                 "operator_briefing": {
                     "headline": "資料可用，照強烈買多漏斗與進場雷達看盤",
                     "posture": "盤中作戰",
@@ -30,6 +37,10 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("[PASS]", report)
         self.assertIn("operator_briefing:", report)
+        self.assertIn("opening_preflight:", report)
+        self.assertIn("light: green", report)
+        self.assertIn("label: 可進入盤中追蹤", report)
+        self.assertIn("can_trust_strong_buy: True", report)
         self.assertIn("headline: 資料可用", report)
         self.assertIn("next_check: 先看強烈買多候選。", report)
         self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
@@ -104,6 +115,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         )
 
         self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["opening_preflight"]["light"], "red")
+        self.assertEqual(report["opening_preflight"]["label"], "暫停使用即時訊號")
         self.assertEqual(report["operator_briefing"]["posture"], "暫停進場判斷")
         self.assertEqual(report["exit_code"], 1)
         self.assertEqual(report["operator_mode"], "refresh_required")

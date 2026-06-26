@@ -95,10 +95,20 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         warnings=warnings,
         can_show_strong=can_show_strong and not blockers,
     )
+    preflight = _opening_preflight(
+        status=status,
+        market_mode=market_mode,
+        next_action=next_action,
+        blockers=blockers,
+        warnings=warnings,
+        allow_intraday_signal=allow_intraday_signal,
+        can_show_strong=can_show_strong and not blockers,
+    )
     return {
         "version": OPERATIONAL_HEALTH_VERSION,
         "status": status,
         "summary": summary,
+        "opening_preflight": preflight,
         "operator_briefing": briefing,
         "operator_mode": operator_mode["mode"],
         "primary_focus": operator_mode["primary_focus"],
@@ -125,6 +135,54 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "allow_intraday_signal": allow_intraday_signal,
         "can_show_strong_long": can_show_strong and not blockers,
         "can_use_dashboard": status != "blocked",
+    }
+
+
+def _opening_preflight(
+    *,
+    status: str,
+    market_mode: str,
+    next_action: dict[str, str],
+    blockers: list[str],
+    warnings: list[str],
+    allow_intraday_signal: bool,
+    can_show_strong: bool,
+) -> dict[str, Any]:
+    if status == "blocked":
+        light = "red"
+        label = "暫停使用即時訊號"
+        reason = blockers[0] if blockers else "資料或刷新層尚未準備好。"
+        action = next_action.get("label") or "先修資料"
+    elif market_mode in REVIEW_MODES:
+        light = "yellow"
+        label = "復盤 / 開盤前觀察"
+        reason = "目前不是盤中即時模式，只能看復盤與下個交易日觀察。"
+        action = "等待盤中 live 資料"
+    elif status == "warning":
+        light = "yellow"
+        label = "可看盤但需保守"
+        reason = warnings[0] if warnings else "有資料延遲、快取或缺漏，需避開有疑慮標的。"
+        action = next_action.get("label") or "只看 live 且資料完整的股票"
+    elif allow_intraday_signal and can_show_strong:
+        light = "green"
+        label = "可進入盤中追蹤"
+        reason = "資料與刷新層可用，可依強烈買多漏斗與進場雷達逐檔確認。"
+        action = "先看強烈買多，再看進場雷達"
+    else:
+        light = "yellow"
+        label = "等待訊號"
+        reason = "資料可用，但目前沒有可顯示強烈買多的標的。"
+        action = "等待 VWAP、量比、突破或雷達轉強"
+    return {
+        "light": light,
+        "label": label,
+        "reason": reason,
+        "next_action": action,
+        "next_action_endpoint": next_action.get("endpoint") or "",
+        "can_open_dashboard": status != "blocked",
+        "can_use_intraday_signals": bool(allow_intraday_signal and status != "blocked"),
+        "can_trust_strong_buy": bool(can_show_strong and status == "ok"),
+        "should_trade_live": bool(light == "green"),
     }
 
 

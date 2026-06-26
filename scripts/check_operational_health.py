@@ -88,6 +88,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
         "summary": health.get("summary") or "",
+        "opening_preflight": dict(health.get("opening_preflight") or {}),
         "operator_briefing": dict(health.get("operator_briefing") or {}),
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
@@ -182,6 +183,14 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     ]
     if payload.get("_health_source"):
         lines.append(f"source: {payload.get('_health_source')}")
+    preflight = health.get("opening_preflight") if isinstance(health.get("opening_preflight"), dict) else {}
+    if preflight:
+        lines.append("opening_preflight:")
+        lines.append(f"- light: {preflight.get('light') or '-'}")
+        lines.append(f"- label: {preflight.get('label') or '-'}")
+        lines.append(f"- reason: {preflight.get('reason') or '-'}")
+        lines.append(f"- next_action: {preflight.get('next_action') or '-'}")
+        lines.append(f"- can_trust_strong_buy: {bool(preflight.get('can_trust_strong_buy'))}")
     briefing = health.get("operator_briefing") if isinstance(health.get("operator_briefing"), dict) else {}
     if briefing:
         lines.append("operator_briefing:")

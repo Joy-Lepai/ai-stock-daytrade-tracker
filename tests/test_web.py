@@ -52,6 +52,11 @@ class WebTests(unittest.TestCase):
             "operational_health": {
                 "status": "ok",
                 "summary": "系統狀態正常",
+                "opening_preflight": {
+                    "light": "green",
+                    "label": "可進入盤中追蹤",
+                    "can_trust_strong_buy": True,
+                },
                 "operator_briefing": {
                     "headline": "資料可用，照強烈買多漏斗與進場雷達看盤",
                     "posture": "盤中作戰",
@@ -85,6 +90,9 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["operator_briefing"]["posture"], "盤中作戰")
+        self.assertEqual(payload["opening_preflight"]["light"], "green")
+        self.assertEqual(payload["opening_preflight"]["label"], "可進入盤中追蹤")
+        self.assertTrue(payload["opening_preflight"]["can_trust_strong_buy"])
         self.assertIn("強烈買多", payload["operator_briefing"]["headline"])
         self.assertEqual(payload["operator_mode"], "盤中作戰模式")
         self.assertEqual(payload["primary_focus"], "先看強烈買多與買多")
@@ -379,6 +387,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("版本驗收", html)
         self.assertIn("資料新鮮度", html)
         self.assertIn("營運健康", html)
+        self.assertIn("開盤檢查", html)
+        self.assertIn("opening_preflight", html)
         self.assertIn("看盤狀態", html)
         self.assertIn("看盤：", html)
         self.assertIn("作戰模式", html)
