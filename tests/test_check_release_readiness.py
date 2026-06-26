@@ -71,35 +71,33 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertTrue(checks[1].ok)
 
     def test_load_release_state_falls_back_when_status_times_out(self):
-        exit_calls = []
+        calls = []
 
         def fake_runner(command, **kwargs):
+            calls.append(command)
             if command[-2:] == ["rev-parse", "HEAD"]:
                 return "localcommit\n"
             if command[-2:] == ["rev-parse", "origin/main"]:
                 return "origincommit\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
+            if command[-3:] == ["status", "--porcelain=v1", "--untracked-files=no"]:
+                return ""
             raise AssertionError(command)
 
-        def fake_exit_runner(command, **kwargs):
-            exit_calls.append(command)
-            return subprocess.CompletedProcess(command, 0)
-
-        state = load_release_state(runner=fake_runner, exit_runner=fake_exit_runner, fetch_public=False)
+        state = load_release_state(runner=fake_runner, fetch_public=False)
 
         self.assertFalse(state.dirty)
         self.assertIn("status unavailable", state.status_line)
-        self.assertIn(["git", "diff", "--quiet", "--ignore-submodules", "--"], exit_calls)
-        self.assertIn(["git", "diff", "--cached", "--quiet", "--ignore-submodules", "--"], exit_calls)
+        self.assertIn(["git", "status", "--porcelain=v1", "--untracked-files=no"], calls)
 
     def test_worktree_dirty_fallback_detects_staged_or_unstaged_changes(self):
-        def fake_exit_runner(command, **kwargs):
-            if "--cached" in command:
-                return subprocess.CompletedProcess(command, 0)
-            return subprocess.CompletedProcess(command, 1)
+        def fake_runner(command, **kwargs):
+            if command[-3:] == ["status", "--porcelain=v1", "--untracked-files=no"]:
+                return " M README.md\n"
+            raise AssertionError(command)
 
-        self.assertTrue(worktree_dirty_fallback(exit_runner=fake_exit_runner))
+        self.assertTrue(worktree_dirty_fallback(runner=fake_runner))
 
     def test_dirty_worktree_detection_ignores_header(self):
         self.assertFalse(is_worktree_dirty("## main...origin/main\n"))

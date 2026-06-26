@@ -10,7 +10,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 
 DEFAULT_BASE_URL = "https://stock.letslepai.com"
@@ -92,7 +92,6 @@ def load_release_state(
     base_url: str = DEFAULT_BASE_URL,
     timeout: float = 12.0,
     runner: Callable[..., str] = subprocess.check_output,
-    exit_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     fetch_public: bool = True,
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
@@ -103,7 +102,7 @@ def load_release_state(
         dirty = is_worktree_dirty(status)
         first_line = status.splitlines()[0] if status else ""
     except ReleaseReadinessError as exc:
-        dirty = worktree_dirty_fallback(exit_runner=exit_runner)
+        dirty = worktree_dirty_fallback(runner=runner)
         first_line = f"## main...origin/main [status unavailable: {exc}]"
     public_runtime = ""
     public_tracker = ""
@@ -140,35 +139,13 @@ def is_worktree_dirty(status_output: str) -> bool:
 
 def worktree_dirty_fallback(
     *,
-    exit_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    runner: Callable[..., str] = subprocess.check_output,
 ) -> bool:
     try:
-        unstaged = git_exit_code(["diff", "--quiet", "--ignore-submodules", "--"], runner=exit_runner)
-        staged = git_exit_code(["diff", "--cached", "--quiet", "--ignore-submodules", "--"], runner=exit_runner)
+        status = git_output(["status", "--porcelain=v1", "--untracked-files=no"], runner=runner)
     except ReleaseReadinessError:
         return True
-    return unstaged != 0 or staged != 0
-
-
-def git_exit_code(
-    args: list[str],
-    *,
-    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
-    timeout: Optional[float] = None,
-) -> int:
-    try:
-        result = runner(
-            ["git", *args],
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout if timeout is not None else git_command_timeout(),
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ReleaseReadinessError(describe_git_timeout(args, exc)) from exc
-    except OSError as exc:
-        raise ReleaseReadinessError(f"`git {' '.join(args)}` failed: {exc}") from exc
-    return int(result.returncode)
+    return bool(status.strip())
 
 
 def fetch_system_version(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
