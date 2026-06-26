@@ -139,6 +139,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
         "summary": health.get("summary") or "",
+        "operator_url": f"{base_url.rstrip('/')}/operator",
         "opening_preflight": dict(health.get("opening_preflight") or {}),
         "operator_decision": dict(health.get("operator_decision") or {}),
         "operator_briefing": dict(health.get("operator_briefing") or {}),
@@ -231,6 +232,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     lines = [
         "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
+        f"operator_page: {base_url.rstrip('/')}/operator",
         f"watch_readiness: {_watch_readiness_label(status, health, payload)}",
         f"market_mode: {health.get('market_mode') or payload.get('market_mode') or '-'}",
         f"data_quality: {health.get('data_quality_status') or '-'}",

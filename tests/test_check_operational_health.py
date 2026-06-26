@@ -56,6 +56,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
         self.assertIn("live=20", report)
         self.assertIn("/api/health", report)
+        self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
 
     def test_render_report_understands_operator_runbook_payload(self):
         exit_code, report = script.render_report(
@@ -90,6 +91,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("1. 先看強烈買多候選", report)
         self.assertIn("refresh_plan: /refresh_watchlist", report)
         self.assertIn("/api/operator/runbook", report)
+        self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
 
     def test_build_json_report_understands_operator_runbook_payload(self):
         report = script.build_json_report(
@@ -117,6 +119,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         self.assertEqual(report["status"], "ok")
         self.assertEqual(report["source"], "/api/operator/runbook")
+        self.assertEqual(report["operator_url"], "https://stock.letslepai.com/operator")
         self.assertEqual(report["operator_decision"]["decision"], "可盯盤")
         self.assertTrue(report["operator_decision"]["can_trade_now"])
         self.assertEqual(report["do_now"], ["先看強烈買多候選", "確認進場雷達"])
