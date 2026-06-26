@@ -156,8 +156,11 @@ class EntryConfirmationTests(unittest.TestCase):
         self.assertEqual(payload["ask_volume_trend"], "missing")
         self.assertEqual(payload["large_trade_status"], "missing")
         self.assertFalse(payload["can_consider_entry"])
-        self.assertEqual(payload["confirmation_quality"], "blocked")
-        self.assertEqual(payload["confirmation_quality_label"], "暫不進場")
+        self.assertEqual(payload["status"], "near")
+        self.assertNotIn("缺公開五檔，盤口確認不足。", payload["blockers"])
+        self.assertIn("缺公開五檔，盤口確認不足。", payload["warnings"])
+        self.assertEqual(payload["confirmation_quality"], "limited")
+        self.assertEqual(payload["confirmation_quality_label"], "確認資料不足")
 
     def test_core_conditions_without_tick_or_orderbook_are_limited_confirmation(self):
         payload = build_entry_confirmation(
@@ -177,8 +180,11 @@ class EntryConfirmationTests(unittest.TestCase):
             orderbook_history=[],
         ).to_dict()
 
-        self.assertEqual(payload["confirmation_quality"], "blocked")
-        self.assertIn(payload["confirmation_quality_label"], {"暫不進場", "確認資料不足"})
+        self.assertEqual(payload["status"], "near")
+        self.assertFalse(payload["can_consider_entry"])
+        self.assertEqual(payload["confirmation_quality"], "limited")
+        self.assertEqual(payload["confirmation_quality_label"], "確認資料不足")
+        self.assertIn("缺五檔 / 逐筆 / 連續快照", payload["confirmation_quality_reason"])
 
     def test_partial_intraday_confirmation_is_standard_quality(self):
         payload = build_entry_confirmation(

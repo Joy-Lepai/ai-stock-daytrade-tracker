@@ -97,7 +97,6 @@ def build_entry_confirmation(
     if orderbook["status"] == "sell_pressure":
         hard_blockers.append("五檔賣壓偏重。")
     if orderbook["status"] == "missing":
-        hard_blockers.append("缺公開五檔，盤口確認不足。")
         warnings.append("缺公開五檔，盤口確認不足。")
     if bid_trend["status"] == "deteriorating":
         warnings.append("委買量較前次減少，買盤支撐轉弱。")
@@ -135,22 +134,6 @@ def build_entry_confirmation(
         _check("逐筆大單", large_trade["ok"], large_trade["summary"]),
     ]
     score = sum(item["points"] for item in checks)
-    if hard_blockers:
-        status = "blocked" if data_live else "review_only"
-    elif entry_status == "executable" and score >= 75:
-        status = "ready"
-    elif score >= 60:
-        status = "near"
-    else:
-        status = "waiting"
-    label = {
-        "ready": "接近進場確認",
-        "near": "接近確認",
-        "waiting": "等待確認",
-        "blocked": "暫不進場",
-        "review_only": "復盤 / 觀察",
-    }[status]
-    can_consider = bool(status == "ready" and entry_status == "executable" and data_live and not hard_blockers)
     quality = _confirmation_quality(
         data_live=data_live,
         hard_blockers=hard_blockers,
@@ -164,6 +147,28 @@ def build_entry_confirmation(
         above_vwap=above_vwap,
         stop_ok=stop_ok,
         risk_ok=risk_ok,
+    )
+    if hard_blockers:
+        status = "blocked" if data_live else "review_only"
+    elif entry_status == "executable" and score >= 75 and quality["quality"] in {"high_precision", "standard"}:
+        status = "ready"
+    elif score >= 60:
+        status = "near"
+    else:
+        status = "waiting"
+    label = {
+        "ready": "接近進場確認",
+        "near": "接近確認",
+        "waiting": "等待確認",
+        "blocked": "暫不進場",
+        "review_only": "復盤 / 觀察",
+    }[status]
+    can_consider = bool(
+        status == "ready"
+        and entry_status == "executable"
+        and data_live
+        and not hard_blockers
+        and quality["quality"] in {"high_precision", "standard"}
     )
     summary = _summary(status, checks, hard_blockers, warnings)
     next_step = _next_step(status, volume_ok, above_vwap, orderbook["status"])
@@ -413,7 +418,7 @@ def _confirmation_quality(
             "reason": "VWAP、量能、停損距離、五檔、逐筆與價格墊高都可檢查。",
             "critical_data_ready": True,
         }
-    if critical_ready and (has_orderbook or has_tick or price_confirmed):
+    if critical_ready and (has_orderbook or has_tick):
         missing = []
         if not has_orderbook:
             missing.append("五檔")
