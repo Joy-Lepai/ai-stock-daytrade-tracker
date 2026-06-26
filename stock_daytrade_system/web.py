@@ -211,6 +211,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path in {"/", "/dashboard"}:
             self._send_html(self._dashboard_html(force_refresh="final" in query))
             return
+        if path == "/operator":
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            self._send_html(render_operator_page(build_operator_runbook_payload(refresh_payload, system_payload), show_logout=self.web_app.require_auth))
+            return
         if path == "/us":
             self._redirect("/us/dashboard")
             return
@@ -795,6 +800,133 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "warnings": _compact_text_list(health.get("warnings") or []),
         "deployment": health.get("deployment") or {},
     }
+
+
+def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> str:
+    status_class = "operator-ok" if payload.get("can_trade_now") else "operator-warn"
+    if payload.get("blockers"):
+        status_class = "operator-blocked"
+    deployment = payload.get("deployment") if isinstance(payload.get("deployment"), dict) else {}
+    refresh_actions = [str(item) for item in (payload.get("refresh_actions") or []) if str(item).startswith("/refresh")]
+    refresh_forms = "".join(
+        f'<form method="post" action="{_escape(endpoint)}"><button type="submit">{_operator_refresh_label(endpoint)}</button></form>'
+        for endpoint in refresh_actions
+    )
+    if not refresh_forms:
+        refresh_forms = '<p class="muted">目前沒有建議手動刷新動作。</p>'
+    content = f"""
+  <main class="operator-page">
+    <header class="operator-hero {status_class}">
+      <div>
+        <p class="eyebrow">開盤前 / 盤中作戰手冊</p>
+        <h1>{_escape(str(payload.get('headline') or '台股做多當沖追蹤器'))}</h1>
+        <p>{_escape(str(payload.get('first_action') or '先確認資料狀態，再看強烈買多與進場雷達。'))}</p>
+      </div>
+      <div class="operator-decision">
+        <span>目前判斷</span>
+        <strong>{_escape(str(payload.get('decision') or '-'))}</strong>
+      </div>
+    </header>
+    <section class="operator-grid">
+      {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-')}
+      {_operator_metric('資料可信度', payload.get('data_quality_status') or '-')}
+      {_operator_metric('可否盤中判斷', _yes_no(payload.get('can_use_intraday_signals')))}
+      {_operator_metric('可否信任強烈買多', _yes_no(payload.get('can_trust_strong_buy')))}
+    </section>
+    <section class="decision-center">
+      <h2>現在照這樣做</h2>
+      {_operator_list(payload.get('now_steps'), '目前沒有下一步指令。')}
+    </section>
+    <section class="operator-two-col">
+      <div class="decision-center">
+        <h2>進場前檢查</h2>
+        {_operator_list(payload.get('checklist'), '目前沒有額外檢查項目。')}
+      </div>
+      <div class="decision-center">
+        <h2>今天不要做</h2>
+        {_operator_list(payload.get('do_not_do'), '目前沒有額外禁止動作。')}
+      </div>
+    </section>
+    <section class="operator-two-col">
+      <div class="decision-center">
+        <h2>手動刷新建議</h2>
+        <p class="muted">只在資料層過期或你剛部署完成時使用。盤中不要一直按完整刷新。</p>
+        <div class="operator-refresh-actions">{refresh_forms}</div>
+      </div>
+      <div class="decision-center">
+        <h2>部署與資料</h2>
+        <p><strong>runtime commit：</strong>{_escape(str(deployment.get('runtime_commit') or '-'))}</p>
+        <p><strong>tracker commit：</strong>{_escape(str(deployment.get('tracker_commit') or '-'))}</p>
+        <p><strong>產生時間：</strong>{_escape(str(payload.get('generated_at') or '-'))}</p>
+        <p><strong>看盤狀態：</strong>{_escape(str(payload.get('watch_readiness') or '-'))}</p>
+        <p class="muted">{_escape(str(payload.get('watch_readiness_message') or ''))}</p>
+      </div>
+    </section>
+    <section class="operator-two-col">
+      <div class="decision-center">
+        <h2>阻擋原因</h2>
+        {_operator_list(payload.get('blockers'), '目前沒有阻擋原因。')}
+      </div>
+      <div class="decision-center">
+        <h2>提醒</h2>
+        {_operator_list(payload.get('warnings'), '目前沒有額外提醒。')}
+      </div>
+    </section>
+    <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
+  </main>
+"""
+    return render_shell(content, active_file="operator runbook", extra_css=operator_page_css(), show_logout=show_logout)
+
+
+def operator_page_css() -> str:
+    return """
+    .operator-page { max-width:1180px; margin:0 auto; padding:22px 18px 36px; }
+    .operator-hero { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; padding:18px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    .operator-hero h1 { margin:2px 0 8px; font-size:28px; line-height:1.2; }
+    .operator-hero p { margin:0; color:#344054; }
+    .operator-ok { border-color:#bbf7d0; background:#f0fdf4; }
+    .operator-warn { border-color:#fed7aa; background:#fff7ed; }
+    .operator-blocked { border-color:#fecdd3; background:#fff1f2; }
+    .operator-decision { min-width:170px; padding:12px; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.72); }
+    .operator-decision span { display:block; color:var(--muted); font-size:12px; font-weight:750; }
+    .operator-decision strong { display:block; font-size:24px; margin-top:4px; }
+    .operator-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
+    .operator-two-col { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin:14px 0; }
+    .operator-list { margin:8px 0 0; padding-left:20px; color:#344054; }
+    .operator-list li { margin:5px 0; }
+    .operator-refresh-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .operator-refresh-actions button { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .eyebrow { color:var(--muted); font-size:12px; font-weight:800; letter-spacing:0; }
+    @media (max-width:700px) {
+      .operator-hero { display:block; }
+      .operator-decision { margin-top:14px; }
+    }
+    """
+
+
+def _operator_metric(label: str, value: Any) -> str:
+    return f'<div class="metric"><span class="muted">{_escape(str(label))}</span><strong>{_escape(str(value))}</strong></div>'
+
+
+def _operator_list(items: Any, empty_text: str) -> str:
+    rows = [str(item).strip() for item in (items or []) if str(item).strip()]
+    if not rows:
+        return f'<p class="muted">{_escape(empty_text)}</p>'
+    return '<ol class="operator-list">' + "".join(f"<li>{_escape(item)}</li>" for item in rows) + "</ol>"
+
+
+def _operator_refresh_label(endpoint: str) -> str:
+    return {
+        "/refresh_full_market": "更新全市場",
+        "/refresh_watchlist": "更新重點觀察",
+        "/refresh_positions": "更新持倉 / 觸發",
+        "/refresh_post_close_validation": "更新盤後驗證",
+        "/refresh": "完整刷新",
+    }.get(endpoint, endpoint)
+
+
+def _yes_no(value: Any) -> str:
+    return "是" if bool(value) else "否"
 
 
 def _compact_operator_steps(do_now: list[Any], steps: list[Any]) -> list[str]:
@@ -1635,6 +1767,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/operator">作戰手冊</a>
       <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
@@ -1710,6 +1843,7 @@ def render_paper_dashboard_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/operator">作戰手冊</a>
       <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
@@ -1853,6 +1987,7 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/operator">作戰手冊</a>
       <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
@@ -1915,6 +2050,7 @@ def render_accuracy_page(show_logout: bool = False) -> str:
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/operator">作戰手冊</a>
       <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>
@@ -1987,6 +2123,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
     <strong>股票當沖追蹤器</strong>
     <div class="nav-links">
       <a href="/dashboard">台股追蹤</a>
+      <a href="/operator">作戰手冊</a>
       <a href="/tw/advisor">個股建議</a>
       <a href="/us/dashboard">美股追蹤</a>
       <a href="/paper/dashboard">虛擬交易</a>

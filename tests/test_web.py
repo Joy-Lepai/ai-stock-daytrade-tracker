@@ -20,6 +20,7 @@ from stock_daytrade_system.web import (
     _truthy_query_value,
     latest_tracker_file,
     render_accuracy_page,
+    render_operator_page,
     render_paper_dashboard_page,
     render_shell,
     render_tw_advisor_page,
@@ -222,6 +223,42 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
         self.assertNotIn("price_status_summary", payload)
+
+    def test_operator_page_renders_user_action_runbook(self):
+        html = render_operator_page(
+            {
+                "api_status": "ok",
+                "generated_at": "2026-06-26T09:05:00+08:00",
+                "mode": "盤中作戰模式",
+                "headline": "可以進入盤中追蹤",
+                "decision": "可盯盤",
+                "first_action": "先看強烈買多，再確認進場雷達",
+                "can_trade_now": True,
+                "can_use_intraday_signals": True,
+                "can_trust_strong_buy": True,
+                "data_quality_status": "正常",
+                "market_mode": "intraday",
+                "market_mode_label": "盤中",
+                "watch_readiness": "可正常看盤",
+                "watch_readiness_message": "仍需依停損確認",
+                "now_steps": ["先看強烈買多候選", "確認進場雷達"],
+                "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
+                "do_not_do": ["不要追 high_risk"],
+                "refresh_actions": ["/refresh_watchlist"],
+                "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
+            }
+        )
+
+        self.assertIn("開盤前 / 盤中作戰手冊", html)
+        self.assertIn("可以進入盤中追蹤", html)
+        self.assertIn("先看強烈買多，再確認進場雷達", html)
+        self.assertIn("現在照這樣做", html)
+        self.assertIn("進場前檢查", html)
+        self.assertIn("今天不要做", html)
+        self.assertIn("更新重點觀察", html)
+        self.assertIn("runtime commit", html)
+        self.assertIn("abc123", html)
+        self.assertIn("/operator", html)
 
     def test_liveness_payload_is_lightweight_and_alive(self):
         payload = build_liveness_payload()
