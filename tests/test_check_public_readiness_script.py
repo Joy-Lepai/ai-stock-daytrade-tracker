@@ -24,6 +24,12 @@ class CheckPublicReadinessScriptTests(unittest.TestCase):
 
         self.assertIn("repo_path", script)
         self.assertIn("remote_url", script)
+        self.assertIn("local_differs_from_origin", script)
+        self.assertIn("ahead_count", script)
+        self.assertIn("ahead_known", script)
+        self.assertIn("public_status", script)
+        self.assertIn("public_reachable", script)
+        self.assertIn("unpushed_commits", script)
         self.assertIn("push_method", script)
         self.assertIn("push_reason", script)
         self.assertIn("github_desktop_repo_hint", script)
