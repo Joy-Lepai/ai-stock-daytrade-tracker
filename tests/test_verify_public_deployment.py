@@ -281,6 +281,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "operator_task_card": {
+                "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
+                "first_step": "先看買多清單的下一步觸發條件，不提前追",
+                "do_not": "不要追 high_risk",
+                "refresh": "不需手動刷新",
+            },
         }
 
         checks = validate_operator_runbook_payload(payload)
@@ -300,6 +306,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "operator_task_card": {
+                "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
+                "first_step": "先看買多清單的下一步觸發條件，不提前追",
+                "do_not": "不要追 high_risk",
+                "refresh": "不需手動刷新",
+            },
         }
 
         checks = validate_operator_runbook_payload(payload)
@@ -319,12 +331,38 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "operator_task_card": {
+                "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
+                "first_step": "先看買多清單的下一步觸發條件，不提前追",
+                "do_not": "不要追 high_risk",
+                "refresh": "不需手動刷新",
+            },
         }
 
         checks = validate_operator_runbook_payload(payload)
         failed = [item.name for item in checks if not item.ok]
 
         self.assertIn("operator runbook has no-signal triage", failed)
+
+    def test_operator_runbook_payload_requires_task_card(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "先看強烈買多，再確認進場雷達",
+            "now_steps": ["先看強烈買多候選"],
+            "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+            "front_category_summary": self._front_category_summary(),
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator runbook includes task card", failed)
 
     def test_operator_runbook_payload_requires_front_category_summary(self):
         payload = {
@@ -352,6 +390,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         現在照這樣做
         沒有訊號時先查
         operator-no-signal-triage
+        開盤任務卡
+        operator-task-status
+        operator-task-first
+        operator-task-do-not
+        operator-task-refresh
         四分類摘要
         operator-front-strong
         operator-front-buy
@@ -380,6 +423,11 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         現在照這樣做
         沒有訊號時先查
         operator-no-signal-triage
+        開盤任務卡
+        operator-task-status
+        operator-task-first
+        operator-task-do-not
+        operator-task-refresh
         四分類摘要
         operator-front-strong
         operator-front-buy

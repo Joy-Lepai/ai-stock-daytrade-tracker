@@ -442,6 +442,7 @@ def _operator_decision_detail(value: Any) -> str:
 
 def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
     front = payload.get("front_category_summary") or {}
+    task_card = payload.get("operator_task_card") or {}
     return [
         Check("operator runbook API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
         Check("operator runbook has decision", bool(payload.get("decision")), f"decision={payload.get('decision') or '-'}"),
@@ -474,6 +475,11 @@ def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
             _front_category_summary_valid(front),
             _front_category_summary_detail(front),
         ),
+        Check(
+            "operator runbook includes task card",
+            _operator_task_card_valid(task_card),
+            _operator_task_card_detail(task_card),
+        ),
     ]
 
 
@@ -481,6 +487,11 @@ def validate_operator_page_html(html: str) -> list[Check]:
     required_markers = [
         "開盤前 / 盤中作戰手冊",
         "目前判斷",
+        "開盤任務卡",
+        "operator-task-status",
+        "operator-task-first",
+        "operator-task-do-not",
+        "operator-task-refresh",
         "四分類摘要",
         "operator-front-strong",
         "operator-front-buy",
@@ -515,6 +526,23 @@ def validate_operator_page_html(html: str) -> list[Check]:
             f"found={', '.join(found_forbidden) if found_forbidden else '-'}",
         ),
     ]
+
+
+def _operator_task_card_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(value.get("status_label")) and bool(value.get("first_step")) and bool(value.get("do_not")) and bool(value.get("refresh"))
+
+
+def _operator_task_card_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "operator_task_card=-"
+    return (
+        f"status={value.get('status_label') or '-'} "
+        f"first_step={value.get('first_step') or '-'} "
+        f"do_not={value.get('do_not') or '-'} "
+        f"refresh={value.get('refresh') or '-'}"
+    )
 
 
 def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:

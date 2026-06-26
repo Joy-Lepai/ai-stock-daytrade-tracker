@@ -778,7 +778,7 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
     steps = list(health.get("operator_steps") or [])
     can_trade_now = bool(decision.get("can_trade_now"))
     no_signal_triage = _operator_no_signal_triage(health)
-    return {
+    payload = {
         "api_status": "ok",
         "generated_at": health.get("generated_at") or "",
         "mode": health.get("operator_mode") or health.get("market_mode_label") or health.get("market_mode") or "",
@@ -804,6 +804,8 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "warnings": _compact_text_list(health.get("warnings") or []),
         "deployment": health.get("deployment") or {},
     }
+    payload["operator_task_card"] = _operator_task_card(payload)
+    return payload
 
 
 def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> str:
@@ -831,6 +833,7 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
         <strong id="operator-decision">{_escape(str(payload.get('decision') or '-'))}</strong>
       </div>
     </header>
+    {_operator_task_card_panel(payload)}
     <section class="operator-grid">
       {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-', 'operator-mode')}
       {_operator_metric('資料可信度', payload.get('data_quality_status') or '-', 'operator-data-quality')}
@@ -902,6 +905,9 @@ def operator_page_css() -> str:
     .operator-decision { min-width:170px; padding:12px; border:1px solid var(--line); border-radius:8px; background:rgba(255,255,255,.72); }
     .operator-decision span { display:block; color:var(--muted); font-size:12px; font-weight:750; }
     .operator-decision strong { display:block; font-size:24px; margin-top:4px; }
+    .operator-task-card { display:grid; grid-template-columns:minmax(170px,.9fr) minmax(260px,1.4fr) minmax(220px,1fr) minmax(140px,.7fr); gap:12px; margin:14px 0; padding:14px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+    .operator-task-card strong { display:block; margin-top:4px; font-size:20px; line-height:1.25; }
+    .operator-task-card p { margin:4px 0 0; color:#344054; }
     .operator-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
     .operator-two-col { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin:14px 0; }
     .operator-list { margin:8px 0 0; padding-left:20px; color:#344054; }
@@ -912,6 +918,7 @@ def operator_page_css() -> str:
     @media (max-width:700px) {
       .operator-hero { display:block; }
       .operator-decision { margin-top:14px; }
+      .operator-task-card { grid-template-columns:1fr; }
     }
     """
 
@@ -919,6 +926,72 @@ def operator_page_css() -> str:
 def _operator_metric(label: str, value: Any, element_id: str = "") -> str:
     id_attr = f' id="{_escape(element_id)}"' if element_id else ""
     return f'<div class="metric"><span class="muted">{_escape(str(label))}</span><strong{id_attr}>{_escape(str(value))}</strong></div>'
+
+
+def _operator_task_card(payload: dict[str, Any]) -> dict[str, str]:
+    decision = str(payload.get("decision") or "")
+    mode = str(payload.get("market_mode") or "")
+    front = payload.get("front_category_summary") if isinstance(payload.get("front_category_summary"), dict) else {}
+    counts = front.get("counts") if isinstance(front.get("counts"), dict) else {}
+    strong = _safe_int(front.get("strong_buy_count") or counts.get("強烈買多"))
+    buy = _safe_int(front.get("buy_count") or counts.get("買多"))
+    watch = _safe_int(front.get("watch_count") or counts.get("觀察"))
+    bearish = _safe_int(front.get("bearish_count") or counts.get("看空"))
+    refresh_actions = [str(item) for item in (payload.get("refresh_actions") or []) if str(item).startswith("/refresh")]
+    do_not = _compact_text_list(list(payload.get("do_not_do") or []))
+    blockers = _compact_text_list(list(payload.get("blockers") or []))
+    warnings = _compact_text_list(list(payload.get("warnings") or []))
+    no_signal_reason = str(front.get("no_signal_reason") or "").strip()
+
+    if blockers:
+        status_label = "暫停：先修資料或刷新層"
+        first_step = blockers[0]
+    elif mode != "intraday":
+        status_label = "非盤中：只做復盤與觀察"
+        first_step = "看上一交易日復盤與下個交易日觀察清單"
+    elif bool(payload.get("can_trust_strong_buy")) and strong > 0:
+        status_label = f"可盯盤：強烈買多 {strong} 檔"
+        first_step = "先看強烈買多，再逐檔確認進場雷達與停損距離"
+    elif buy > 0:
+        status_label = f"等待觸發：買多 {buy} 檔、觀察 {watch} 檔"
+        first_step = "先看買多清單的下一步觸發條件，不提前追"
+    elif decision:
+        status_label = f"{decision}：觀察 {watch} 檔、看空 {bearish} 檔"
+        first_step = no_signal_reason or (warnings[0] if warnings else "先看最大卡關原因與資料狀態")
+    else:
+        status_label = f"沒有可用買多：觀察 {watch} 檔、看空 {bearish} 檔"
+        first_step = no_signal_reason or (warnings[0] if warnings else "先看最大卡關原因與資料狀態")
+
+    return {
+        "status_label": status_label,
+        "first_step": first_step,
+        "do_not": do_not[0] if do_not else "不要把觀察、high_risk、delayed、cached 當成可進場",
+        "refresh": f"POST {refresh_actions[0]}" if refresh_actions else "不需手動刷新",
+    }
+
+
+def _operator_task_card_panel(payload: dict[str, Any]) -> str:
+    card = payload.get("operator_task_card") if isinstance(payload.get("operator_task_card"), dict) else _operator_task_card(payload)
+    return f"""
+    <section class="operator-task-card">
+      <div>
+        <span class="muted">開盤任務卡</span>
+        <strong id="operator-task-status">{_escape(str(card.get('status_label') or '-'))}</strong>
+      </div>
+      <div>
+        <span class="muted">第一步</span>
+        <p id="operator-task-first">{_escape(str(card.get('first_step') or '-'))}</p>
+      </div>
+      <div>
+        <span class="muted">不要做</span>
+        <p id="operator-task-do-not">{_escape(str(card.get('do_not') or '-'))}</p>
+      </div>
+      <div>
+        <span class="muted">刷新</span>
+        <p id="operator-task-refresh">{_escape(str(card.get('refresh') or '-'))}</p>
+      </div>
+    </section>
+    """
 
 
 def _operator_front_category_panel(payload: dict[str, Any]) -> str:
@@ -1042,6 +1115,11 @@ def operator_runbook_script() -> str:
         text("operator-data-quality", payload.data_quality_status || "-");
         text("operator-intraday", yesNo(payload.can_use_intraday_signals));
         text("operator-strong-buy", yesNo(payload.can_trust_strong_buy));
+        const task = payload.operator_task_card || {};
+        text("operator-task-status", task.status_label || "-");
+        text("operator-task-first", task.first_step || "-");
+        text("operator-task-do-not", task.do_not || "-");
+        text("operator-task-refresh", task.refresh || "-");
         const front = payload.front_category_summary || {};
         const counts = front.counts || {};
         text("operator-front-strong", front.strong_buy_count ?? counts["強烈買多"] ?? 0);
