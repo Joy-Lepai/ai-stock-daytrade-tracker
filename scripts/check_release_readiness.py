@@ -27,6 +27,7 @@ class ReleaseState:
     repo_path: str = ""
     public_runtime: str = ""
     public_tracker: str = ""
+    unpushed_commits: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,7 @@ def load_release_state(
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
     repo_path = git_output(["rev-parse", "--show-toplevel"], runner=runner)
     ahead_count = load_ahead_count(head, origin, runner=runner)
+    unpushed_commits = load_unpushed_commits(ahead_count, runner=runner)
     try:
         status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
         dirty = is_worktree_dirty(status)
@@ -124,6 +126,7 @@ def load_release_state(
         repo_path=repo_path,
         public_runtime=public_runtime,
         public_tracker=public_tracker,
+        unpushed_commits=tuple(unpushed_commits),
     )
 
 
@@ -143,6 +146,17 @@ def load_ahead_count(head: str, origin: str, *, runner: Callable[..., str] = sub
         return int(raw)
     except (TypeError, ValueError):
         return -1
+
+
+def load_unpushed_commits(ahead_count: int, *, runner: Callable[..., str] = subprocess.check_output) -> list[str]:
+    if ahead_count <= 0:
+        return []
+    raw = optional_git_output(
+        ["log", "--oneline", "--max-count=10", "origin/main..HEAD"],
+        runner=runner,
+        default="",
+    )
+    return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
 def is_worktree_dirty(status_output: str) -> bool:
@@ -273,6 +287,7 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "origin_main_short": short(state.origin),
         "repo_path": state.repo_path,
         "ahead_count": state.ahead_count,
+        "unpushed_commits": list(state.unpushed_commits),
         "worktree_clean": not state.dirty,
         "status_line": state.status_line,
         "public_runtime": state.public_runtime,

@@ -16,6 +16,7 @@ from scripts.check_release_readiness import (
     optional_git_output,
     parse_ahead_count,
     load_ahead_count,
+    load_unpushed_commits,
     recommended_next_action,
     release_report_payload,
     release_steps,
@@ -42,6 +43,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "/repo/path\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
                 return "1\n"
+            if command[-4:] == ["log", "--oneline", "--max-count=10", "origin/main..HEAD"]:
+                return "abc1234 Test pending commit\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 return "## main...origin/main\n"
             raise AssertionError(command)
@@ -49,6 +52,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         state = load_release_state(runner=fake_runner, fetch_public=False)
 
         self.assertEqual(state.ahead_count, 1)
+        self.assertEqual(state.unpushed_commits, ("abc1234 Test pending commit",))
         self.assertEqual(state.status_line, "## main...origin/main")
         self.assertEqual(state.repo_path, "/repo/path")
         self.assertIn(["git", "status", "-sb", "--no-ahead-behind", "--untracked-files=no"], calls)
@@ -60,6 +64,12 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             raise subprocess.CalledProcessError(1, command)
 
         self.assertEqual(load_ahead_count("local", "origin", runner=fake_runner), -1)
+
+    def test_load_unpushed_commits_returns_empty_when_not_ahead(self):
+        def fake_runner(command, **kwargs):
+            raise AssertionError("git log should not be called")
+
+        self.assertEqual(load_unpushed_commits(0, runner=fake_runner), [])
 
     def test_load_release_state_marks_zero_ahead_when_origin_matches(self):
         def fake_runner(command, **kwargs):
@@ -96,6 +106,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "/repo/path\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
                 return "1\n"
+            if command[-4:] == ["log", "--oneline", "--max-count=10", "origin/main..HEAD"]:
+                return "abc1234 Pending commit\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
             if command[-3:] == ["status", "--porcelain=v1", "--untracked-files=no"]:
@@ -185,6 +197,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["ahead_count"], 3)
+        self.assertEqual(payload["unpushed_commits"], [])
         self.assertTrue(payload["can_push"])
         self.assertEqual(payload["repo_path"], "/Users/example/AI股票系統")
         self.assertEqual(payload["local_head_short"], "local123456")
