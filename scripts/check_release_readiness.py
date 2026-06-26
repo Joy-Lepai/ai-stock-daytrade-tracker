@@ -24,6 +24,7 @@ class ReleaseState:
     ahead_count: int
     dirty: bool
     status_line: str
+    repo_path: str = ""
     public_runtime: str = ""
     public_tracker: str = ""
 
@@ -96,6 +97,7 @@ def load_release_state(
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
+    repo_path = git_output(["rev-parse", "--show-toplevel"], runner=runner)
     ahead_count = 0 if head == origin else -1
     try:
         status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
@@ -119,6 +121,7 @@ def load_release_state(
         ahead_count=ahead_count,
         dirty=dirty,
         status_line=first_line,
+        repo_path=repo_path,
         public_runtime=public_runtime,
         public_tracker=public_tracker,
     )
@@ -218,8 +221,10 @@ def release_steps(state: ReleaseState) -> list[str]:
             "確認本機乾淨後，再推送 GitHub 與部署 Render。",
         ]
     if state.head != state.origin or state.ahead_count > 0:
+        repo_hint = f"確認 GitHub Desktop 目前 repo 是：{state.repo_path}" if state.repo_path else "確認 GitHub Desktop 目前開的是本專案 repo。"
         return [
-            "在 GitHub Desktop 選正確 repo，執行 Repository → Push。",
+            repo_hint,
+            "在 GitHub Desktop 執行 Repository → Push。",
             "推送後重跑本腳本，確認 origin/main 等於 local HEAD。",
             "origin/main 對齊後，再到 Render 執行 Deploy latest commit。",
         ]
@@ -253,7 +258,10 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
     return {
         "status": "ok" if not failures else "blocked",
         "local_head": state.head,
+        "local_head_short": short(state.head),
         "origin_main": state.origin,
+        "origin_main_short": short(state.origin),
+        "repo_path": state.repo_path,
         "ahead_count": state.ahead_count,
         "worktree_clean": not state.dirty,
         "status_line": state.status_line,
@@ -265,6 +273,7 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         ],
         "failed_checks": [check.name for check in failures],
         "next_action": recommended_next_action(state),
+        "github_desktop_repo_hint": f"GitHub Desktop 應開啟：{state.repo_path}" if state.repo_path else "GitHub Desktop 應開啟本專案 repo",
         "release_steps": release_steps(state),
         "can_push": (not state.dirty) and (state.head != state.origin or state.ahead_count > 0),
         "can_deploy_render": (not state.dirty) and state.head == state.origin and state.ahead_count in {0, -1},
@@ -282,6 +291,8 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
     print("Release readiness")
     print(f"local HEAD:   {state.head}")
     print(f"origin/main:  {state.origin}")
+    if state.repo_path:
+        print(f"repo path:    {state.repo_path}")
     print(f"status:       {state.status_line or '-'}")
     if state.public_runtime:
         print(f"public:       runtime={state.public_runtime} tracker={state.public_tracker or '-'}")

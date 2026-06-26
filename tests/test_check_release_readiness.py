@@ -37,6 +37,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "localcommit\n"
             if command[-2:] == ["rev-parse", "origin/main"]:
                 return "origincommit\n"
+            if command[-2:] == ["rev-parse", "--show-toplevel"]:
+                return "/repo/path\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
                 raise AssertionError("rev-list should not be called")
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
@@ -47,6 +49,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertEqual(state.ahead_count, -1)
         self.assertEqual(state.status_line, "## main...origin/main")
+        self.assertEqual(state.repo_path, "/repo/path")
         self.assertIn(["git", "status", "-sb", "--no-ahead-behind", "--untracked-files=no"], calls)
         self.assertNotIn(["git", "rev-list", "--count", "origin/main..HEAD"], calls)
         self.assertNotIn(["git", "status", "-sb"], calls)
@@ -57,6 +60,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "samecommit\n"
             if command[-2:] == ["rev-parse", "origin/main"]:
                 return "samecommit\n"
+            if command[-2:] == ["rev-parse", "--show-toplevel"]:
+                return "/repo/path\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
                 raise AssertionError("rev-list should not be called")
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
@@ -66,6 +71,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         state = load_release_state(runner=fake_runner, fetch_public=False)
 
         self.assertEqual(state.ahead_count, 0)
+        self.assertEqual(state.repo_path, "/repo/path")
         checks = evaluate_release_state(state)
         self.assertIn("ahead=0", checks[1].detail)
         self.assertTrue(checks[1].ok)
@@ -79,6 +85,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "localcommit\n"
             if command[-2:] == ["rev-parse", "origin/main"]:
                 return "origincommit\n"
+            if command[-2:] == ["rev-parse", "--show-toplevel"]:
+                return "/repo/path\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
             if command[-3:] == ["status", "--porcelain=v1", "--untracked-files=no"]:
@@ -88,6 +96,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         state = load_release_state(runner=fake_runner, fetch_public=False)
 
         self.assertFalse(state.dirty)
+        self.assertEqual(state.repo_path, "/repo/path")
         self.assertIn("status unavailable", state.status_line)
         self.assertIn(["git", "status", "--porcelain=v1", "--untracked-files=no"], calls)
 
@@ -158,6 +167,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             ahead_count=3,
             dirty=False,
             status_line="## main...origin/main [different]",
+            repo_path="/Users/example/AI股票系統",
             public_runtime="origin999999",
             public_tracker="origin999999",
         )
@@ -167,6 +177,9 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(payload["status"], "blocked")
         self.assertEqual(payload["ahead_count"], 3)
         self.assertTrue(payload["can_push"])
+        self.assertEqual(payload["repo_path"], "/Users/example/AI股票系統")
+        self.assertEqual(payload["local_head_short"], "local123456")
+        self.assertIn("/Users/example/AI股票系統", payload["github_desktop_repo_hint"])
         self.assertFalse(payload["can_deploy_render"])
         self.assertFalse(payload["can_trust_public"])
         self.assertIn("local pushed to origin/main", payload["failed_checks"])

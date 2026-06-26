@@ -179,6 +179,7 @@ python3 scripts/check_release_readiness.py --base-url https://stock.letslepai.co
 
 - 本機是否還有未提交修改
 - 本機是否 ahead `origin/main`
+- GitHub Desktop 應該開啟的本機 repo path，避免按到其他專案的 Push
 - 公開站 runtime commit 是否等於本機 HEAD
 - 下一步應該先 `Push`，還是到 Render 按 `Deploy latest commit`
 
