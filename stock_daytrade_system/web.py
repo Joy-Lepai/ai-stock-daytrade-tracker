@@ -323,6 +323,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_json(build_operator_decision_payload(refresh_payload, system_payload))
             return
+        if path == "/api/operator/runbook":
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            self._send_json(build_operator_runbook_payload(refresh_payload, system_payload))
+            return
         if path == "/api/notification/signals":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(_notification_signals_payload(conn))
@@ -753,6 +758,62 @@ def build_operator_decision_payload(refresh_payload: dict[str, Any], system_payl
         "warnings": health.get("warnings") or [],
         "deployment": health.get("deployment") or {},
     }
+
+
+def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_payload: dict[str, Any]) -> dict[str, Any]:
+    health = build_health_payload(refresh_payload, system_payload)
+    decision = health.get("operator_decision") or {}
+    preflight = health.get("opening_preflight") or {}
+    next_action = health.get("next_action") or {}
+    refresh_plan = list(health.get("refresh_plan") or [])
+    do_now = list(health.get("do_now") or [])
+    do_not_do = list(health.get("do_not_do") or [])
+    checklist = list(health.get("decision_checklist") or [])
+    steps = list(health.get("operator_steps") or [])
+    can_trade_now = bool(decision.get("can_trade_now"))
+    return {
+        "api_status": "ok",
+        "generated_at": health.get("generated_at") or "",
+        "mode": health.get("operator_mode") or health.get("market_mode_label") or health.get("market_mode") or "",
+        "headline": decision.get("headline") or health.get("summary") or "",
+        "decision": decision.get("decision") or "",
+        "first_action": decision.get("first_action") or next_action.get("label") or "",
+        "can_trade_now": can_trade_now,
+        "can_open_dashboard": bool(preflight.get("can_open_dashboard")),
+        "can_use_intraday_signals": bool(decision.get("can_use_intraday_signals")),
+        "can_trust_strong_buy": bool(decision.get("can_trust_strong_buy")),
+        "data_quality_status": health.get("data_quality_status") or "",
+        "market_mode": health.get("market_mode") or "",
+        "market_mode_label": health.get("market_mode_label") or "",
+        "watch_readiness": health.get("watch_readiness") or "",
+        "watch_readiness_message": health.get("watch_readiness_message") or "",
+        "now_steps": _compact_operator_steps(do_now, steps),
+        "checklist": checklist[:5],
+        "do_not_do": _compact_text_list(do_not_do or decision.get("blocked_actions") or []),
+        "refresh_actions": _compact_text_list(refresh_plan or ([next_action.get("endpoint")] if next_action.get("endpoint") else [])),
+        "blockers": _compact_text_list(health.get("blockers") or []),
+        "warnings": _compact_text_list(health.get("warnings") or []),
+        "deployment": health.get("deployment") or {},
+    }
+
+
+def _compact_operator_steps(do_now: list[Any], steps: list[Any]) -> list[str]:
+    preferred = _compact_text_list(do_now)
+    if len(preferred) >= 3:
+        return preferred[:5]
+    return _compact_text_list([*preferred, *steps])[:5]
+
+
+def _compact_text_list(items: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
 
 
 def _tracker_html_needs_refresh(html: str) -> bool:
