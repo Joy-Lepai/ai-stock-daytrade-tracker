@@ -2026,7 +2026,7 @@ def _front_category_triage_hint(counts: Counter[str], reason_counter: Counter[st
     if not checks:
         checks = ["先看 market_mode、price_status、VWAP、量比與資料日"]
     if bearish:
-        prefix = "若看空異常偏多，"
+        prefix = "若看空異常偏多，這不代表全市場都適合做空，"
     elif watch:
         prefix = "目前沒有買多候選，"
     else:

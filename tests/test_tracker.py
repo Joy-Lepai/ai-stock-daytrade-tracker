@@ -1152,6 +1152,7 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("未站上 VWAP", html)
         self.assertIn("排查順序", html)
         self.assertIn("多數股票未站上 VWAP", html)
+        self.assertIn("這不代表全市場都適合做空", html)
 
     def test_post_close_decision_overview_uses_review_and_next_session_copy(self):
         summary = LongModelSummary(
