@@ -15,6 +15,7 @@ if [[ "$SKIP_RELEASE_READINESS" != "1" ]]; then
     echo
     echo "Opening check stopped: 本機、GitHub 或公開站版本尚未對齊。"
     echo "請先依上方 next action 處理，避免用舊版 dashboard 看盤。"
+    echo "作戰手冊：${BASE_URL%/}/operator"
     exit 1
   fi
 fi
@@ -26,9 +27,13 @@ if [[ "$SKIP_OPERATIONAL_HEALTH" != "1" ]]; then
     echo
     echo "Opening check stopped: 營運健康狀態 blocked。"
     echo "請先依上方 refresh_plan / next_action 修復資料層，再進行開盤判斷。"
+    echo "作戰手冊：${BASE_URL%/}/operator"
     exit 1
   fi
 fi
+
+echo
+echo "作戰手冊：${BASE_URL%/}/operator"
 
 if [[ "$RUN_LEGACY_OPEN_REPORT" == "1" ]]; then
   echo

@@ -29,6 +29,7 @@ class RunOpenCheckScriptTests(unittest.TestCase):
         self.assertIn("SKIP_RELEASE_READINESS", script)
         self.assertIn("SKIP_OPERATIONAL_HEALTH", script)
         self.assertIn("RUN_LEGACY_OPEN_REPORT", script)
+        self.assertIn("${BASE_URL%/}/operator", script)
         self.assertLess(script.index("scripts/check_release_readiness.py"), script.index("stock_daytrade_system.cli open-check"))
         self.assertLess(script.index("scripts/check_operational_health.py"), script.index("stock_daytrade_system.cli open-check"))
 
@@ -47,6 +48,7 @@ class RunPremarketScriptTests(unittest.TestCase):
         self.assertIn("scripts/check_operational_health.py", script)
         self.assertIn("SKIP_RELEASE_READINESS", script)
         self.assertIn("SKIP_OPERATIONAL_HEALTH", script)
+        self.assertIn("${BASE_URL%/}/operator", script)
         self.assertLess(script.index("scripts/check_release_readiness.py"), script.index("stock_daytrade_system.cli report"))
         self.assertLess(script.index("scripts/check_operational_health.py"), script.index("stock_daytrade_system.cli report"))
 
