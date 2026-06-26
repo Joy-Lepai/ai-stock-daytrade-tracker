@@ -64,7 +64,7 @@ def fetch_health_payload(base_url: str, *, timeout: float = 12.0) -> dict[str, A
         return payload
 
 
-def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) -> tuple[int, str]:
+def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
     health = payload.get("operational_health") if isinstance(payload.get("operational_health"), dict) else None
     if health is None and payload.get("status") in {"ok", "warning", "blocked"}:
         health = payload
@@ -75,6 +75,84 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     ):
         inferred = build_operational_health(payload)
         health = {**inferred, **health, "operator_steps": inferred.get("operator_steps") or []}
+    return health
+
+
+def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) -> dict[str, Any]:
+    health = _resolve_health(payload)
+    status = str(health.get("status") or "blocked")
+    price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
+    next_action = _next_action(payload, health)
+    plan = refresh_plan(payload, health)
+    return {
+        "status": status,
+        "exit_code": 0 if status in {"ok", "warning"} else 1,
+        "summary": health.get("summary") or "",
+        "watch_readiness": health.get("watch_readiness") or "",
+        "watch_readiness_message": health.get("watch_readiness_message") or "",
+        "watch_readiness_label": _watch_readiness_label(status, health, payload),
+        "operator_mode": health.get("operator_mode") or "",
+        "primary_focus": health.get("primary_focus") or "",
+        "do_now": list(health.get("do_now") or []),
+        "do_not_do": list(health.get("do_not_do") or []),
+        "decision_checklist": list(health.get("decision_checklist") or []),
+        "market_mode": health.get("market_mode") or payload.get("market_mode") or "",
+        "data_quality_status": health.get("data_quality_status") or "",
+        "counts": {
+            "live": health.get("live_count", price.get("live_count", 0)),
+            "delayed": health.get("delayed_count", price.get("delayed_count", 0)),
+            "cached": health.get("cached_count", price.get("cached_count", 0)),
+            "missing": health.get("missing_count", price.get("missing_count", 0)),
+        },
+        "blockers": list(health.get("blockers") or []),
+        "warnings": list(health.get("warnings") or []),
+        "operator_steps": [str(item) for item in (health.get("operator_steps") or [])],
+        "required_stale_layers": list(payload.get("required_stale_layers") or []),
+        "stale_layers": list(payload.get("stale_layers") or []),
+        "next_action": next_action,
+        "manual_endpoint": (
+            f"POST {next_action.get('endpoint')}" if str(next_action.get("endpoint") or "").startswith("/refresh") else ""
+        ),
+        "manual_curl": f"curl -X POST {base_url.rstrip('/')}{next_action.get('endpoint')}"
+        if str(next_action.get("endpoint") or "").startswith("/refresh")
+        else "",
+        "refresh_plan": plan,
+        "source": payload.get("_health_source") or "",
+    }
+
+
+def build_failure_json(error: Exception | str) -> dict[str, Any]:
+    message = str(error)
+    return {
+        "status": "blocked",
+        "exit_code": 1,
+        "summary": f"無法讀取 /api/health 或 /api/refresh/status：{message}",
+        "watch_readiness": "blocked",
+        "watch_readiness_message": "網站健康檢查讀取失敗",
+        "watch_readiness_label": "暫不適合進場判斷，先確認網站是否啟動。",
+        "operator_mode": "health_check_failed",
+        "primary_focus": "確認網站服務與健康檢查 API",
+        "do_now": ["確認網站是否啟動", "稍後重試健康檢查"],
+        "do_not_do": ["不要依此狀態判斷盤中訊號"],
+        "decision_checklist": [],
+        "market_mode": "",
+        "data_quality_status": "",
+        "counts": {"live": 0, "delayed": 0, "cached": 0, "missing": 0},
+        "blockers": [message],
+        "warnings": [],
+        "operator_steps": ["確認網站是否啟動，或稍後重試。"],
+        "required_stale_layers": [],
+        "stale_layers": [],
+        "next_action": {"label": "確認網站是否啟動，或稍後重試。", "endpoint": ""},
+        "manual_endpoint": "",
+        "manual_curl": "",
+        "refresh_plan": [],
+        "source": "",
+    }
+
+
+def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) -> tuple[int, str]:
+    health = _resolve_health(payload)
     status = str(health.get("status") or "blocked")
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
@@ -228,14 +306,47 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="POST the ordered refresh plan, then fetch and print health again.",
     )
     parser.add_argument("--refresh-timeout", type=float, default=240.0)
+    parser.add_argument("--json", action="store_true", help="Print machine-readable JSON instead of text.")
     args = parser.parse_args(argv)
     try:
         payload = fetch_health_payload(args.base_url, timeout=args.timeout)
     except Exception as exc:
+        if args.json:
+            print(json.dumps(build_failure_json(exc), ensure_ascii=False, indent=2))
+            return 1
         print("Operational health")
         print(f"[FAIL] 無法讀取 /api/health 或 /api/refresh/status：{exc}")
         print("next_action: 確認網站是否啟動，或稍後重試。")
         return 1
+    if args.json and args.apply_refresh_plan:
+        initial_report = build_json_report(payload, base_url=args.base_url)
+        plan = list(initial_report.get("refresh_plan") or [])
+        apply_results: list[dict[str, Any]] = []
+        refreshed_report: dict[str, Any] | None = None
+        refresh_failures = 0
+        if plan:
+            for endpoint, ok, detail in apply_refresh_plan(args.base_url, plan, timeout=args.refresh_timeout):
+                apply_results.append({"endpoint": endpoint, "ok": ok, "detail": detail or ""})
+                refresh_failures += 0 if ok else 1
+            try:
+                refreshed_payload = fetch_health_payload(args.base_url, timeout=args.timeout)
+                refreshed_report = build_json_report(refreshed_payload, base_url=args.base_url)
+            except Exception as exc:
+                refreshed_report = build_failure_json(f"refresh completed but health recheck failed: {exc}")
+                refresh_failures += 1
+        result_payload = {
+            "status": refreshed_report.get("status") if refreshed_report else initial_report.get("status"),
+            "exit_code": 1 if refresh_failures else int((refreshed_report or initial_report).get("exit_code") or 0),
+            "initial": initial_report,
+            "apply_results": apply_results,
+            "refreshed": refreshed_report,
+        }
+        print(json.dumps(result_payload, ensure_ascii=False, indent=2))
+        return int(result_payload["exit_code"])
+    if args.json:
+        report_payload = build_json_report(payload, base_url=args.base_url)
+        print(json.dumps(report_payload, ensure_ascii=False, indent=2))
+        return int(report_payload.get("exit_code") or 0)
     exit_code, report = render_report(payload, base_url=args.base_url)
     print(report)
     if args.apply_refresh_plan:

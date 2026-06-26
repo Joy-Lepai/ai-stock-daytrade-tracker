@@ -68,6 +68,35 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("operator_steps:", report)
         self.assertIn("1. 先執行刷新計畫", report)
 
+    def test_build_json_report_includes_operator_and_refresh_fields(self):
+        report = script.build_json_report(
+            {
+                "status": "blocked",
+                "summary": "必要資料層過期",
+                "market_mode": "pre_open_prepare",
+                "data_quality_status": "部分延遲",
+                "price_status_summary": {"live_count": 0, "delayed_count": 120},
+                "operator_mode": "refresh_required",
+                "primary_focus": "先刷新全市場",
+                "do_now": ["刷新全市場"],
+                "do_not_do": ["不要按完整刷新以外的假動作"],
+                "decision_checklist": ["確認 commit"],
+                "required_stale_layers": ["full_market", "watchlist"],
+                "stale_layers": ["full_market", "watchlist", "positions"],
+                "next_action": {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"},
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(report["status"], "blocked")
+        self.assertEqual(report["exit_code"], 1)
+        self.assertEqual(report["operator_mode"], "refresh_required")
+        self.assertEqual(report["primary_focus"], "先刷新全市場")
+        self.assertEqual(report["counts"]["delayed"], 120)
+        self.assertEqual(report["manual_endpoint"], "POST /refresh_full_market")
+        self.assertIn("/refresh_full_market", report["refresh_plan"])
+        self.assertIn("/refresh_watchlist", report["refresh_plan"])
+
     def test_refresh_plan_orders_required_layers_safely(self):
         plan = script.refresh_plan(
             {
@@ -173,6 +202,56 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("無法讀取", stream.getvalue())
         self.assertIn("next_action", stream.getvalue())
 
+    def test_main_json_prints_fetch_failure_without_traceback(self):
+        original = script.fetch_health_payload
+
+        def failing_fetch(*args, **kwargs):
+            raise RuntimeError("down")
+
+        script.fetch_health_payload = failing_fetch
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = script.main(["--base-url", "https://example.invalid", "--json"])
+        finally:
+            script.fetch_health_payload = original
+
+        payload = script.json.loads(stream.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["status"], "blocked")
+        self.assertIn("down", payload["summary"])
+        self.assertEqual(payload["refresh_plan"], [])
+
+    def test_main_json_outputs_machine_readable_health(self):
+        original = script.fetch_health_payload
+
+        def fake_fetch(*args, **kwargs):
+            return {
+                "status": "warning",
+                "summary": "開盤前觀察",
+                "market_mode": "pre_open_prepare",
+                "data_quality_status": "休市復盤",
+                "price_status_summary": {"live_count": 0, "cached_count": 3},
+                "required_stale_layers": ["watchlist"],
+                "next_action": {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"},
+                "_health_source": "/api/health",
+            }
+
+        script.fetch_health_payload = fake_fetch
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = script.main(["--base-url", "https://example.test", "--json"])
+        finally:
+            script.fetch_health_payload = original
+
+        payload = script.json.loads(stream.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["status"], "warning")
+        self.assertEqual(payload["source"], "/api/health")
+        self.assertEqual(payload["counts"]["cached"], 3)
+        self.assertEqual(payload["refresh_plan"], ["/refresh_watchlist"])
+
     def test_main_can_apply_refresh_plan_and_recheck_health(self):
         original_fetch = script.fetch_health_payload
         original_apply = script.apply_refresh_plan
@@ -218,6 +297,54 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(applied, ["/refresh_full_market"])
         self.assertIn("Applying refresh plan", stream.getvalue())
         self.assertIn("[PASS] POST /refresh_full_market", stream.getvalue())
+
+    def test_main_json_can_apply_refresh_plan_and_recheck_health(self):
+        original_fetch = script.fetch_health_payload
+        original_apply = script.apply_refresh_plan
+        fetch_calls = []
+        applied = []
+
+        def fake_fetch(base_url, **kwargs):
+            fetch_calls.append(base_url)
+            if len(fetch_calls) == 1:
+                return {
+                    "status": "blocked",
+                    "summary": "重點觀察過期",
+                    "market_mode": "intraday",
+                    "data_quality_status": "部分延遲",
+                    "price_status_summary": {"live_count": 1},
+                    "required_stale_layers": ["watchlist"],
+                    "next_action": {"label": "更新重點觀察", "endpoint": "/refresh_watchlist"},
+                }
+            return {
+                "status": "ok",
+                "summary": "資料正常",
+                "market_mode": "intraday",
+                "data_quality_status": "正常",
+                "price_status_summary": {"live_count": 8},
+                "next_action": {"label": "不需手動更新", "endpoint": ""},
+            }
+
+        def fake_apply(base_url, endpoints, **kwargs):
+            applied.extend(endpoints)
+            return [(endpoint, True, "success") for endpoint in endpoints]
+
+        script.fetch_health_payload = fake_fetch
+        script.apply_refresh_plan = fake_apply
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = script.main(["--base-url", "https://example.test", "--json", "--apply-refresh-plan"])
+        finally:
+            script.fetch_health_payload = original_fetch
+            script.apply_refresh_plan = original_apply
+
+        payload = script.json.loads(stream.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(applied, ["/refresh_watchlist"])
+        self.assertEqual(payload["initial"]["status"], "blocked")
+        self.assertEqual(payload["apply_results"][0]["endpoint"], "/refresh_watchlist")
+        self.assertEqual(payload["refreshed"]["status"], "ok")
 
     def test_fetch_health_payload_prefers_health_endpoint(self):
         calls = []
