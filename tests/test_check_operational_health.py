@@ -36,6 +36,14 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                 "market_mode": "intraday",
                 "data_quality_status": "正常",
                 "price_status_summary": {"live_count": 20, "delayed_count": 0, "cached_count": 0, "missing_count": 0},
+                "front_category_summary": {
+                    "counts": {"強烈買多": 1, "買多": 2, "觀察": 3, "看空": 4},
+                    "strong_buy_count": 1,
+                    "buy_count": 2,
+                    "watch_count": 3,
+                    "bearish_count": 4,
+                    "no_signal_reason": "目前有 1 檔強烈買多候選。",
+                },
                 "next_action": {"label": "不需手動更新", "endpoint": ""},
                 "_health_source": "/api/health",
             }
@@ -55,6 +63,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("next_check: 先看強烈買多候選。", report)
         self.assertIn("watch_readiness: 可正常看盤，仍需依停損確認", report)
         self.assertIn("live=20", report)
+        self.assertIn("front_category_summary: strong_buy=1 buy=2 watch=3 bearish=4", report)
+        self.assertIn("front_no_signal_reason: 目前有 1 檔強烈買多候選。", report)
         self.assertIn("/api/health", report)
         self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
 
@@ -77,6 +87,14 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                 "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
                 "do_not_do": ["不要追 high_risk"],
                 "refresh_actions": ["/refresh_watchlist"],
+                "front_category_summary": {
+                    "counts": {"強烈買多": 0, "買多": 1, "觀察": 7, "看空": 2},
+                    "strong_buy_count": 0,
+                    "buy_count": 1,
+                    "watch_count": 7,
+                    "bearish_count": 2,
+                    "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
+                },
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -89,6 +107,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("first_action: 先看強烈買多，再確認進場雷達", report)
         self.assertIn("operator_steps:", report)
         self.assertIn("1. 先看強烈買多候選", report)
+        self.assertIn("front_category_summary: strong_buy=0 buy=1 watch=7 bearish=2", report)
+        self.assertIn("front_no_signal_reason: 目前沒有強烈買多，先看買多清單的下一步觸發條件。", report)
         self.assertIn("refresh_plan: /refresh_watchlist", report)
         self.assertIn("/api/operator/runbook", report)
         self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
@@ -112,6 +132,14 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                 "checklist": ["是否站上 VWAP？"],
                 "do_not_do": ["不要追 high_risk"],
                 "refresh_actions": ["/refresh_watchlist"],
+                "front_category_summary": {
+                    "counts": {"強烈買多": 0, "買多": 1, "觀察": 7, "看空": 2},
+                    "strong_buy_count": 0,
+                    "buy_count": 1,
+                    "watch_count": 7,
+                    "bearish_count": 2,
+                    "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
+                },
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -125,6 +153,12 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["do_now"], ["先看強烈買多候選", "確認進場雷達"])
         self.assertEqual(report["decision_checklist"], ["是否站上 VWAP？"])
         self.assertEqual(report["do_not_do"], ["不要追 high_risk"])
+        self.assertEqual(report["front_category_summary"]["buy"], 1)
+        self.assertEqual(report["front_category_summary"]["watch"], 7)
+        self.assertEqual(
+            report["front_category_summary"]["no_signal_reason"],
+            "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
+        )
         self.assertEqual(report["manual_endpoint"], "POST /refresh_watchlist")
         self.assertEqual(report["refresh_plan"], ["/refresh_watchlist"])
 

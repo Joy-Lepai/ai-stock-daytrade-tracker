@@ -109,6 +109,7 @@ def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
             "market_mode": payload.get("market_mode") or "",
             "market_mode_label": payload.get("market_mode_label") or "",
             "data_quality_status": payload.get("data_quality_status") or "",
+            "front_category_summary": dict(payload.get("front_category_summary") or {}),
             "blockers": list(payload.get("blockers") or []),
             "warnings": list(payload.get("warnings") or []),
             "operator_steps": list(payload.get("now_steps") or []),
@@ -133,6 +134,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
     health = _resolve_health(payload)
     status = str(health.get("status") or "blocked")
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
+    front = health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {}
     next_action = _next_action(payload, health)
     plan = refresh_plan(payload, health)
     return {
@@ -159,6 +161,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
             "cached": health.get("cached_count", price.get("cached_count", 0)),
             "missing": health.get("missing_count", price.get("missing_count", 0)),
         },
+        "front_category_summary": _front_category_report(front),
         "blockers": list(health.get("blockers") or []),
         "warnings": list(health.get("warnings") or []),
         "operator_steps": [str(item) for item in (health.get("operator_steps") or [])],
@@ -229,6 +232,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     status = str(health.get("status") or "blocked")
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
+    front = health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {}
     lines = [
         "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
@@ -242,6 +246,17 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         f"cached={health.get('cached_count', price.get('cached_count', 0))} "
         f"missing={health.get('missing_count', price.get('missing_count', 0))}",
     ]
+    front_report = _front_category_report(front)
+    if front_report:
+        lines.append(
+            "front_category_summary: "
+            f"strong_buy={front_report.get('strong_buy', 0)} "
+            f"buy={front_report.get('buy', 0)} "
+            f"watch={front_report.get('watch', 0)} "
+            f"bearish={front_report.get('bearish', 0)}"
+        )
+        if front_report.get("no_signal_reason"):
+            lines.append(f"front_no_signal_reason: {front_report.get('no_signal_reason')}")
     if payload.get("_health_source"):
         lines.append(f"source: {payload.get('_health_source')}")
     preflight = health.get("opening_preflight") if isinstance(health.get("opening_preflight"), dict) else {}
@@ -310,6 +325,27 @@ def _watch_readiness_label(status: str, health: dict[str, Any], payload: dict[st
     if status == "warning":
         return "可看但需保守，延遲或缺漏標的不可作為進場依據。"
     return "可正常看盤，仍需依停損與進場雷達確認。"
+
+
+def _front_category_report(summary: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(summary, dict) or not summary:
+        return {}
+    counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
+    return {
+        "strong_buy": _safe_int(summary.get("strong_buy_count", counts.get("強烈買多", 0))),
+        "buy": _safe_int(summary.get("buy_count", counts.get("買多", 0))),
+        "watch": _safe_int(summary.get("watch_count", counts.get("觀察", 0))),
+        "bearish": _safe_int(summary.get("bearish_count", counts.get("看空", 0))),
+        "data_missing": _safe_int(summary.get("data_missing_count", counts.get("資料不足", 0))),
+        "no_signal_reason": str(summary.get("no_signal_reason") or ""),
+    }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, Any]:
