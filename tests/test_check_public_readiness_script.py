@@ -39,5 +39,23 @@ class RunOpenCheckScriptTests(unittest.TestCase):
         self.assertIn("Opening check stopped: 營運健康狀態 blocked。", script)
 
 
+class RunPremarketScriptTests(unittest.TestCase):
+    def test_premarket_script_runs_release_and_operational_gates_first(self):
+        script = (ROOT / "scripts" / "run_premarket.sh").read_text()
+
+        self.assertIn("scripts/check_release_readiness.py", script)
+        self.assertIn("scripts/check_operational_health.py", script)
+        self.assertIn("SKIP_RELEASE_READINESS", script)
+        self.assertIn("SKIP_OPERATIONAL_HEALTH", script)
+        self.assertLess(script.index("scripts/check_release_readiness.py"), script.index("stock_daytrade_system.cli report"))
+        self.assertLess(script.index("scripts/check_operational_health.py"), script.index("stock_daytrade_system.cli report"))
+
+    def test_premarket_script_blocks_when_release_or_health_fails(self):
+        script = (ROOT / "scripts" / "run_premarket.sh").read_text()
+
+        self.assertIn("Premarket report stopped: 本機、GitHub 或公開站版本尚未對齊。", script)
+        self.assertIn("Premarket report stopped: 營運健康狀態 blocked。", script)
+
+
 if __name__ == "__main__":
     unittest.main()

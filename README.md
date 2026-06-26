@@ -426,13 +426,13 @@ STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS=900
 台股一般交易日 09:00 開盤，若要在開盤前兩小時執行，可在 macOS/Linux 用 cron 設定台北時間 07:00 執行：
 
 ```cron
-0 7 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && /usr/bin/python3 -m stock_daytrade_system.cli report
+0 7 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && scripts/run_premarket.sh
 ```
 
 開盤後確認可排在 09:15：
 
 ```cron
-15 9 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && /usr/bin/python3 -m stock_daytrade_system.cli open-check
+15 9 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && scripts/run_open_check.sh
 ```
 
 追蹤器可排在 09:20 或手動重跑：
