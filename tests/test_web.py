@@ -219,6 +219,8 @@ class WebTests(unittest.TestCase):
         self.assertTrue(payload["can_trade_now"])
         self.assertTrue(payload["can_trust_strong_buy"])
         self.assertEqual(payload["now_steps"][:2], ["先看強烈買多候選", "確認進場雷達"])
+        self.assertTrue(payload["no_signal_triage"])
+        self.assertIn("強烈買多漏斗", " ".join(payload["no_signal_triage"]))
         self.assertEqual(payload["checklist"], ["是否站上 VWAP？", "量比是否足夠？"])
         self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
@@ -242,6 +244,7 @@ class WebTests(unittest.TestCase):
                 "watch_readiness": "可正常看盤",
                 "watch_readiness_message": "仍需依停損確認",
                 "now_steps": ["先看強烈買多候選", "確認進場雷達"],
+                "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
                 "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
                 "do_not_do": ["不要追 high_risk"],
                 "refresh_actions": ["/refresh_watchlist"],
@@ -257,6 +260,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("可以進入盤中追蹤", html)
         self.assertIn("先看強烈買多，再確認進場雷達", html)
         self.assertIn("現在照這樣做", html)
+        self.assertIn("沒有訊號時先查", html)
+        self.assertIn("operator-no-signal-triage", html)
+        self.assertIn("若沒有強烈買多，先看強烈買多漏斗。", html)
         self.assertIn("進場前檢查", html)
         self.assertIn("今天不要做", html)
         self.assertIn("更新重點觀察", html)

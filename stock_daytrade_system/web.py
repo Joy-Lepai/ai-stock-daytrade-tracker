@@ -776,6 +776,7 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
     checklist = list(health.get("decision_checklist") or [])
     steps = list(health.get("operator_steps") or [])
     can_trade_now = bool(decision.get("can_trade_now"))
+    no_signal_triage = _operator_no_signal_triage(health)
     return {
         "api_status": "ok",
         "generated_at": health.get("generated_at") or "",
@@ -793,6 +794,7 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "watch_readiness": health.get("watch_readiness") or "",
         "watch_readiness_message": health.get("watch_readiness_message") or "",
         "now_steps": _compact_operator_steps(do_now, steps),
+        "no_signal_triage": no_signal_triage,
         "checklist": checklist[:5],
         "do_not_do": _compact_text_list(do_not_do or decision.get("blocked_actions") or []),
         "refresh_actions": _compact_text_list(refresh_plan or ([next_action.get("endpoint")] if next_action.get("endpoint") else [])),
@@ -836,6 +838,10 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
     <section class="decision-center">
       <h2>現在照這樣做</h2>
       {_operator_list(payload.get('now_steps'), '目前沒有下一步指令。', 'operator-now-steps')}
+    </section>
+    <section class="decision-center">
+      <h2>沒有訊號時先查</h2>
+      {_operator_list(payload.get('no_signal_triage'), '若沒有強烈買多，先確認時段、資料狀態、VWAP、量比與風險卡關。', 'operator-no-signal-triage')}
     </section>
     <section class="operator-two-col">
       <div class="decision-center">
@@ -1017,6 +1023,7 @@ def operator_runbook_script() -> str:
         text("operator-watch-readiness", payload.watch_readiness || "-");
         text("operator-watch-message", payload.watch_readiness_message || "");
         renderList("operator-now-steps", payload.now_steps, "目前沒有下一步指令。");
+        renderList("operator-no-signal-triage", payload.no_signal_triage, "若沒有強烈買多，先確認時段、資料狀態、VWAP、量比與風險卡關。");
         renderList("operator-checklist", payload.checklist, "目前沒有額外檢查項目。");
         renderList("operator-do-not-do", payload.do_not_do, "目前沒有額外禁止動作。");
         renderList("operator-blockers", payload.blockers, "目前沒有阻擋原因。");
@@ -1045,6 +1052,60 @@ def _compact_operator_steps(do_now: list[Any], steps: list[Any]) -> list[str]:
     if len(preferred) >= 3:
         return preferred[:5]
     return _compact_text_list([*preferred, *steps])[:5]
+
+
+def _operator_no_signal_triage(health: dict[str, Any]) -> list[str]:
+    market_mode = str(health.get("market_mode") or "")
+    blockers = _compact_text_list(list(health.get("blockers") or []))
+    warnings = _compact_text_list(list(health.get("warnings") or []))
+    price_status = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
+    live_count = _safe_int(price_status.get("live_count") or health.get("live_count"))
+    delayed_count = _safe_int(price_status.get("delayed_count") or health.get("delayed_count"))
+    cached_count = _safe_int(price_status.get("cached_count") or health.get("cached_count"))
+    missing_count = _safe_int(price_status.get("missing_count") or health.get("missing_count"))
+    required_stale_layers = _compact_text_list(list(health.get("required_stale_layers") or []))
+
+    triage: list[str] = []
+    if market_mode != "intraday":
+        triage.append("先確認目前不是盤中：0 檔強烈買多可能只是休市、盤前或盤後模式，不代表模型失效。")
+        triage.append("只整理上一交易日復盤與下個交易日觀察清單，等開盤後 live 資料再判斷。")
+    if blockers:
+        triage.append(f"先修阻擋原因：{blockers[0]}")
+    if required_stale_layers:
+        labels = "、".join(_operator_layer_label(layer) for layer in required_stale_layers[:3])
+        triage.append(f"必要刷新層過期：先更新 {labels}，再看強烈買多。")
+    if live_count <= 0 and market_mode == "intraday":
+        triage.append("盤中 live 價格為 0：先修資料源或重跑重點觀察，不要看買多訊號。")
+    elif market_mode == "intraday":
+        triage.append(f"先看 live 標的：目前 live {live_count} 檔，delayed {delayed_count} 檔，cached {cached_count} 檔，missing {missing_count} 檔。")
+    if delayed_count or cached_count or missing_count:
+        triage.append("delayed / cached / missing 只能觀察，不可當作強烈買多或進場依據。")
+    if warnings:
+        triage.append(f"再看提醒：{warnings[0]}")
+    triage.extend(
+        [
+            "若資料正常但仍 0 檔，回 dashboard 看強烈買多漏斗：通常卡在 VWAP、量比、突破、風險或信心分數。",
+            "點進個股作戰卡看最大卡關與下一步觸發條件；high_risk 只等拉回，不追價。",
+        ]
+    )
+    return _compact_text_list(triage)[:6]
+
+
+def _operator_layer_label(layer: str) -> str:
+    return {
+        "full_market": "全市場掃描",
+        "watchlist": "重點觀察",
+        "positions": "持倉 / 觸發",
+        "post_close_validation": "盤後驗證",
+        "manual_full_refresh": "完整刷新",
+    }.get(str(layer), str(layer))
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _compact_text_list(items: list[Any]) -> list[str]:
