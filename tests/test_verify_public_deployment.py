@@ -663,6 +663,49 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         self.assertTrue(all(item.ok for item in checks), checks)
 
+    def test_non_intraday_bearish_heavy_dashboard_requires_guard_copy(self):
+        html = """
+        今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
+        開盤前準備模式
+        <div class="metric"><span>強烈買多</span><strong>0</strong></div>
+        <div class="metric"><span>買多</span><strong>0</strong></div>
+        <div class="metric"><span>觀察</span><strong>0</strong></div>
+        <div class="metric"><span>看空</span><strong>52</strong></div>
+        <details><summary>候選股怎麼選出來？</summary>
+        <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>
+        <div class="metric"><span>今日異動候選</span><strong>40</strong></div>
+        <div class="metric"><span>送入模型評分</span><strong>118</strong></div>
+        </details>
+        """
+
+        checks = validate_dashboard_html(html)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("non-intraday bearish-heavy dashboard has review guard copy", failed)
+
+    def test_non_intraday_bearish_heavy_dashboard_accepts_guard_copy(self):
+        html = """
+        今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
+        開盤前準備模式。看空偏多不代表全市場都適合做空，僅供復盤，等開盤後再確認。
+        <div class="metric"><span>強烈買多</span><strong>0</strong></div>
+        <div class="metric"><span>買多</span><strong>0</strong></div>
+        <div class="metric"><span>觀察</span><strong>0</strong></div>
+        <div class="metric"><span>看空</span><strong>52</strong></div>
+        <details><summary>候選股怎麼選出來？</summary>
+        <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>
+        <div class="metric"><span>今日異動候選</span><strong>40</strong></div>
+        <div class="metric"><span>送入模型評分</span><strong>118</strong></div>
+        </details>
+        """
+
+        checks = validate_dashboard_html(html)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
     def test_tw_advisor_html_requires_entry_copy_and_blocks_legacy_words(self):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌

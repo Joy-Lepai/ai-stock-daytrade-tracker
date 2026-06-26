@@ -530,6 +530,33 @@ def validate_dashboard_html(html: str) -> list[Check]:
     )
     selection_pool_count = _html_first_number_after(selection_html, "完整普通股池") if selection_html else None
     selection_scored_count = _html_first_number_after(selection_html, "送入模型評分") if selection_html else None
+    non_intraday_mode = any(
+        marker in html
+        for marker in [
+            "開盤前準備模式",
+            "休市復盤模式",
+            "盤後復盤模式",
+            "目前不是盤中模式",
+            "不提供即時買多判斷",
+        ]
+    )
+    bearish_count = _html_first_number_after(html, "看空") or 0
+    strong_count = _html_first_number_after(html, "強烈買多") or 0
+    buy_count = _html_first_number_after(html, "買多") or 0
+    watch_count = _html_first_number_after(html, "觀察") or 0
+    bearish_dominates_review = (
+        non_intraday_mode
+        and bearish_count > 0
+        and bearish_count >= max(strong_count + buy_count + watch_count, 1)
+    )
+    bearish_review_has_guard = (not bearish_dominates_review) or any(
+        marker in html
+        for marker in [
+            "不代表全市場都適合做空",
+            "不提供即時買多判斷",
+            "僅供復盤",
+        ]
+    )
     selection_counts_consistent = True
     selection_detail = "selection explainer not present"
     if selection_html:
@@ -567,6 +594,14 @@ def validate_dashboard_html(html: str) -> list[Check]:
             "dashboard candidate explainer counts are consistent",
             selection_counts_consistent,
             selection_detail,
+        ),
+        Check(
+            "non-intraday bearish-heavy dashboard has review guard copy",
+            bearish_review_has_guard,
+            (
+                f"non_intraday={non_intraday_mode} strong={strong_count} buy={buy_count} "
+                f"watch={watch_count} bearish={bearish_count}"
+            ),
         ),
     ]
     return checks
