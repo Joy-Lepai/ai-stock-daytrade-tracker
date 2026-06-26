@@ -2066,9 +2066,9 @@ def _front_category_triage_hint(counts: Counter[str], reason_counter: Counter[st
     if not checks:
         checks = ["先看 market_mode、price_status、VWAP、量比與資料日"]
     if bearish and bearish / total >= 0.7:
-        prefix = "分類異常警示：看空比例偏高，這通常要先查資料模式、VWAP 與價格狀態，不代表全市場都適合做空，"
+        prefix = "分類異常警示：看空比例偏高，這不是做空建議；通常要先查資料模式、VWAP 與價格狀態，"
     elif bearish:
-        prefix = "若看空異常偏多，這不代表全市場都適合做空，"
+        prefix = "若看空異常偏多，這不是做空建議；先確認資料與價格結構，"
     elif watch:
         prefix = "目前沒有買多候選，"
     else:
