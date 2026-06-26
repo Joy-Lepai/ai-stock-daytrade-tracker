@@ -162,6 +162,33 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["manual_endpoint"], "POST /refresh_watchlist")
         self.assertEqual(report["refresh_plan"], ["/refresh_watchlist"])
 
+    def test_old_operator_runbook_without_front_summary_is_warning(self):
+        exit_code, report = script.render_report(
+            {
+                "api_status": "ok",
+                "mode": "盤中作戰模式",
+                "headline": "可以進入盤中追蹤",
+                "decision": "可盯盤",
+                "first_action": "先看強烈買多，再確認進場雷達",
+                "can_trade_now": True,
+                "can_use_intraday_signals": True,
+                "can_trust_strong_buy": True,
+                "data_quality_status": "正常",
+                "market_mode": "intraday",
+                "watch_readiness": "可正常看盤",
+                "now_steps": ["先看強烈買多候選"],
+                "checklist": ["是否站上 VWAP？"],
+                "do_not_do": ["不要追 high_risk"],
+                "_health_source": "/api/operator/runbook",
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("[WARN]", report)
+        self.assertIn("尚未取得四分類摘要", report)
+        self.assertIn("can_trust_strong_buy: False", report)
+
     def test_render_report_returns_zero_for_warning(self):
         exit_code, report = script.render_report(
             {

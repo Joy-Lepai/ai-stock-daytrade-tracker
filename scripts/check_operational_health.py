@@ -80,7 +80,15 @@ def _is_runbook_payload(payload: dict[str, Any]) -> bool:
 
 def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
     if _is_runbook_payload(payload):
+        front_summary = dict(payload.get("front_category_summary") or {})
+        warnings = list(payload.get("warnings") or [])
+        can_trust_strong_buy = bool(payload.get("can_trust_strong_buy"))
+        if not front_summary:
+            can_trust_strong_buy = False
+            warnings.append("尚未取得四分類摘要，不可信任強烈買多。")
         status = "blocked" if payload.get("blockers") else "ok" if payload.get("can_trade_now") else "warning"
+        if status == "ok" and not can_trust_strong_buy:
+            status = "warning"
         return {
             "status": status,
             "summary": payload.get("headline") or payload.get("decision") or "",
@@ -91,7 +99,7 @@ def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
                 "first_action": payload.get("first_action") or "",
                 "can_trade_now": bool(payload.get("can_trade_now")),
                 "can_use_intraday_signals": bool(payload.get("can_use_intraday_signals")),
-                "can_trust_strong_buy": bool(payload.get("can_trust_strong_buy")),
+                "can_trust_strong_buy": can_trust_strong_buy,
             },
             "operator_briefing": {
                 "headline": payload.get("headline") or "",
@@ -109,9 +117,9 @@ def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
             "market_mode": payload.get("market_mode") or "",
             "market_mode_label": payload.get("market_mode_label") or "",
             "data_quality_status": payload.get("data_quality_status") or "",
-            "front_category_summary": dict(payload.get("front_category_summary") or {}),
+            "front_category_summary": front_summary,
             "blockers": list(payload.get("blockers") or []),
-            "warnings": list(payload.get("warnings") or []),
+            "warnings": warnings,
             "operator_steps": list(payload.get("now_steps") or []),
             "next_action": _runbook_next_action(payload),
             "refresh_plan": [str(item) for item in (payload.get("refresh_actions") or []) if str(item).startswith("/refresh")],
@@ -275,6 +283,8 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         lines.append(f"- reason: {decision.get('reason') or '-'}")
         lines.append(f"- first_action: {decision.get('first_action') or '-'}")
         lines.append(f"- can_trade_now: {bool(decision.get('can_trade_now'))}")
+        if "can_trust_strong_buy" in decision:
+            lines.append(f"- can_trust_strong_buy: {bool(decision.get('can_trust_strong_buy'))}")
     briefing = health.get("operator_briefing") if isinstance(health.get("operator_briefing"), dict) else {}
     if briefing:
         lines.append("operator_briefing:")
