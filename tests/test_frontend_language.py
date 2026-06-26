@@ -266,6 +266,55 @@ class FrontendLanguageTests(unittest.TestCase):
         self.assertIn("尚未站上 VWAP", view.subtitle)
         self.assertFalse(view.is_strong_long_allowed)
 
+    def test_pre_open_or_closed_mode_does_not_turn_candidate_bearish(self):
+        view = front_trade_view(
+            {
+                "symbol": "2886.TW",
+                "grade": "B",
+                "entry_status": "wait_breakout",
+                "last_price": 39.6,
+                "vwap": 39.4,
+                "above_vwap": True,
+                "volume_ratio": 1.0,
+                "break_prev_high": True,
+                "bullish_score": 70,
+                "risk_score": 45,
+                "confidence_score": 60,
+                "stop_loss": 39.0,
+            },
+            intraday=False,
+            market_mode="pre_open_prepare",
+            allow_strong_long=False,
+        )
+
+        self.assertEqual(view.category, "觀察")
+        self.assertNotEqual(view.category, "看空")
+        self.assertIn("不是盤中", view.subtitle)
+        self.assertFalse(view.is_strong_long_allowed)
+
+    def test_delayed_waiting_candidate_is_observation_not_bearish(self):
+        view = front_trade_view(
+            {
+                "symbol": "3711.TW",
+                "grade": "B+",
+                "entry_status": "wait_volume",
+                "last_price": 150,
+                "vwap": 149,
+                "above_vwap": True,
+                "volume_ratio": 0.9,
+                "stop_loss": 146,
+                "bullish_score": 74,
+                "risk_score": 42,
+                "confidence_score": 62,
+                "price_status": "delayed",
+                "is_delayed": True,
+            }
+        )
+
+        self.assertEqual(view.category, "觀察")
+        self.assertNotEqual(view.category, "看空")
+        self.assertIn("資料延遲", view.subtitle)
+
     def test_near_limit_high_risk_stock_is_observation_not_buy(self):
         view = front_trade_view(
             {

@@ -2011,6 +2011,7 @@ def _front_category_triage_hint(counts: Counter[str], reason_counter: Counter[st
     buy = int(counts.get("買多", 0) or 0)
     watch = int(counts.get("觀察", 0) or 0)
     bearish = int(counts.get("看空", 0) or 0)
+    total = max(strong + buy + watch + bearish, 1)
     if strong or buy:
         return ""
     reason_text = " ".join(reason_counter.keys())
@@ -2025,7 +2026,9 @@ def _front_category_triage_hint(counts: Counter[str], reason_counter: Counter[st
         checks.append("最後看是否被 high_risk 擋下")
     if not checks:
         checks = ["先看 market_mode、price_status、VWAP、量比與資料日"]
-    if bearish:
+    if bearish and bearish / total >= 0.7:
+        prefix = "分類異常警示：看空比例偏高，這通常要先查資料模式、VWAP 與價格狀態，不代表全市場都適合做空，"
+    elif bearish:
         prefix = "若看空異常偏多，這不代表全市場都適合做空，"
     elif watch:
         prefix = "目前沒有買多候選，"

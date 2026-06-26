@@ -1154,6 +1154,44 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("多數股票未站上 VWAP", html)
         self.assertIn("這不代表全市場都適合做空", html)
 
+    def test_front_category_diagnostics_warns_when_bearish_ratio_is_abnormally_high(self):
+        bearish_items = [
+            long_candidate(
+                symbol=f"999{i}.TW",
+                name=f"測試{i}",
+                entry_status="avoid",
+                original_entry_status="avoid",
+                adjusted_entry_status="avoid",
+                above_vwap=False,
+                vwap=100,
+                last_price=98,
+                reasons=["跌破 VWAP"],
+            )
+            for i in range(4)
+        ]
+        summary = LongModelSummary(
+            candidates=bearish_items,
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "data_health": {
+                    "status": "正常",
+                    "data_date": "2026-06-25",
+                    "latest_intraday_at": "2026-06-25T10:00:00+08:00",
+                }
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 25, 10, 0))
+
+        self.assertIn("分類異常警示", html)
+        self.assertIn("不代表全市場都適合做空", html)
+        self.assertIn("資料模式、VWAP 與價格狀態", html)
+
     def test_post_close_decision_overview_uses_review_and_next_session_copy(self):
         summary = LongModelSummary(
             candidates=[],
