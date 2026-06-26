@@ -348,7 +348,7 @@ class TrackerStatusTests(unittest.TestCase):
             ]
         )
 
-        self.assertIn("進場雷達通過觀察", combined)
+        self.assertIn("進場雷達重點檢查", combined)
         self.assertIn("強勢重點盯盤", combined)
         for forbidden in ["強烈看漲", "做多確認", "買多推薦", "可執行做多", "強勢做多觀察", "可列入做多觀察"]:
             self.assertNotIn(forbidden, combined)

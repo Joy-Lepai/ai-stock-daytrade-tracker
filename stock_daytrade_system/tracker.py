@@ -3448,7 +3448,7 @@ def _time_bucket_label(value: str) -> str:
 
 def _entry_status_message(value: str) -> str:
     return {
-        "executable": "量能與VWAP條件成立，可列入進場雷達通過觀察。",
+        "executable": "量能與VWAP條件成立，可列入進場雷達重點檢查。",
         "practice_long": "條件接近且風險可控，可用虛擬交易練習買多。",
         "wait_volume": "多方結構不錯，但量能不足，等待量比放大後再觀察。",
         "wait_vwap": "突破條件成立，但尚未站上 VWAP，等待站回均價線。",

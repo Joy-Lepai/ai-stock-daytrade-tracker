@@ -37,7 +37,7 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
         self.assertGreaterEqual(analysis.technical_score, 75)
         self.assertGreaterEqual(analysis.volume_score, 65)
         self.assertLessEqual(analysis.chase_risk_score, 55)
-        self.assertIn("可列入進場雷達通過觀察", analysis.action_summary)
+        self.assertIn("可列入進場雷達重點檢查", analysis.action_summary)
         self.assertEqual(analysis.action_plan["state"], "可執行")
         self.assertEqual(analysis.action_plan["stop_loss"], 102)
         self.assertEqual(analysis.action_plan["target_price"], 108)
