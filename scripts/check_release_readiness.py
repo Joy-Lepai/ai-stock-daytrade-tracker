@@ -107,7 +107,7 @@ def load_release_state(
         ahead_from_status = parse_ahead_count(status_with_ahead.splitlines()[0] if status_with_ahead else "")
         if ahead_from_status > 0:
             ahead_count = ahead_from_status
-    unpushed_commits = load_unpushed_commits(ahead_count, runner=runner)
+    unpushed_commits = load_unpushed_commits(ahead_count, local_differs=head != origin, runner=runner)
     try:
         status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
         dirty = is_worktree_dirty(status)
@@ -169,8 +169,13 @@ def load_ahead_count(head: str, origin: str, *, runner: Callable[..., str] = sub
     return len(log_lines) if log_lines else -1
 
 
-def load_unpushed_commits(ahead_count: int, *, runner: Callable[..., str] = subprocess.check_output) -> list[str]:
-    if ahead_count <= 0:
+def load_unpushed_commits(
+    ahead_count: int,
+    *,
+    local_differs: bool = False,
+    runner: Callable[..., str] = subprocess.check_output,
+) -> list[str]:
+    if ahead_count == 0 and not local_differs:
         return []
     raw = optional_git_output(
         ["log", "--oneline", "--max-count=10", "origin/main..HEAD"],

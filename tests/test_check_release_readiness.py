@@ -125,6 +125,17 @@ class CheckReleaseReadinessTests(unittest.TestCase):
 
         self.assertEqual(load_unpushed_commits(0, runner=fake_runner), [])
 
+    def test_load_unpushed_commits_tries_log_when_ahead_unknown_but_origin_differs(self):
+        def fake_runner(command, **kwargs):
+            if command[-4:] == ["log", "--oneline", "--max-count=10", "origin/main..HEAD"]:
+                return "abc1234 First pending\nbcd2345 Second pending\n"
+            raise AssertionError(command)
+
+        self.assertEqual(
+            load_unpushed_commits(-1, local_differs=True, runner=fake_runner),
+            ["abc1234 First pending", "bcd2345 Second pending"],
+        )
+
     def test_load_release_state_marks_zero_ahead_when_origin_matches(self):
         def fake_runner(command, **kwargs):
             if command[-2:] == ["rev-parse", "HEAD"]:
