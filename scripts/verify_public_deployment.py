@@ -427,8 +427,6 @@ def validate_dashboard_html(html: str) -> list[Check]:
     required_markers = [
         "今日決策摘要",
         "今日資料可信度",
-        "最接近強烈買多",
-        "等待確認池",
         "進場雷達成績單",
         "資料健康度",
         "台股全市場異動掃描池",
@@ -438,12 +436,32 @@ def validate_dashboard_html(html: str) -> list[Check]:
         "看盤狀態",
         "刷新順序",
     ]
+    focus_section_options = [
+        "最接近強烈買多",
+        "開盤前重點盯盤",
+        "今日盤後復盤重點",
+        "上一交易日復盤重點",
+        "資料不足，暫停即時重點盯盤",
+    ]
+    observation_section_options = [
+        "等待確認池",
+        "開盤後等待確認清單",
+        "下個交易日觀察清單",
+        "資料不足觀察清單",
+    ]
     forbidden_terms = [
         *LEGACY_MISLEADING_TERMS,
         "舊版參考：今日看漲焦點",
         "舊版參考：系統自動選股",
     ]
     missing_markers = [marker for marker in required_markers if marker not in html]
+    has_focus_section = any(marker in html for marker in focus_section_options)
+    has_observation_section = any(marker in html for marker in observation_section_options)
+    missing_decision_sections = []
+    if not has_focus_section:
+        missing_decision_sections.append("重點盯盤 / 復盤重點")
+    if not has_observation_section:
+        missing_decision_sections.append("等待確認 / 下個交易日觀察")
     found_forbidden = [term for term in forbidden_terms if term in html]
     selection_html = _html_section(html, "候選股怎麼選出來", "</details>")
     scan_count_evidence = _html_first_number_after(html, "今日異動候選") or _html_first_number_after(html, "今日異動候選池")
@@ -472,8 +490,15 @@ def validate_dashboard_html(html: str) -> list[Check]:
         Check("dashboard HTML loaded", bool(html.strip()), f"length={len(html)}"),
         Check(
             "dashboard has core decision sections",
-            not missing_markers,
-            f"missing={', '.join(missing_markers) if missing_markers else '-'}",
+            not missing_markers and not missing_decision_sections,
+            (
+                "missing="
+                + (
+                    ", ".join([*missing_markers, *missing_decision_sections])
+                    if missing_markers or missing_decision_sections
+                    else "-"
+                )
+            ),
         ),
         Check(
             "dashboard has no legacy misleading wording",
