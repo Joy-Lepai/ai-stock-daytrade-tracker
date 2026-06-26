@@ -312,6 +312,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_json(build_health_payload(refresh_payload, system_payload))
             return
+        if path == "/api/operator/decision":
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            self._send_json(build_operator_decision_payload(refresh_payload, system_payload))
+            return
         if path == "/api/notification/signals":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(_notification_signals_payload(conn))
@@ -716,6 +721,27 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
             "data_date": db_status.get("data_date") or "",
             "latest_data_at": db_status.get("latest_data_at") or "",
         },
+    }
+
+
+def build_operator_decision_payload(refresh_payload: dict[str, Any], system_payload: dict[str, Any]) -> dict[str, Any]:
+    health = build_health_payload(refresh_payload, system_payload)
+    return {
+        "api_status": "ok",
+        "generated_at": health.get("generated_at") or "",
+        "status": health.get("status") or "",
+        "summary": health.get("summary") or "",
+        "operator_decision": health.get("operator_decision") or {},
+        "opening_preflight": health.get("opening_preflight") or {},
+        "watch_readiness": health.get("watch_readiness") or "",
+        "watch_readiness_message": health.get("watch_readiness_message") or "",
+        "market_mode": health.get("market_mode") or "",
+        "market_mode_label": health.get("market_mode_label") or "",
+        "data_quality_status": health.get("data_quality_status") or "",
+        "next_action": health.get("next_action") or {},
+        "blockers": health.get("blockers") or [],
+        "warnings": health.get("warnings") or [],
+        "deployment": health.get("deployment") or {},
     }
 
 

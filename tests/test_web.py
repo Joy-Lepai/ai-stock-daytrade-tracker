@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.web import (
     WebApp,
+    build_operator_decision_payload,
     build_health_payload,
     build_liveness_payload,
     readiness_http_status,
@@ -117,6 +118,52 @@ class WebTests(unittest.TestCase):
         self.assertTrue(payload["can_show_strong_long"])
         self.assertEqual(payload["deployment"]["runtime_commit"], "abc123")
         self.assertEqual(payload["db"]["data_date"], "2026-06-26")
+
+    def test_build_operator_decision_payload_is_lightweight(self):
+        refresh_payload = {
+            "generated_at": "2026-06-26T09:05:00+08:00",
+            "market_mode": "intraday",
+            "market_mode_label": "盤中",
+            "allow_intraday_signal": True,
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "price_status_summary": {"status": "正常", "live_count": 20},
+            "refresh_guidance": {"severity": "ok"},
+            "operational_health": {
+                "status": "ok",
+                "summary": "系統狀態正常",
+                "opening_preflight": {"light": "green", "label": "可進入盤中追蹤", "can_trust_strong_buy": True},
+                "operator_decision": {
+                    "decision": "可盯盤",
+                    "headline": "可以進入盤中追蹤",
+                    "reason": "資料可用。",
+                    "first_action": "先看強烈買多",
+                    "can_trade_now": True,
+                },
+                "watch_readiness": "可正常看盤",
+                "watch_readiness_message": "仍需依停損確認",
+                "next_action": {"label": "不需手動更新"},
+                "can_use_dashboard": True,
+                "can_show_strong_long": True,
+                "data_quality_status": "正常",
+            },
+        }
+        system_payload = {
+            "runtime": {"commit": "abc123"},
+            "tracker_html": {"commit": "abc123"},
+            "consistency": {"runtime_matches_tracker": True, "is_ready": True, "warnings": []},
+        }
+
+        payload = build_operator_decision_payload(refresh_payload, system_payload)
+
+        self.assertEqual(payload["api_status"], "ok")
+        self.assertEqual(payload["operator_decision"]["decision"], "可盯盤")
+        self.assertTrue(payload["operator_decision"]["can_trade_now"])
+        self.assertEqual(payload["opening_preflight"]["light"], "green")
+        self.assertEqual(payload["market_mode"], "intraday")
+        self.assertEqual(payload["deployment"]["runtime_commit"], "abc123")
+        self.assertNotIn("operator_steps", payload)
+        self.assertNotIn("price_status_summary", payload)
 
     def test_liveness_payload_is_lightweight_and_alive(self):
         payload = build_liveness_payload()
