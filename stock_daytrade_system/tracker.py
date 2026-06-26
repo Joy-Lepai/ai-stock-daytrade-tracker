@@ -1403,6 +1403,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'<td>{escape(_trend_label(str(item.get("ask_volume_trend", ""))))}<br><span class="muted">{escape(str(item.get("ask_volume_trend_summary") or "委賣快照不足"))}</span></td>'
         f'<td>{escape(_large_trade_label(str(item.get("large_trade_status", ""))))}<br><span class="muted">{escape(str(item.get("large_trade_summary") or "缺逐筆成交資料"))}</span></td>'
         f'<td>{escape(_price_tick_label(str(item.get("price_tick_trend", ""))))}<br><span class="muted">{escape(str(item.get("price_tick_summary") or "最新價快照不足"))}</span></td>'
+        f'<td><strong>{escape(_confirmation_quality_label(item))}</strong><br><span class="muted">{escape(str(item.get("confirmation_quality_reason") or "等待下一次雷達更新。"))}</span></td>'
         f'<td class="notes"><strong>{escape(str(item.get("entry_confirmation_status_label") or "等待確認"))}</strong><br>{escape(str(item.get("entry_confirmation_summary") or "等待 Fugle 更新進場雷達。"))}<br><span class="muted">下一步：{escape(str(item.get("entry_confirmation_next_step") or "等待下一次重點追蹤刷新。"))}</span></td>'
         f'<td>{escape("可做盤口確認" if item.get("can_use_for_entry_confirmation") else "僅觀察")}</td>'
         f'<td class="notes">{escape(str(item.get("priority_reason", "")))}</td>'
@@ -1433,7 +1434,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{quick_read_html}'
         f'{standby_html}'
         '<div class="table-wrap"><table><thead><tr>'
-        '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
+        '<th>股票</th><th>分級</th><th>狀態</th><th>現價</th><th>VWAP</th><th>量比</th><th>五檔買賣盤差</th><th>委買量變化</th><th>委賣量變化</th><th>大單敲進 / 敲出</th><th>最新價墊高</th><th>確認品質</th><th>進場雷達總結</th><th>進場確認</th><th>入選原因</th>'
         '</tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
@@ -1480,11 +1481,12 @@ def _fugle_quick_read_panel(rows: list[dict]) -> str:
         symbol = str(item.get("symbol") or "")
         name = str(item.get("name") or "")
         label = _fugle_entry_readiness_label(item)
+        quality = _confirmation_quality_label(item)
         support = _fugle_support_summary(item)
         gap = _fugle_gap_summary(item)
         items.append(
             f"<li><strong>{escape(symbol)}｜{escape(name)}</strong>："
-            f"{escape(label)}。{escape(support)}；{escape(gap)}</li>"
+            f"{escape(label)}｜{escape(quality)}。{escape(support)}；{escape(gap)}</li>"
         )
     return (
         '<section class="notice">'
@@ -1508,6 +1510,19 @@ def _fugle_entry_readiness_label(item: dict) -> str:
     if radar_status in {"review_only", "blocked"}:
         return "暫不作即時進場判斷"
     return "等待確認"
+
+
+def _confirmation_quality_label(item: dict) -> str:
+    label = str(item.get("confirmation_quality_label") or "")
+    if label:
+        return label
+    quality = str(item.get("confirmation_quality") or "")
+    return {
+        "high_precision": "高品質確認",
+        "standard": "標準確認",
+        "limited": "確認資料不足",
+        "blocked": "暫不進場",
+    }.get(quality, "等待確認")
 
 
 def _fugle_support_summary(item: dict) -> str:

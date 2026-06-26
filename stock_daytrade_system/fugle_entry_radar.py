@@ -15,7 +15,7 @@ from stock_daytrade_system.tw_scan_service import (
 )
 
 
-FUGLE_ENTRY_RADAR_VERSION = "fugle_entry_radar_v1_priority_5_2026-06-21"
+FUGLE_ENTRY_RADAR_VERSION = "fugle_entry_radar_v2_confirmation_quality_2026-06-26"
 DEFAULT_FUGLE_PRIORITY_POOL_LIMIT = 5
 
 
@@ -192,6 +192,10 @@ def _enrich_item(
             "entry_confirmation_next_step": confirmation.get("next_step"),
             "entry_confirmation_can_consider": confirmation.get("can_consider_entry"),
             "entry_confirmation_warnings": confirmation.get("warnings") or [],
+            "confirmation_quality": confirmation.get("confirmation_quality"),
+            "confirmation_quality_label": confirmation.get("confirmation_quality_label"),
+            "confirmation_quality_reason": confirmation.get("confirmation_quality_reason"),
+            "critical_data_ready": confirmation.get("critical_data_ready"),
             "orderbook_history_count": confirmation.get("orderbook_history_count") or 0,
             "fugle_api_calls": 3,
         }
@@ -223,6 +227,10 @@ def _unavailable_item(item: dict, *, reason: str) -> dict:
             "entry_confirmation_next_step": "完成 Fugle 設定並重新刷新後，再觀察五檔、逐筆與價格墊高。",
             "entry_confirmation_can_consider": False,
             "entry_confirmation_warnings": [reason],
+            "confirmation_quality": "blocked",
+            "confirmation_quality_label": "暫不進場",
+            "confirmation_quality_reason": f"{reason}，缺即時五檔與逐筆確認。",
+            "critical_data_ready": False,
             "orderbook_history_count": 0,
             "fugle_api_calls": 0,
         }

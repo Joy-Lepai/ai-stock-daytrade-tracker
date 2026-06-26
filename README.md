@@ -250,33 +250,9 @@ SKIP_RELEASE_READINESS=1 ./scripts/check_public_readiness.sh
 
 也可以到 GitHub Actions 手動執行 `Verify Public Deployment` workflow。部署完成後輸入公開網址與預期 commit，即可在 Actions 裡看到 PASS / FAIL；`advisor_symbol` 預設會驗證 `6919,2886,8150` 三檔代表案例，也可以自行覆蓋成其他股票。
 
-### Shioaji 永豐金報價接入（選用）
+### 即時報價策略
 
-本系統可選擇接入 Shioaji 作為台股即時報價背景資料，用來補強個股頁的盤口確認。第一版只讀行情，不下單、不送委託、不需要把交易功能打開。
-
-建議 Render 環境變數：
-
-```text
-SHIOAJI_ENABLED=1
-SHIOAJI_API_KEY=你的 Shioaji API Key
-SHIOAJI_SECRET_KEY=你的 Shioaji Secret Key
-SHIOAJI_TIMEOUT_SECONDS=3
-```
-
-若不想在 Web Service 內直接安裝 / 登入 Shioaji，也可以自行架一個內部 quote bridge，並設定：
-
-```text
-SHIOAJI_ENABLED=1
-SHIOAJI_HTTP_BASE_URL=https://你的內部報價服務
-```
-
-目前 MVP 行為：
-
-- `/tw/advisor` 會顯示「Shioaji 即時報價 / 盤口確認」卡片。
-- 沒有設定憑證時，網站會顯示「尚未啟用 / 尚未設定憑證」，不會讓 dashboard 壞掉。
-- 若 Shioaji 可取得報價，個股頁會優先顯示 Shioaji snapshot 價格。
-- 第一版顯示 snapshot / top-of-book，不把它當完整五檔串流。
-- Shioaji 報價只作背景確認，不會直接產生強烈做多，也不會自動下單。
+目前 MVP 先以 Fugle 作為進場前確認資料源；Shioaji / 券商下單 API 暫不啟用，也不串接真實交易。這樣可以先把「五檔、逐筆、大單、價格墊高」做成只讀雷達，避免憑證、券商環境或下單風險干擾當沖追蹤系統。
 
 ### Fugle 5 檔進場雷達（基本用戶）
 
@@ -289,6 +265,15 @@ Fugle 基本用戶即時行情 WebSocket 最多 5 檔訂閱。本系統不會拿
 - 是否有大單敲進 / 敲出
 - 是否仍站上 VWAP
 - 停損距離是否合理
+
+雷達會把每檔分成：
+
+- `高品質確認`：即時資料、VWAP、量能、停損距離、五檔、逐筆與連續快照都可檢查。
+- `標準確認`：核心價格條件可檢查，但逐筆、五檔或連續快照尚未完全齊備。
+- `確認資料不足`：核心條件接近，但缺 Tick / 五檔 / 快照，不能作高精準進場。
+- `暫不進場`：資料非即時、模型阻擋、賣壓偏重或風險條件不通過。
+
+這個確認品質只影響前台解讀，不會改 A / B+ / B 條件，不會增加推薦數量，也不會自動下單。
 
 若要固定指定某檔進入 Fugle 追蹤池，請編輯 `config/watchlist.json`：
 

@@ -41,6 +41,9 @@ class EntryConfirmationTests(unittest.TestCase):
                 "bid_total_volume": 1500,
                 "ask_total_volume": 600,
                 "orderbook_imbalance": 42.86,
+                "tick_type": "buy",
+                "last_tick_volume": 350,
+                "large_trade_threshold": 200,
             },
             orderbook_history=[
                 {"price": 100.2, "bid_total_volume": 1100, "ask_total_volume": 900},
@@ -56,6 +59,9 @@ class EntryConfirmationTests(unittest.TestCase):
         self.assertEqual(payload["ask_volume_trend"], "improving")
         self.assertEqual(payload["price_tick_trend"], "rising")
         self.assertEqual(payload["orderbook_history_count"], 3)
+        self.assertEqual(payload["confirmation_quality"], "high_precision")
+        self.assertEqual(payload["confirmation_quality_label"], "高品質確認")
+        self.assertTrue(payload["critical_data_ready"])
 
     def test_high_risk_is_blocked_even_with_orderbook_support(self):
         payload = build_entry_confirmation(
@@ -150,6 +156,59 @@ class EntryConfirmationTests(unittest.TestCase):
         self.assertEqual(payload["ask_volume_trend"], "missing")
         self.assertEqual(payload["large_trade_status"], "missing")
         self.assertFalse(payload["can_consider_entry"])
+        self.assertEqual(payload["confirmation_quality"], "blocked")
+        self.assertEqual(payload["confirmation_quality_label"], "暫不進場")
+
+    def test_core_conditions_without_tick_or_orderbook_are_limited_confirmation(self):
+        payload = build_entry_confirmation(
+            candidate={
+                "entry_status": "executable",
+                "trade_bias": "long",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.2,
+                "stop_loss": 99,
+                "risk_score": 30,
+            },
+            intraday_bars=[bar(index, 100 + index * 0.2) for index in range(4)],
+            data_health={"is_live": True, "can_use_for_intraday_signal": True},
+            realtime_quote={"five_level_status": "missing"},
+            orderbook_history=[],
+        ).to_dict()
+
+        self.assertEqual(payload["confirmation_quality"], "blocked")
+        self.assertIn(payload["confirmation_quality_label"], {"暫不進場", "確認資料不足"})
+
+    def test_partial_intraday_confirmation_is_standard_quality(self):
+        payload = build_entry_confirmation(
+            candidate={
+                "entry_status": "executable",
+                "trade_bias": "long",
+                "last_price": 101,
+                "vwap": 100,
+                "above_vwap": True,
+                "volume_ratio": 1.2,
+                "stop_loss": 99,
+                "risk_score": 30,
+            },
+            intraday_bars=[bar(index, 100 + index * 0.2) for index in range(4)],
+            data_health={"is_live": True, "can_use_for_intraday_signal": True},
+            realtime_quote={
+                "five_level_status": "available",
+                "bid_total_volume": 1500,
+                "ask_total_volume": 900,
+                "orderbook_imbalance": 25,
+                "large_trade_status": "missing",
+            },
+            orderbook_history=[
+                {"price": 100.2, "bid_total_volume": 1400, "ask_total_volume": 920},
+                {"price": 100.5, "bid_total_volume": 1500, "ask_total_volume": 900},
+            ],
+        ).to_dict()
+
+        self.assertEqual(payload["confirmation_quality"], "standard")
+        self.assertEqual(payload["confirmation_quality_label"], "標準確認")
 
 
 if __name__ == "__main__":

@@ -929,6 +929,9 @@ class TrackerStatusTests(unittest.TestCase):
                             "priority_score": 955,
                             "can_use_for_entry_confirmation": True,
                             "entry_confirmation_can_consider": True,
+                            "confirmation_quality": "high_precision",
+                            "confirmation_quality_label": "高品質確認",
+                            "confirmation_quality_reason": "VWAP、量能、停損距離、五檔、逐筆與價格墊高都可檢查。",
                             "orderbook_status": "supportive",
                             "large_trade_status": "buy_sweep",
                             "price_tick_trend": "rising",
@@ -948,6 +951,9 @@ class TrackerStatusTests(unittest.TestCase):
                             "priority_score": 800,
                             "can_use_for_entry_confirmation": False,
                             "entry_confirmation_can_consider": False,
+                            "confirmation_quality": "limited",
+                            "confirmation_quality_label": "確認資料不足",
+                            "confirmation_quality_reason": "缺逐筆成交，不能作高精準進場確認。",
                             "orderbook_status": "supportive",
                             "large_trade_status": "missing",
                             "price_tick_trend": "stable",
@@ -978,6 +984,9 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("指定追蹤已入池：6919.TW", html)
         self.assertIn("風險防線正常：6919.TW", html)
         self.assertIn("Fugle 雷達速讀", html)
+        self.assertIn("確認品質", html)
+        self.assertIn("高品質確認", html)
+        self.assertIn("確認資料不足", html)
         self.assertIn("Fugle 名額外候補", html)
         self.assertIn("2330.TW｜台積電", html)
         self.assertIn("即時 API 資源不足", html)

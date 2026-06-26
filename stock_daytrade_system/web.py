@@ -2658,6 +2658,10 @@ def tw_advisor_script() -> str:
         large_sell: "大單賣出",
         inflow: "大單流入",
         outflow: "大單流出",
+        high_precision: "高品質確認",
+        standard: "標準確認",
+        limited: "確認資料不足",
+        blocked: "暫不進場",
       }[entry] || entry || "-");
       const displayTradeBias = (item) => {
         const entry = item?.entry_status || "";
@@ -3163,6 +3167,8 @@ def tw_advisor_script() -> str:
             <div class="advisor-grid">
               ${metric("雷達分數", escapeHtml(number(radar.score)))}
               ${metric("可考慮進場", escapeHtml(yesNo(radar.can_consider_entry)))}
+              ${metric("確認品質", escapeHtml(radar.confirmation_quality_label || statusZh(radar.confirmation_quality)))}
+              ${metric("品質原因", escapeHtml(radar.confirmation_quality_reason || "等待雷達資料更新。"))}
               ${metric("價格動能", escapeHtml(statusZh(radar.price_momentum_status)))}
               ${metric("VWAP", escapeHtml(statusZh(radar.vwap_status)))}
               ${metric("量能", escapeHtml(statusZh(radar.volume_status)))}

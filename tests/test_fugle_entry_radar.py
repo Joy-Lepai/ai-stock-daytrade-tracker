@@ -125,6 +125,9 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertIn("大單敲進", item["large_trade_summary"])
         self.assertIn(item["price_tick_trend"], {"rising", "stable"})
         self.assertIn("entry_confirmation_summary", item)
+        self.assertEqual(item["confirmation_quality"], "standard")
+        self.assertEqual(item["confirmation_quality_label"], "標準確認")
+        self.assertTrue(item["critical_data_ready"])
 
     def test_symbol_failure_does_not_break_the_pool(self):
         with TemporaryDirectory() as directory:
@@ -142,6 +145,7 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(rows["2330.TW"]["fugle_confirmation_status"], "ok")
         self.assertEqual(rows["6919.TW"]["fugle_confirmation_status"], "failed")
         self.assertIn("暫時無法更新", rows["6919.TW"]["entry_confirmation_summary"])
+        self.assertNotIn("confirmation_quality", rows["6919.TW"])
 
     def test_disabled_fugle_marks_pool_without_calling_symbol_endpoints(self):
         client = FakeFugleClient()
@@ -161,6 +165,7 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(client.quote_calls + client.trade_calls + client.candle_calls, 0)
         self.assertEqual(item["entry_confirmation_status_label"], "等待 Fugle 設定")
         self.assertFalse(item["entry_confirmation_can_consider"])
+        self.assertEqual(item["confirmation_quality_label"], "暫不進場")
 
     def test_basic_user_limit_only_fetches_first_five_symbols(self):
         symbols = ["2330.TW", "2317.TW", "2454.TW", "2886.TW", "6919.TW", "8150.TW"]

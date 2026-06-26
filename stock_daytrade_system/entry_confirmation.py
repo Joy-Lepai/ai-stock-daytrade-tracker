@@ -6,7 +6,7 @@ from typing import Optional
 from stock_daytrade_system.data import Bar
 
 
-ENTRY_CONFIRMATION_VERSION = "entry_confirmation_v2_orderbook_trend_radar_2026-06-21"
+ENTRY_CONFIRMATION_VERSION = "entry_confirmation_v3_confirmation_quality_2026-06-26"
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,10 @@ class EntryConfirmation:
     checks: list[dict]
     blockers: list[str]
     warnings: list[str]
+    confirmation_quality: str
+    confirmation_quality_label: str
+    confirmation_quality_reason: str
+    critical_data_ready: bool
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -147,6 +151,20 @@ def build_entry_confirmation(
         "review_only": "復盤 / 觀察",
     }[status]
     can_consider = bool(status == "ready" and entry_status == "executable" and data_live and not hard_blockers)
+    quality = _confirmation_quality(
+        data_live=data_live,
+        hard_blockers=hard_blockers,
+        orderbook_status=orderbook["status"],
+        large_trade_status=large_trade["status"],
+        bid_trend_status=bid_trend["status"],
+        ask_trend_status=ask_trend["status"],
+        price_tick_status=price_tick["status"],
+        history_count=len(history),
+        volume_ok=volume_ok,
+        above_vwap=above_vwap,
+        stop_ok=stop_ok,
+        risk_ok=risk_ok,
+    )
     summary = _summary(status, checks, hard_blockers, warnings)
     next_step = _next_step(status, volume_ok, above_vwap, orderbook["status"])
     invalidation = "跌破 VWAP、五檔賣壓轉強、量能退潮、跌破停損價或資料轉為延遲 / 快取時失效。"
@@ -181,6 +199,10 @@ def build_entry_confirmation(
         checks=checks,
         blockers=hard_blockers,
         warnings=warnings,
+        confirmation_quality=quality["quality"],
+        confirmation_quality_label=quality["label"],
+        confirmation_quality_reason=quality["reason"],
+        critical_data_ready=quality["critical_data_ready"],
     )
 
 
@@ -340,6 +362,85 @@ def _next_step(status: str, volume_ok: bool, above_vwap: bool, orderbook_status:
     if orderbook_status in {"sell_pressure", "missing"}:
         return "等待五檔賣壓下降或買盤轉強，再重新評估。"
     return "等待突破觸發價或回測 VWAP 不破。"
+
+
+def _confirmation_quality(
+    *,
+    data_live: bool,
+    hard_blockers: list[str],
+    orderbook_status: str,
+    large_trade_status: str,
+    bid_trend_status: str,
+    ask_trend_status: str,
+    price_tick_status: str,
+    history_count: int,
+    volume_ok: bool,
+    above_vwap: bool,
+    stop_ok: bool,
+    risk_ok: bool,
+) -> dict:
+    critical_ready = bool(data_live and above_vwap and volume_ok and stop_ok and risk_ok)
+    if not data_live:
+        return {
+            "quality": "blocked",
+            "label": "暫不進場",
+            "reason": "資料不是即時盤中資料，雷達只能作觀察。",
+            "critical_data_ready": False,
+        }
+    if hard_blockers:
+        return {
+            "quality": "blocked",
+            "label": "暫不進場",
+            "reason": str(hard_blockers[0]),
+            "critical_data_ready": critical_ready,
+        }
+    has_orderbook = orderbook_status not in {"", "missing"}
+    has_tick = large_trade_status not in {"", "missing"}
+    has_trend_history = history_count >= 2 and bid_trend_status != "missing" and ask_trend_status != "missing"
+    price_confirmed = price_tick_status in {"rising", "stable"}
+    sell_pressure = orderbook_status == "sell_pressure" or large_trade_status in {"sell_sweep", "large_sell", "outflow"}
+    if sell_pressure:
+        return {
+            "quality": "blocked",
+            "label": "暫不進場",
+            "reason": "五檔或逐筆出現賣壓，先不作進場確認。",
+            "critical_data_ready": critical_ready,
+        }
+    if critical_ready and has_orderbook and has_tick and has_trend_history and price_confirmed:
+        return {
+            "quality": "high_precision",
+            "label": "高品質確認",
+            "reason": "VWAP、量能、停損距離、五檔、逐筆與價格墊高都可檢查。",
+            "critical_data_ready": True,
+        }
+    if critical_ready and (has_orderbook or has_tick or price_confirmed):
+        missing = []
+        if not has_orderbook:
+            missing.append("五檔")
+        if not has_tick:
+            missing.append("逐筆")
+        if not has_trend_history:
+            missing.append("連續快照")
+        reason = "核心條件可檢查，但" + "、".join(missing) + "不足，屬標準確認。" if missing else "核心條件可檢查，屬標準確認。"
+        return {
+            "quality": "standard",
+            "label": "標準確認",
+            "reason": reason,
+            "critical_data_ready": True,
+        }
+    if critical_ready:
+        return {
+            "quality": "limited",
+            "label": "確認資料不足",
+            "reason": "核心價格條件接近，但缺五檔 / 逐筆 / 連續快照，不能作高精準進場確認。",
+            "critical_data_ready": True,
+        }
+    return {
+        "quality": "limited",
+        "label": "確認資料不足",
+        "reason": "VWAP、量能、停損或風險條件尚未完整，只能等待確認。",
+        "critical_data_ready": False,
+    }
 
 
 def _float(*values, default=None):
