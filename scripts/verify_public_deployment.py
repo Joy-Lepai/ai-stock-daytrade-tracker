@@ -426,6 +426,34 @@ def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
     ]
 
 
+def validate_operator_page_html(html: str) -> list[Check]:
+    required_markers = [
+        "開盤前 / 盤中作戰手冊",
+        "目前判斷",
+        "現在照這樣做",
+        "進場前檢查",
+        "今天不要做",
+        "手動刷新建議",
+        "部署與資料",
+        "本系統僅供資料整理",
+    ]
+    missing_markers = [marker for marker in required_markers if marker not in html]
+    found_forbidden = [term for term in LEGACY_MISLEADING_TERMS if term in html]
+    return [
+        Check("operator page loaded", bool(html.strip()), f"length={len(html)}"),
+        Check(
+            "operator page has user action sections",
+            not missing_markers,
+            f"missing={', '.join(missing_markers) if missing_markers else '-'}",
+        ),
+        Check(
+            "operator page has no legacy misleading wording",
+            not found_forbidden,
+            f"found={', '.join(found_forbidden) if found_forbidden else '-'}",
+        ),
+    ]
+
+
 def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:
     return [
         Check("healthz HTTP ok", http_status == 200, f"http_status={http_status}"),
@@ -825,6 +853,11 @@ def main(argv: list[str] | None = None) -> int:
         failures += print_checks("Operator runbook endpoint", validate_operator_runbook_payload(runbook_payload))
     except Exception as exc:
         failures += print_fetch_failure("Operator runbook endpoint", exc)
+    try:
+        operator_html = fetch_text(args.base_url, "/operator", timeout=args.timeout)
+        failures += print_checks("Operator page HTML", validate_operator_page_html(operator_html))
+    except Exception as exc:
+        failures += print_fetch_failure("Operator page HTML", exc)
     try:
         healthz_status, healthz_payload = fetch_json_with_status(args.base_url, "/healthz", timeout=args.timeout)
         failures += print_checks("Liveness endpoint", validate_liveness_payload(healthz_status, healthz_payload))

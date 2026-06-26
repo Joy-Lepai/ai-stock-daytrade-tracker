@@ -8,6 +8,7 @@ from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_health_payload,
     validate_liveness_payload,
+    validate_operator_page_html,
     validate_operator_runbook_payload,
     validate_readiness_payload,
     validate_refresh_status,
@@ -274,6 +275,40 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
 
         self.assertIn("operator runbook has first action", failed)
+
+    def test_operator_page_html_requires_user_action_sections(self):
+        html = """
+        開盤前 / 盤中作戰手冊
+        目前判斷
+        現在照這樣做
+        進場前檢查
+        今天不要做
+        手動刷新建議
+        部署與資料
+        本系統僅供資料整理
+        """
+
+        checks = validate_operator_page_html(html)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_operator_page_html_blocks_legacy_misleading_terms(self):
+        html = """
+        開盤前 / 盤中作戰手冊
+        目前判斷
+        現在照這樣做
+        進場前檢查
+        今天不要做
+        手動刷新建議
+        部署與資料
+        本系統僅供資料整理
+        做多確認
+        """
+
+        checks = validate_operator_page_html(html)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator page has no legacy misleading wording", failed)
 
     def test_health_payload_requires_refresh_plan(self):
         payload = self._health_payload()
