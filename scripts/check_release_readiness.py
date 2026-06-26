@@ -100,6 +100,11 @@ def load_release_state(
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
     repo_path = git_output(["rev-parse", "--show-toplevel"], runner=runner)
     ahead_count = load_ahead_count(head, origin, runner=runner)
+    if ahead_count < 0:
+        status_with_ahead = optional_git_output(["status", "-sb", "--untracked-files=no"], runner=runner, default="")
+        ahead_from_status = parse_ahead_count(status_with_ahead.splitlines()[0] if status_with_ahead else "")
+        if ahead_from_status > 0:
+            ahead_count = ahead_from_status
     unpushed_commits = load_unpushed_commits(ahead_count, runner=runner)
     try:
         status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)

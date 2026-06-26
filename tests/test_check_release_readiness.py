@@ -59,6 +59,33 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn(["git", "rev-list", "--count", "origin/main..HEAD"], calls)
         self.assertNotIn(["git", "status", "-sb"], calls)
 
+    def test_load_release_state_falls_back_to_status_ahead_count(self):
+        calls = []
+
+        def fake_runner(command, **kwargs):
+            calls.append(command)
+            if command[-2:] == ["rev-parse", "HEAD"]:
+                return "localcommit\n"
+            if command[-2:] == ["rev-parse", "origin/main"]:
+                return "origincommit\n"
+            if command[-2:] == ["rev-parse", "--show-toplevel"]:
+                return "/repo/path\n"
+            if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
+                raise subprocess.CalledProcessError(1, command)
+            if command == ["git", "status", "-sb", "--untracked-files=no"]:
+                return "## main...origin/main [ahead 15]\n"
+            if command[-4:] == ["log", "--oneline", "--max-count=10", "origin/main..HEAD"]:
+                return "abc1234 Test pending commit\n"
+            if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
+                return "## main...origin/main\n"
+            raise AssertionError(command)
+
+        state = load_release_state(runner=fake_runner, fetch_public=False)
+
+        self.assertEqual(state.ahead_count, 15)
+        self.assertEqual(state.unpushed_commits, ("abc1234 Test pending commit",))
+        self.assertIn(["git", "status", "-sb", "--untracked-files=no"], calls)
+
     def test_load_ahead_count_falls_back_to_unknown_on_git_failure(self):
         def fake_runner(command, **kwargs):
             raise subprocess.CalledProcessError(1, command)
