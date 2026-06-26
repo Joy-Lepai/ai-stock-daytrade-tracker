@@ -317,6 +317,13 @@ def release_steps(state: ReleaseState) -> list[str]:
 def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> dict[str, Any]:
     failures = [check for check in checks if not check.ok]
     push_guidance = push_method_guidance(state)
+    public_reachable = bool(state.public_runtime) and not state.public_runtime.startswith("ERROR:")
+    if not state.public_runtime:
+        public_status = "not_checked"
+    elif public_reachable:
+        public_status = "reachable"
+    else:
+        public_status = "unreachable"
     return {
         "status": "ok" if not failures else "blocked",
         "local_head": state.head,
@@ -332,6 +339,8 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "status_line": state.status_line,
         "public_runtime": state.public_runtime,
         "public_tracker": state.public_tracker,
+        "public_reachable": public_reachable,
+        "public_status": public_status,
         "checks": [
             {"name": check.name, "ok": check.ok, "detail": check.detail}
             for check in checks

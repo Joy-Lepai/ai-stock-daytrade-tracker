@@ -276,11 +276,30 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(payload["remote_url"], "https://github.com/Joy-Lepai/ai-stock-daytrade-tracker.git")
         self.assertEqual(payload["push_method"]["recommended"], "GitHub Desktop")
         self.assertEqual(payload["local_head_short"], "local123456")
+        self.assertTrue(payload["public_reachable"])
+        self.assertEqual(payload["public_status"], "reachable")
         self.assertIn("/Users/example/AI股票系統", payload["github_desktop_repo_hint"])
         self.assertFalse(payload["can_deploy_render"])
         self.assertFalse(payload["can_trust_public"])
         self.assertIn("local pushed to origin/main", payload["failed_checks"])
         self.assertIn("Repository → Push", payload["next_action"])
+
+    def test_release_report_payload_marks_public_unreachable_for_automation(self):
+        state = ReleaseState(
+            head="local123456",
+            origin="local123456",
+            ahead_count=0,
+            dirty=False,
+            status_line="## main...origin/main",
+            public_runtime="ERROR:[Errno 8] nodename nor servname provided",
+            public_tracker="",
+        )
+
+        payload = release_report_payload(state, evaluate_release_state(state))
+
+        self.assertFalse(payload["public_reachable"])
+        self.assertEqual(payload["public_status"], "unreachable")
+        self.assertIn("public runtime reachable", payload["failed_checks"])
 
     def test_push_method_guidance_prefers_cli_for_ssh_remote(self):
         state = ReleaseState(
