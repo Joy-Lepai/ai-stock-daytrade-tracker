@@ -416,7 +416,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
         強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
-        本系統僅供資料整理
+        本系統僅供資料整理 確認品質
         """
 
         for legacy_word in ["買多推薦", "建議買多", "今日做多推薦"]:
@@ -439,7 +439,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
         強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
-        本系統僅供資料整理
+        本系統僅供資料整理 確認品質
         new URLSearchParams(window.location.search).get("symbol")
         /api/tw/scan/symbol
         """
@@ -461,6 +461,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "追價風險未降溫",
             },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
+            "entry_confirmation": {"confirmation_quality": "blocked"},
             "data_health": {"price_status": "live"},
             "market_mode": {"mode": "intraday"},
         }
@@ -479,6 +480,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "追價風險未降溫",
             },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
+            "entry_confirmation": {"confirmation_quality": "blocked"},
             "candidate": {"entry_status": "high_risk", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -507,6 +509,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("advisor scan has next trigger", failed)
         self.assertIn("advisor scan has invalid condition", failed)
         self.assertIn("advisor scan has entry radar summary", failed)
+        self.assertIn("advisor scan has confirmation quality", failed)
         self.assertIn("advisor scan has no legacy misleading category", failed)
 
     def test_tw_advisor_scan_blocks_non_intraday_strong_buy(self):
@@ -519,6 +522,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "非盤中",
             },
             "entry_radar_summary": {"blocker_summary": "非盤中", "next_trigger": "等開盤"},
+            "entry_confirmation": {"confirmation_quality": "blocked"},
             "data_health": {"price_status": "delayed"},
             "market_mode": {"mode": "pre_open_prepare"},
         }
@@ -539,6 +543,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "無法站回 VWAP",
             },
             "entry_radar_summary": {"blocker_summary": "尚未站上 VWAP", "next_trigger": "站回 VWAP"},
+            "entry_confirmation": {"confirmation_quality": "limited"},
             "candidate": {"entry_status": "wait_vwap", "above_vwap": False},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -560,6 +565,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "追價風險未降溫",
             },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回"},
+            "entry_confirmation": {"confirmation_quality": "blocked"},
             "candidate": {"entry_status": "high_risk", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -580,6 +586,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "跌破 VWAP",
             },
             "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
+            "entry_confirmation": {"confirmation_quality": "standard"},
             "candidate": {"entry_status": "wait_breakout", "above_vwap": True, "stop_loss": 101.5},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -599,6 +606,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "跌破 VWAP",
             },
             "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
+            "entry_confirmation": {"confirmation_quality": "standard"},
             "candidate": {"entry_status": "wait_breakout", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -619,6 +627,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "invalid_condition": "跌破 VWAP",
             },
             "entry_radar_summary": {"blocker_summary": "接近觸發", "next_trigger": "等待進場雷達確認"},
+            "entry_confirmation": {"confirmation_quality": "standard"},
             "candidate": {"entry_status": "executable", "above_vwap": True},
             "key_metrics": {"stop_loss": 598.0},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},

@@ -442,6 +442,7 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
         "台積電",
         "兆豐金",
         "本系統僅供資料整理",
+        "確認品質",
     ]
     forbidden_terms = LEGACY_MISLEADING_TERMS
     missing_markers = [marker for marker in required_markers if marker not in html]
@@ -498,6 +499,7 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
     front_trade = payload.get("front_trade") or {}
     decision_card = payload.get("decision_card") or {}
     radar = payload.get("entry_radar_summary") or {}
+    entry_confirmation = payload.get("entry_confirmation") or {}
     health = payload.get("data_health") or {}
     market_mode = payload.get("market_mode") or {}
     forbidden_categories = set(LEGACY_MISLEADING_TERMS)
@@ -539,6 +541,11 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
             "advisor scan has entry radar summary",
             bool(radar.get("blocker_summary") or radar.get("next_trigger")),
             f"blocker={radar.get('blocker_summary', '-') if isinstance(radar, dict) else '-'}",
+        ),
+        Check(
+            "advisor scan has confirmation quality",
+            str(entry_confirmation.get("confirmation_quality") or "") in {"high_precision", "standard", "limited", "blocked"},
+            f"confirmation_quality={entry_confirmation.get('confirmation_quality', '-') if isinstance(entry_confirmation, dict) else '-'}",
         ),
         Check(
             "advisor scan has no legacy misleading category",
