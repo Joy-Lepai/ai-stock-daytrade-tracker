@@ -206,6 +206,24 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn("Repository → Push", recommended_next_action(state))
         self.assertIn("Repository → Push", " ".join(release_steps(state)))
 
+    def test_evaluate_separates_public_unreachable_from_commit_mismatch(self):
+        state = ReleaseState(
+            head="newcommit123456",
+            origin="newcommit123456",
+            ahead_count=0,
+            dirty=False,
+            status_line="## main...origin/main",
+            public_runtime="ERROR:[Errno 8] nodename nor servname provided",
+            public_tracker="",
+        )
+
+        checks = evaluate_release_state(state)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("public runtime reachable", failed)
+        self.assertNotIn("public runtime matches local HEAD", failed)
+        self.assertIn("無法讀取公開站版本", recommended_next_action(state))
+
     def test_recommended_action_deploy_when_origin_matches_but_public_old(self):
         state = ReleaseState(
             head="newcommit123456",

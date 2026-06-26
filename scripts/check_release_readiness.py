@@ -233,13 +233,22 @@ def evaluate_release_state(state: ReleaseState) -> list[ReleaseCheck]:
         ),
     ]
     if state.public_runtime:
+        public_reachable = not state.public_runtime.startswith("ERROR:")
         checks.append(
             ReleaseCheck(
-                "public runtime matches local HEAD",
-                commit_matches(state.public_runtime, state.head),
-                f"public={short(state.public_runtime)} local={short(state.head)}",
+                "public runtime reachable",
+                public_reachable,
+                f"public={short(state.public_runtime)}",
             )
         )
+        if public_reachable:
+            checks.append(
+                ReleaseCheck(
+                    "public runtime matches local HEAD",
+                    commit_matches(state.public_runtime, state.head),
+                    f"public={short(state.public_runtime)} local={short(state.head)}",
+                )
+            )
     if state.public_tracker and not state.public_tracker.startswith("ERROR:"):
         checks.append(
             ReleaseCheck(
