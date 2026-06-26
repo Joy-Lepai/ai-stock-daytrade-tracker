@@ -245,7 +245,11 @@ class WebTests(unittest.TestCase):
                 "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
                 "do_not_do": ["不要追 high_risk"],
                 "refresh_actions": ["/refresh_watchlist"],
-                "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
+                "deployment": {
+                    "runtime_commit": "abc123",
+                    "tracker_commit": "abc123",
+                    "warnings": ["runtime 與 tracker HTML 不一致"],
+                },
             }
         )
 
@@ -263,6 +267,8 @@ class WebTests(unittest.TestCase):
         self.assertIn("window.OperatorRunbook", html)
         self.assertIn("作戰手冊會每 30 秒自動更新", html)
         self.assertIn("operator-refresh-status", html)
+        self.assertIn("operator-deployment-warnings", html)
+        self.assertIn("runtime 與 tracker HTML 不一致", html)
 
     def test_liveness_payload_is_lightweight_and_alive(self):
         payload = build_liveness_payload()

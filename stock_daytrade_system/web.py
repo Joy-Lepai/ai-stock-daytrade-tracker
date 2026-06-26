@@ -860,6 +860,7 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
         <p><strong>產生時間：</strong><span id="operator-generated-at">{_escape(str(payload.get('generated_at') or '-'))}</span></p>
         <p><strong>看盤狀態：</strong><span id="operator-watch-readiness">{_escape(str(payload.get('watch_readiness') or '-'))}</span></p>
         <p id="operator-watch-message" class="muted">{_escape(str(payload.get('watch_readiness_message') or ''))}</p>
+        {_operator_deployment_warnings(deployment)}
         <p id="operator-refresh-status" class="muted">作戰手冊會每 30 秒自動更新。</p>
       </div>
     </section>
@@ -927,6 +928,11 @@ def _operator_refresh_label(endpoint: str) -> str:
         "/refresh_post_close_validation": "更新盤後驗證",
         "/refresh": "完整刷新",
     }.get(endpoint, endpoint)
+
+
+def _operator_deployment_warnings(deployment: dict[str, Any]) -> str:
+    warnings = deployment.get("warnings") if isinstance(deployment, dict) else []
+    return _operator_list(warnings, "部署版本目前沒有警告。", "operator-deployment-warnings")
 
 
 def _yes_no(value: Any) -> str:
@@ -1015,6 +1021,7 @@ def operator_runbook_script() -> str:
         renderList("operator-do-not-do", payload.do_not_do, "目前沒有額外禁止動作。");
         renderList("operator-blockers", payload.blockers, "目前沒有阻擋原因。");
         renderList("operator-warnings", payload.warnings, "目前沒有額外提醒。");
+        renderList("operator-deployment-warnings", payload.deployment?.warnings, "部署版本目前沒有警告。");
         renderRefreshActions(payload.refresh_actions);
         text("operator-refresh-status", `作戰手冊已更新：${new Date().toLocaleTimeString("zh-TW", { hour12: false })}`);
       };

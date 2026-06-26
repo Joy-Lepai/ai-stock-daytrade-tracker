@@ -437,6 +437,7 @@ def validate_operator_page_html(html: str) -> list[Check]:
         "部署與資料",
         "作戰手冊會每 30 秒自動更新",
         "operator-refresh-status",
+        "operator-deployment-warnings",
         "/api/operator/runbook",
         "本系統僅供資料整理",
     ]
