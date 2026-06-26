@@ -107,6 +107,29 @@ class OperationalHealthTests(unittest.TestCase):
 
         self.assertEqual(health["refresh_plan"], ["/refresh_full_market", "/refresh_watchlist"])
 
+    def test_pre_open_prepare_gives_time_based_operator_steps(self):
+        payload = {
+            "market_mode": "pre_open_prepare",
+            "allow_intraday_signal": False,
+            "price_status_summary": {"status": "休市復盤", "live_count": 0, "missing_ratio": 0},
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "refresh_guidance": {"severity": "ok"},
+            "refresh_operation_summary": {"severity": "ok"},
+        }
+
+        health = build_operational_health(payload)
+
+        steps = " ".join(health["operator_steps"])
+        do_now = " ".join(health["do_now"])
+        self.assertEqual(health["operator_mode"], "開盤前準備模式")
+        self.assertIn("08:55", steps)
+        self.assertIn("/dashboard", steps)
+        self.assertIn("09:00 後先等 5 到 10 分鐘", steps)
+        self.assertIn("資料未轉 live", steps)
+        self.assertIn("08:55", do_now)
+        self.assertIn("資料轉 live 再看進場雷達", do_now)
+
     def test_refresh_plan_includes_post_close_and_manual_refresh_layers(self):
         payload = {
             "market_mode": "closed_review",

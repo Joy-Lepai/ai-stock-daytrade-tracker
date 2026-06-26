@@ -381,9 +381,9 @@ def _operator_steps(
         ]
     if market_mode == "pre_open_prepare":
         return [
-            "先看下個交易日觀察清單與個股作戰卡。",
-            "09:00 後等待今日 VWAP、量比、突破與進場雷達更新。",
-            "資料未轉 live 前，不提前當作即時買多。",
+            "08:55 先看 /dashboard 的開盤檢查、資料可信度與下個交易日觀察清單。",
+            "09:00 後先等 5 到 10 分鐘，確認今日 VWAP、量比、突破與進場雷達更新。",
+            "資料未轉 live、未站上 VWAP 或缺量比前，不提前當作即時買多。",
         ]
     if market_mode in {"closed_review", "post_close_review"}:
         return [
@@ -442,9 +442,9 @@ def _operator_mode(
             "mode": "開盤前準備模式",
             "primary_focus": "先整理觀察清單，09:00 後等 VWAP、量比、突破重新確認。",
             "do_now": [
-                "看下個交易日觀察清單與個股作戰卡。",
-                "標記最接近 VWAP / 突破 / 量能確認的股票。",
-                "開盤後先等資料轉 live，再看進場雷達。",
+                "08:55 先確認 /dashboard 開盤檢查與資料可信度。",
+                "標記下個交易日觀察清單中最接近 VWAP / 突破 / 量能確認的股票。",
+                "09:00 後先等 5 到 10 分鐘，資料轉 live 再看進場雷達。",
             ],
             "do_not_do": [
                 "不要把昨日資料當成即時買多。",
