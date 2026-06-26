@@ -25,6 +25,7 @@ class ReleaseState:
     dirty: bool
     status_line: str
     repo_path: str = ""
+    remote_url: str = ""
     public_runtime: str = ""
     public_tracker: str = ""
     unpushed_commits: tuple[str, ...] = ()
@@ -99,6 +100,7 @@ def load_release_state(
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
     repo_path = git_output(["rev-parse", "--show-toplevel"], runner=runner)
+    remote_url = load_remote_url(runner=runner)
     ahead_count = load_ahead_count(head, origin, runner=runner)
     if ahead_count < 0:
         status_with_ahead = optional_git_output(["status", "-sb", "--untracked-files=no"], runner=runner, default="")
@@ -129,6 +131,7 @@ def load_release_state(
         dirty=dirty,
         status_line=first_line,
         repo_path=repo_path,
+        remote_url=remote_url,
         public_runtime=public_runtime,
         public_tracker=public_tracker,
         unpushed_commits=tuple(unpushed_commits),
@@ -162,6 +165,13 @@ def load_unpushed_commits(ahead_count: int, *, runner: Callable[..., str] = subp
         default="",
     )
     return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def load_remote_url(*, runner: Callable[..., str] = subprocess.check_output) -> str:
+    try:
+        return git_output(["config", "--get", "remote.origin.url"], runner=runner)
+    except Exception:
+        return ""
 
 
 def is_worktree_dirty(status_output: str) -> bool:
@@ -284,6 +294,7 @@ def release_steps(state: ReleaseState) -> list[str]:
 
 def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> dict[str, Any]:
     failures = [check for check in checks if not check.ok]
+    push_guidance = push_method_guidance(state)
     return {
         "status": "ok" if not failures else "blocked",
         "local_head": state.head,
@@ -291,6 +302,8 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "origin_main": state.origin,
         "origin_main_short": short(state.origin),
         "repo_path": state.repo_path,
+        "remote_url": state.remote_url,
+        "push_method": push_guidance,
         "ahead_count": state.ahead_count,
         "unpushed_commits": list(state.unpushed_commits),
         "worktree_clean": not state.dirty,
@@ -311,6 +324,29 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
     }
 
 
+def push_method_guidance(state: ReleaseState) -> dict[str, str]:
+    remote = str(state.remote_url or "")
+    if remote.startswith("https://"):
+        return {
+            "recommended": "GitHub Desktop",
+            "reason": "origin 使用 HTTPS；若 CLI 沒有 GitHub 認證，git push 會失敗，建議用已登入的 GitHub Desktop 按 Push。",
+        }
+    if remote.startswith("git@"):
+        return {
+            "recommended": "CLI git push",
+            "reason": "origin 使用 SSH；若本機 SSH key 已設定，可直接使用 git push origin main。",
+        }
+    if remote:
+        return {
+            "recommended": "依 remote 設定推送",
+            "reason": f"origin remote={remote}",
+        }
+    return {
+        "recommended": "GitHub Desktop",
+        "reason": "找不到 remote.origin.url；請先確認 GitHub Desktop 開啟正確 repo。",
+    }
+
+
 def short(value: str, length: int = 12) -> str:
     return str(value or "-")[:length]
 
@@ -323,6 +359,8 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
     print(f"origin/main:  {state.origin}")
     if state.repo_path:
         print(f"repo path:    {state.repo_path}")
+    if state.remote_url:
+        print(f"remote:       {state.remote_url}")
     print(f"status:       {state.status_line or '-'}")
     if state.public_runtime:
         print(f"public:       runtime={state.public_runtime} tracker={state.public_tracker or '-'}")
@@ -334,6 +372,7 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
     print()
     print("Next action:", recommended_next_action(state))
     print("Operator gate:")
+    print(f"- push_method: {payload['push_method']['recommended']} ({payload['push_method']['reason']})")
     print(f"- can_push: {'yes' if payload['can_push'] else 'no'}")
     print(f"- can_deploy_render: {'yes' if payload['can_deploy_render'] else 'no'}")
     print(f"- can_trust_public: {'yes' if payload['can_trust_public'] else 'no'}")

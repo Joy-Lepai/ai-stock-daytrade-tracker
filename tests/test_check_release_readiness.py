@@ -17,6 +17,7 @@ from scripts.check_release_readiness import (
     parse_ahead_count,
     load_ahead_count,
     load_unpushed_commits,
+    push_method_guidance,
     recommended_next_action,
     release_report_payload,
     release_steps,
@@ -216,6 +217,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             dirty=False,
             status_line="## main...origin/main [different]",
             repo_path="/Users/example/AI股票系統",
+            remote_url="https://github.com/Joy-Lepai/ai-stock-daytrade-tracker.git",
             public_runtime="origin999999",
             public_tracker="origin999999",
         )
@@ -227,12 +229,29 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(payload["unpushed_commits"], [])
         self.assertTrue(payload["can_push"])
         self.assertEqual(payload["repo_path"], "/Users/example/AI股票系統")
+        self.assertEqual(payload["remote_url"], "https://github.com/Joy-Lepai/ai-stock-daytrade-tracker.git")
+        self.assertEqual(payload["push_method"]["recommended"], "GitHub Desktop")
         self.assertEqual(payload["local_head_short"], "local123456")
         self.assertIn("/Users/example/AI股票系統", payload["github_desktop_repo_hint"])
         self.assertFalse(payload["can_deploy_render"])
         self.assertFalse(payload["can_trust_public"])
         self.assertIn("local pushed to origin/main", payload["failed_checks"])
         self.assertIn("Repository → Push", payload["next_action"])
+
+    def test_push_method_guidance_prefers_cli_for_ssh_remote(self):
+        state = ReleaseState(
+            head="local123456",
+            origin="origin999999",
+            ahead_count=1,
+            dirty=False,
+            status_line="## main...origin/main [ahead 1]",
+            remote_url="git@github.com:Joy-Lepai/ai-stock-daytrade-tracker.git",
+        )
+
+        guidance = push_method_guidance(state)
+
+        self.assertEqual(guidance["recommended"], "CLI git push")
+        self.assertIn("SSH", guidance["reason"])
 
     def test_release_steps_detect_tracker_mismatch(self):
         state = ReleaseState(
