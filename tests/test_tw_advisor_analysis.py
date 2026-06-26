@@ -74,7 +74,7 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
         self.assertGreater(analysis.action_plan["target_price"], analysis.action_plan["entry_reference"])
         self.assertLess(analysis.action_plan["target_price"], 112.5)
 
-    def test_below_vwap_with_volume_can_be_short(self):
+    def test_below_vwap_with_volume_is_bearish_not_short_signal(self):
         analysis = build_tw_advisor_analysis(
             scan={
                 "latest_price": 98,
@@ -95,9 +95,13 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
             market_status="偏空",
         )
 
-        self.assertEqual(analysis.action_label, "賣空")
-        self.assertIn("賣空", analysis.next_step)
+        self.assertEqual(analysis.action_label, "看空")
+        self.assertIn("暫不做多", analysis.next_step)
+        self.assertIn("不代表建議放空", analysis.next_step)
         self.assertIn("跌破", analysis.action_plan["trigger_condition"])
+        self.assertIsNone(analysis.action_plan["stop_loss"])
+        self.assertIsNone(analysis.action_plan["target_price"])
+        self.assertIn("不代表建議放空", analysis.action_plan["no_chase_reason"])
 
 
 if __name__ == "__main__":

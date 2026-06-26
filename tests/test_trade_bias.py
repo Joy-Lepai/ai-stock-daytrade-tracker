@@ -43,7 +43,7 @@ class TradeBiasTests(unittest.TestCase):
         self.assertEqual(result.label, "練習買多")
         self.assertIn("練習買多", result.reason)
 
-    def test_breakdown_below_vwap_with_volume_is_short(self):
+    def test_breakdown_below_vwap_with_volume_is_bearish(self):
         result = evaluate_trade_bias(
             entry_status="avoid",
             grade="D",
@@ -60,7 +60,8 @@ class TradeBiasTests(unittest.TestCase):
         )
 
         self.assertEqual(result.bias, "short")
-        self.assertEqual(result.label, "賣空")
+        self.assertEqual(result.label, "看空")
+        self.assertIn("暫不做多", result.reason)
 
     def test_weak_volume_below_vwap_is_watch_not_short(self):
         result = evaluate_trade_bias(

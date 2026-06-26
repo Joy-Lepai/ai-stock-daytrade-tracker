@@ -3227,7 +3227,7 @@ def _recommendation_checklist_table(summary: Optional[LongModelSummary]) -> str:
         f"{_metric('進場雷達通過', int(data.get('executable', 0)))}"
         f"{_metric('practice_long 練習買多', int(data.get('practice_long', 0)))}"
         f"{_metric('當下買多', int(data.get('trade_long', 0)))}"
-        f"{_metric('當下賣空', int(data.get('trade_short', 0)))}"
+        f"{_metric('當下看空', int(data.get('trade_short', 0)))}"
         f"{_metric('當下觀察', int(data.get('trade_watch', 0)))}"
         f"{_metric('wait_volume 等量能', int(data.get('wait_volume', 0)))}"
         f"{_metric('wait_vwap 等VWAP', int(data.get('wait_vwap', 0)))}"
@@ -3493,7 +3493,7 @@ def _display_trade_bias_label(entry_status: str, value: str, label: str) -> str:
         return "進場雷達通過"
     if label in {"強烈" + "看漲", "看漲"}:
         return _safe_bullish_label(label)
-    return label or {"long": "買多", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
+    return label or {"long": "買多", "short": "看空", "watch": "觀察"}.get(value, "觀察")
 
 
 def _display_trade_bias_reason(entry_status: str, reason: str) -> str:

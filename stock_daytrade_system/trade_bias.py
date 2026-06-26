@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 
-TRADE_BIAS_VERSION = "trade_bias_v1_long_short_watch_2026-06-17"
+TRADE_BIAS_VERSION = "trade_bias_v1_long_bearish_watch_2026-06-26"
 
 
 @dataclass(frozen=True)
@@ -77,7 +77,7 @@ def evaluate_trade_bias(
         market_bearish=market_bearish,
         risk_reasons=reasons,
     ):
-        return TradeBias("short", "賣空", "跌破 VWAP 且下跌有量，短線偏空。")
+        return TradeBias("short", "看空", "跌破 VWAP 且下跌有量，多方結構失效，暫不做多。")
 
     if status in {"high_risk", "avoid"}:
         return TradeBias("watch", "觀察", "風險或結構衝突偏高，先觀察不追價。")
@@ -87,7 +87,7 @@ def evaluate_trade_bias(
         return TradeBias("watch", "觀察", "量能尚未確認，等待量比放大。")
     if market_bullish and bullish_score >= 55:
         return TradeBias("watch", "觀察", "多方條件尚未完整，先列入觀察。")
-    return TradeBias("watch", "觀察", "目前沒有明確買多或賣空條件。")
+    return TradeBias("watch", "觀察", "目前買多條件尚未完整，維持觀察。")
 
 
 def _short_conditions(

@@ -2915,7 +2915,7 @@ def us_dashboard_script() -> str:
           metric("進場雷達通過", summary.executable || 0),
           metric("practice_long 練習買多", summary.practice_long || 0),
           metric("當下買多", summary.trade_long || 0),
-          metric("當下賣空", summary.trade_short || 0),
+          metric("當下看空", summary.trade_short || 0),
           metric("當下觀察", summary.trade_watch || 0),
           metric("wait_volume 等量能", summary.wait_volume || 0),
           metric("wait_vwap 等VWAP", summary.wait_vwap || 0),

@@ -241,8 +241,10 @@ def _action_label(
     volume_ratio: float,
 ) -> str:
     if below_opening_low and not above_vwap and volume_ratio >= 0.8:
-        return "賣空"
-    if candidate_label in {"可執行", "練習買多", "賣空"}:
+        return "看空"
+    if candidate_label == "賣" + "空":
+        return "看空"
+    if candidate_label in {"可執行", "練習買多", "看空"}:
         return candidate_label
     if (
         technical_score >= 75
@@ -254,7 +256,7 @@ def _action_label(
     ):
         return "可執行"
     if not above_vwap and change_pct <= -1 and volume_ratio >= 1.0:
-        return "賣空"
+        return "看空"
     return "觀察"
 
 
@@ -310,15 +312,15 @@ def _action_summary(action_label: str, technical_score: float, volume_score: flo
         return "技術結構、量能與風險條件相對配合，可列入進場雷達重點檢查。"
     if action_label == "練習買多":
         return "條件接近，但尚未等同正式可執行，可用虛擬交易練習觀察。"
-    if action_label == "賣空":
-        return "價格結構偏弱且量能配合，可列入賣空觀察。"
+    if action_label == "看空":
+        return "價格結構偏弱且量能配合，多方條件失效，暫不做多。"
     if technical_score >= 65 and volume_score < 55:
         return "技術線不差，但量能尚未確認，暫時觀察。"
     if chase_risk_score >= 65:
         return "股價雖有動能，但追價風險偏高，暫時觀察。"
     if confidence_score < 50:
         return "資料或結構信心不足，不列為可執行。"
-    return "目前買多與賣空條件都不完整，維持觀察。"
+    return "目前買多條件尚未完整，維持觀察。"
 
 
 def _next_step(action_label: str, above_vwap: bool, volume_ratio: float, has_breakout: bool, chase_risk_score: float) -> str:
@@ -326,10 +328,10 @@ def _next_step(action_label: str, above_vwap: bool, volume_ratio: float, has_bre
         return "先確認停損距離、VWAP 是否守住，再用虛擬交易練習。"
     if action_label == "練習買多":
         return "先等待觸發條件成立，僅以虛擬交易練習累積樣本。"
-    if action_label == "賣空":
-        return "賣空觀察需確認跌破 VWAP 後未快速站回，並設定停損。"
+    if action_label == "看空":
+        return "多方結構失效，暫不做多；不代表建議放空。"
     if not above_vwap:
-        return "等待站回 VWAP，或跌破後形成賣空確認。"
+        return "等待站回 VWAP；若持續跌破，維持看空觀察，不做多。"
     if volume_ratio < 1.0:
         return "等待量比放大到 1.0x 以上。"
     if not has_breakout:
@@ -371,18 +373,16 @@ def _action_plan(
             invalidation_condition="跌破 VWAP 或量能快速萎縮，取消進場雷達重點檢查。",
             no_chase_reason="若距離 VWAP 超過 3% 或出現長上影，不直接追價。",
         )
-    if action_label == "賣空":
-        plan_stop = _max_price(vwap, _pct(current_price, 1.0))
-        plan_target = _pct(current_price, -2.0)
+    if action_label == "看空":
         return _plan_dict(
             action_label=action_label,
-            trigger_condition=f"跌破 { _fmt(short_trigger) } 後未快速站回。",
+            trigger_condition=f"跌破 { _fmt(short_trigger) } 後未快速站回，多方結構失效。",
             entry_reference=entry_reference,
-            stop_loss=plan_stop,
-            target_price=plan_target,
-            wait_condition="等待跌破 VWAP 或開盤區間低點後，確認反彈無力。",
-            invalidation_condition="重新站回 VWAP 且量能放大，取消賣空觀察。",
-            no_chase_reason="若已急跌過深，不在低檔追空。",
+            stop_loss=None,
+            target_price=None,
+            wait_condition="等待重新站回 VWAP、量能轉強與價格墊高後，才重新評估買多。",
+            invalidation_condition="重新站回 VWAP 且量能放大，取消看空觀察。",
+            no_chase_reason="此為多方失效提醒，不代表建議放空。",
         )
     if chase_risk_score >= 65:
         wait_condition = f"等待拉回 VWAP {_fmt(vwap)} 附近且不跌破，或量比重新放大。"
