@@ -14,6 +14,7 @@ from stock_daytrade_system.db import (
     connect,
     default_db_path,
     last_known_price_row,
+    latest_symbol_score,
     recent_tw_orderbook_snapshots,
     save_tw_orderbook_snapshot,
     upsert_last_known_price,
@@ -42,15 +43,26 @@ from stock_daytrade_system.tw_momentum_scanner import (
 )
 
 
-def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[datetime] = None) -> dict:
+def scan_tw_symbol_payload(
+    project_root: Path,
+    raw_symbol: str,
+    now: Optional[datetime] = None,
+    *,
+    prefer_snapshot: bool = True,
+) -> dict:
     config = load_config(project_root / "config" / "watchlist.json")
     item = watch_symbol_for(raw_symbol, config.symbols)
     if not item.symbol:
         return {"ok": False, "message": "股票代號不可空白", "symbol": raw_symbol}
 
+    captured_at = now or datetime.now(ZoneInfo(config.market.timezone))
+    if prefer_snapshot:
+        snapshot_payload = _snapshot_tw_symbol_payload(project_root, item, captured_at)
+        if snapshot_payload:
+            return snapshot_payload
+
     provider = get_market_data_provider_manager()
     provider_status = provider.status_payload()
-    captured_at = now or datetime.now(ZoneInfo(config.market.timezone))
     symbols = [item.symbol, config.market.benchmark, config.market.taiwan_futures]
     daily_data, daily_errors = provider.fetch_many_daily_with_errors(symbols, range_="6mo")
     intraday_data, intraday_errors = provider.fetch_many_intraday_with_errors([item.symbol], range_="1d", interval="5m")
@@ -279,6 +291,332 @@ def scan_tw_symbol_payload(project_root: Path, raw_symbol: str, now: Optional[da
         },
         "db_path": str(db_path),
     }
+
+
+def _snapshot_tw_symbol_payload(project_root: Path, item: WatchSymbol, captured_at: datetime) -> dict:
+    db_path = default_db_path(project_root)
+    with connect(db_path) as conn:
+        score_row = latest_symbol_score(conn, item.symbol)
+        snapshot_row = conn.execute(
+            """
+            SELECT *
+            FROM tw_full_market_snapshots
+            WHERE symbol = ?
+            ORDER BY date DESC, captured_at DESC
+            LIMIT 1
+            """,
+            (item.symbol,),
+        ).fetchone()
+        last_known_row = last_known_price_row(conn, "TW", item.symbol)
+        if score_row is None and snapshot_row is None and last_known_row is None:
+            return {}
+
+        score = dict(score_row) if score_row else {}
+        snapshot = dict(snapshot_row) if snapshot_row else {}
+        last_known = dict(last_known_row) if last_known_row else {}
+        quote_time = (
+            snapshot.get("captured_at")
+            or score.get("captured_at")
+            or last_known.get("last_known_price_at")
+            or last_known.get("last_success_at")
+            or captured_at.isoformat(timespec="seconds")
+        )
+        current_price = _num(snapshot.get("price"), score.get("close"), last_known.get("last_known_price"))
+        vwap = _num(snapshot.get("vwap"), score.get("vwap"), last_known.get("last_known_vwap"))
+        volume_ratio = _num(
+            snapshot.get("volume_ratio"),
+            score.get("intraday_volume_ratio"),
+            score.get("volume_ratio"),
+            last_known.get("last_known_volume_ratio"),
+        )
+        above_vwap = bool(snapshot.get("above_vwap")) if snapshot.get("above_vwap") is not None else bool(score.get("above_vwap"))
+        entry_status = str(snapshot.get("entry_status") or "data_missing")
+        grade = str(snapshot.get("ai_grade") or score.get("grade") or "data_missing")
+        scan_payload = {
+            "symbol": item.symbol,
+            "name": snapshot.get("name") or score.get("name") or item.name,
+            "latest_price": current_price,
+            "latest_at": quote_time,
+            "change_pct": _num(snapshot.get("change_pct"), score.get("change_pct")),
+            "volume": _num(snapshot.get("volume"), score.get("volume")),
+            "turnover": _num(snapshot.get("turnover"), score.get("turnover")),
+            "volume_ratio": volume_ratio,
+            "vwap": vwap,
+            "above_vwap": above_vwap,
+            "break_prev_high": bool(snapshot.get("break_prev_high") or score.get("break_prev_high")),
+            "break_5d_high": bool(snapshot.get("break_5d_high") or score.get("break_5d_high")),
+            "ai_grade": grade,
+            "entry_status": entry_status,
+            "trade_bias": snapshot.get("trade_bias") or "watch",
+            "not_selected_reason": snapshot.get("not_selected_reason") or "",
+            "reason_code": snapshot.get("reason_code") or "snapshot_fallback",
+            "data_status": snapshot.get("data_status") or "snapshot",
+            "source_reasons": ["使用最新模型快照快速回覆，未重新抓取即時行情。"],
+            "risk_reasons": [snapshot.get("not_selected_reason")] if snapshot.get("not_selected_reason") else [],
+        }
+        display_payload = {
+            "current_price": current_price,
+            "change_pct": scan_payload["change_pct"],
+            "price_source": snapshot.get("source_scope") or last_known.get("last_known_source") or "latest_db_snapshot",
+            "quote_time": quote_time,
+            "model_reference_price": score.get("close"),
+            "scanner_latest_price": current_price,
+            "fallback_source": "latest_db_snapshot",
+            "fallback_reason": "advisor_snapshot_fast_path",
+        }
+        data_health = _snapshot_data_health(captured_at, display_payload, item.symbol, has_core=bool(current_price and vwap and volume_ratio))
+        candidate_payload = _candidate_payload_from_snapshot(item, score, snapshot, scan_payload)
+        market_bias_status = "未知"
+        analysis_payload = build_tw_advisor_analysis(
+            scan=scan_payload,
+            candidate=candidate_payload,
+            display=display_payload,
+            market_status=market_bias_status,
+        ).to_dict()
+        market_mode_payload = _advisor_market_mode_payload(captured_at, data_health)
+        market_mode_name = str(market_mode_payload.get("mode") or "closed_review")
+        advisor_intraday = bool(market_mode_payload.get("allow_intraday_signal"))
+        stale_for_mode = bool(market_mode_name == "stale_data" or (advisor_intraday and data_health.get("is_stale")))
+        data_current_for_mode = bool(market_mode_payload.get("is_data_current_for_mode", data_health.get("is_today_data")))
+        safety_payload = _safety_payload(
+            candidate_payload,
+            scan_payload,
+            data_health,
+            analysis_payload,
+            captured_at,
+            market_mode_payload=market_mode_payload,
+        )
+        entry_confirmation_payload = build_entry_confirmation(
+            candidate=candidate_payload or scan_payload,
+            intraday_bars=[],
+            data_health=data_health,
+            realtime_quote={},
+            orderbook_history=[],
+        ).to_dict()
+        entry_radar_summary = build_entry_radar_summary(
+            candidate=candidate_payload or scan_payload,
+            data_health=data_health,
+            entry_confirmation=entry_confirmation_payload,
+            safety=safety_payload,
+            market_mode=market_mode_name,
+            intraday=advisor_intraday,
+        ).to_dict()
+        front_trade_payload = front_trade_view(
+            candidate_payload or scan_payload,
+            data_today=data_current_for_mode,
+            intraday=advisor_intraday,
+            stale=stale_for_mode,
+            data_missing=bool(data_health.get("is_data_missing")),
+            allow_strong_long=False,
+            market_mode=market_mode_name,
+            price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
+            uses_last_known=True,
+            is_delayed=True,
+        ).to_dict()
+        decision_card_payload = front_decision_card(
+            candidate_payload or scan_payload,
+            front_view=front_trade_payload,
+            entry_radar=entry_radar_summary,
+            data_today=data_current_for_mode,
+            intraday=advisor_intraday,
+            stale=stale_for_mode,
+            data_missing=bool(data_health.get("is_data_missing")),
+            allow_strong_long=False,
+            market_mode=market_mode_name,
+            price_status_label=str(data_health.get("price_status") or data_health.get("quote_state") or ""),
+            uses_last_known=True,
+            is_delayed=True,
+        ).to_dict()
+        breakout_trap_diagnosis = build_breakout_trap_diagnosis(
+            candidate=candidate_payload or scan_payload,
+            intraday_bars=[],
+            entry_confirmation=entry_confirmation_payload,
+            data_health=data_health,
+            market_mode=market_mode_name,
+            intraday=advisor_intraday,
+        ).to_dict()
+        precision_payload = build_precision_context(
+            candidate=candidate_payload,
+            intraday_bars=[],
+            data_health=data_health,
+        ).to_dict()
+        key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
+        reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
+        history_payload = _historical_validation_payload(conn, item.symbol)
+        source_payload = _source_ranking_payload(conn, item.symbol)
+        position_payload = position_action_for_symbol(conn, item.symbol, market="TW")
+
+    return {
+        "ok": bool(score_row or snapshot_row),
+        "message": "已使用最新模型快照快速回覆；若需要即時重算，請使用 live scan。",
+        "response_mode": "snapshot",
+        "generated_at": captured_at.isoformat(timespec="seconds"),
+        "symbol": item.symbol,
+        "name": scan_payload["name"],
+        "sector": item.sector,
+        "market_status": market_bias_status,
+        "market_notes": ["snapshot_fast_path"],
+        "scan": scan_payload,
+        "candidate": candidate_payload,
+        "fugle_quote": {"status": "skipped", "status_label": "快照模式未呼叫 Fugle Quote"},
+        "fugle_trades": {"status": "skipped", "status_label": "快照模式未呼叫 Fugle Trades"},
+        "fugle_candles": {"status": "skipped", "status_label": "快照模式未呼叫 Fugle Candles"},
+        "realtime_quote": {"status": "skipped", "source": "latest_db_snapshot"},
+        "display": display_payload,
+        "data_health": data_health,
+        "market_mode": market_mode_payload,
+        "safety": safety_payload,
+        "front_trade": front_trade_payload,
+        "decision_card": decision_card_payload,
+        "position_action": position_payload,
+        "key_metrics": key_metrics_payload,
+        "reason_groups": reason_payload,
+        "historical_validation": history_payload,
+        "source_ranking": source_payload,
+        "advisor_analysis": analysis_payload,
+        "precision_context": precision_payload,
+        "entry_confirmation": entry_confirmation_payload,
+        "entry_radar_summary": entry_radar_summary,
+        "breakout_trap_diagnosis": breakout_trap_diagnosis,
+        "intraday_chart": _intraday_chart_payload([], analysis_payload),
+        "errors": {},
+        "warnings": {
+            "snapshot_mode": "這是最新模型快照，未重新抓取即時行情；不可作為即時強烈買多。"
+        },
+        "data_source": "latest DB snapshot fast path",
+        "provider_status": {"active_provider": "snapshot", "snapshot_fast_path": True},
+        "official_institutional": {"source_status": {"snapshot_mode": "skipped"}},
+        "db_path": str(db_path),
+    }
+
+
+def _snapshot_data_health(captured_at: datetime, display: dict, symbol: str, *, has_core: bool) -> dict:
+    quote_time = str(display.get("quote_time") or "")
+    quote_dt = _parse_quote_time(quote_time)
+    age_minutes = None
+    if quote_dt is not None:
+        age_minutes = max((captured_at.astimezone(ZoneInfo("Asia/Taipei")) - quote_dt).total_seconds() / 60, 0.0)
+    is_today = bool(quote_dt and quote_dt.date() == captured_at.astimezone(ZoneInfo("Asia/Taipei")).date())
+    mode_preview = evaluate_tw_market_mode(
+        now=captured_at,
+        data_date=quote_dt.date() if quote_dt else None,
+        latest_data_at=quote_dt,
+        data_stale=False,
+        severe_missing=not has_core,
+        watchlist_fresh=True,
+        positions_fresh=True,
+    )
+    status = "部分缺漏" if has_core else "異常"
+    return {
+        "status": status,
+        "credibility": "中" if has_core else "資料不足 / 不可信",
+        "quote_time": quote_time,
+        "generated_at": captured_at.isoformat(timespec="seconds"),
+        "age_minutes": round(age_minutes, 1) if age_minutes is not None else None,
+        "is_today_data": is_today,
+        "is_intraday_data": bool(quote_dt),
+        "is_stale": False,
+        "price_status": "delayed" if has_core else "missing",
+        "quote_state": "delayed" if has_core else "missing",
+        "quote_state_label": "使用最新模型快照",
+        "quote_state_badge": "使用快照",
+        "quote_state_message": "快照模式未重新抓取即時行情，僅供觀察。",
+        "is_live": False,
+        "is_delayed": has_core,
+        "uses_last_known": True,
+        "last_known_price": display.get("current_price"),
+        "yahoo_daily_success": True,
+        "yahoo_intraday_5m_success": True,
+        "yahoo_intraday_1m_success": False,
+        "twse_tpex_quote_success": False,
+        "fugle_enabled": False,
+        "fugle_configured": False,
+        "fugle_status": "skipped",
+        "fugle_status_label": "快照模式未呼叫 Fugle",
+        "fugle_quote_status": "skipped",
+        "fugle_quote_status_label": "快照模式未呼叫 Fugle Quote",
+        "fugle_candles_status": "skipped",
+        "fugle_candles_status_label": "快照模式未呼叫 Fugle 1分K",
+        "uses_cache": True,
+        "is_data_missing": not has_core,
+        "market_mode": mode_preview.mode,
+        "market_mode_label": mode_preview.label,
+        "review_mode_message": mode_preview.review_mode_message,
+        "is_data_current_for_mode": mode_preview.is_data_current_for_mode,
+        "can_use_for_daytrade": False,
+        "can_use_for_intraday_signal": False,
+        "can_show_strong_long": False,
+        "advice": "使用最新模型快照：可快速閱讀作戰卡，但不可作為即時進場依據。",
+        "fallback_source": display.get("fallback_source") or "latest_db_snapshot",
+        "fallback_reason": display.get("fallback_reason") or "advisor_snapshot_fast_path",
+        "error_reason": "" if has_core else f"{symbol} 缺少快照核心資料",
+    }
+
+
+def _candidate_payload_from_snapshot(item: WatchSymbol, score: dict, snapshot: dict, scan: dict) -> dict:
+    reasons = _json_text_list(score.get("reasons")) or list(scan.get("source_reasons") or [])
+    risk_reasons = _json_text_list(score.get("risk_reasons")) or list(scan.get("risk_reasons") or [])
+    entry_status = str(snapshot.get("entry_status") or "data_missing")
+    return {
+        "symbol": item.symbol,
+        "name": scan.get("name") or item.name,
+        "last_price": scan.get("latest_price"),
+        "change_pct": scan.get("change_pct"),
+        "volume_ratio": scan.get("volume_ratio"),
+        "vwap": scan.get("vwap"),
+        "above_vwap": bool(scan.get("above_vwap")),
+        "previous_high": _num(score.get("previous_high")),
+        "high_5d": _num(score.get("high_5d")),
+        "high_10d": _num(score.get("high_10d")),
+        "break_prev_high": bool(scan.get("break_prev_high")),
+        "break_5d_high": bool(scan.get("break_5d_high")),
+        "opening_range_high": _num(score.get("opening_range_high")),
+        "opening_range_low": _num(score.get("opening_range_low")),
+        "upper_shadow_pct": _num(score.get("upper_shadow_pct"), default=0.0) or 0.0,
+        "trigger_price": _num(score.get("previous_high"), score.get("opening_range_high")),
+        "stop_loss": _num(score.get("stop_loss")),
+        "target_price": _num(score.get("target_price")),
+        "bullish_score": _num(score.get("bullish_score"), default=0.0) or 0.0,
+        "risk_score": _num(score.get("risk_score"), default=0.0) or 0.0,
+        "grade": str(snapshot.get("ai_grade") or score.get("grade") or "data_missing"),
+        "entry_status": entry_status,
+        "trade_bias": str(snapshot.get("trade_bias") or "watch"),
+        "trade_bias_label": "觀察" if entry_status != "avoid" else "看空",
+        "trade_bias_reason": snapshot.get("not_selected_reason") or "使用最新快照，等待即時資料確認。",
+        "confidence_score": _num(score.get("confidence_score"), default=0.0) or 0.0,
+        "confidence_level": str(score.get("confidence_level") or ""),
+        "not_selected_reason": snapshot.get("not_selected_reason") or "",
+        "reasons": reasons,
+        "risk_reasons": risk_reasons,
+        "confidence_summary": score.get("confidence_summary") or "快照模式，僅供觀察。",
+        "conflicts_count": int(_num(score.get("conflicts_count"), default=0) or 0),
+        "conflict_summary": score.get("conflict_summary") or "",
+        "confidence_level_label": str(score.get("confidence_level") or ""),
+        "timeframe_diagnostics": {},
+        "trend_diagnosis": {},
+        "trend_status": "",
+        "trend_label": "",
+        "trend_reason_code": "",
+        "institutional_context": {},
+        "sector_context": {},
+        "price_status": "delayed",
+        "is_delayed": True,
+        "uses_last_known": True,
+    }
+
+
+def _json_text_list(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item)]
+    if not value:
+        return []
+    try:
+        parsed = json.loads(str(value))
+    except json.JSONDecodeError:
+        return [str(value)]
+    if isinstance(parsed, list):
+        return [str(item) for item in parsed if str(item)]
+    return [str(parsed)] if parsed else []
 
 
 def add_tw_watchlist_symbol(project_root: Path, raw_symbol: str) -> dict:

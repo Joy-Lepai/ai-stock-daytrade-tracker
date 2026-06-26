@@ -387,7 +387,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/tw/scan/symbol":
             payload = self._read_json_body()
-            result = scan_tw_symbol_payload(PROJECT_ROOT, str(payload.get("symbol") or payload.get("query") or ""))
+            result = scan_tw_symbol_payload(
+                PROJECT_ROOT,
+                str(payload.get("symbol") or payload.get("query") or ""),
+                prefer_snapshot=not bool(payload.get("force_live") or payload.get("live")),
+            )
             self._send_json(result, HTTPStatus.OK if result.get("symbol") else HTTPStatus.BAD_REQUEST)
             return
         self._send_not_found()
@@ -1807,7 +1811,11 @@ def render_tw_advisor_page(show_logout: bool = False) -> str:
           股票代號或名稱
           <input id="tw-advisor-symbol" data-stock-search autocomplete="off" placeholder="例如 1301、1301.TW、6603.TWO、台塑" value="">
         </label>
-        <button type="submit">取得建議</button>
+        <div class="advisor-form-actions">
+          <button type="submit">快速查詢</button>
+          <button type="button" id="tw-advisor-live-scan" class="secondary-button">即時重算</button>
+        </div>
+        <p class="advisor-form-hint">快速查詢讀取最新模型快照；即時重算會重新抓取行情，可能較慢。</p>
       </form>
     </section>
     <section id="tw-advisor-status" class="notice">準備查詢。可輸入 1301、1301.TW、6603.TWO，或已知股票名稱。</section>
@@ -2608,6 +2616,7 @@ def tw_advisor_script() -> str:
       const input = $("tw-advisor-symbol");
       const status = $("tw-advisor-status");
       const result = $("tw-advisor-result");
+      const liveScanButton = $("tw-advisor-live-scan");
 
       const escapeHtml = (value) => String(value ?? "")
         .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -3733,20 +3742,24 @@ def tw_advisor_script() -> str:
         `;
       };
 
-      const scan = async (symbol) => {
-        status.textContent = `正在掃描 ${symbol}...`;
+      const scan = async (symbol, options = {}) => {
+        const forceLive = Boolean(options.forceLive);
+        status.textContent = forceLive ? `正在即時重算 ${symbol}...` : `正在讀取 ${symbol} 最新快照...`;
         renderEmpty("正在整理個股資料。");
         try {
           const response = await fetch("/api/tw/scan/symbol", {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ symbol }),
+            body: JSON.stringify({ symbol, force_live: forceLive }),
           });
           const payload = await response.json();
           if (!response.ok) throw new Error(payload.message || `HTTP ${response.status}`);
           if (!payload.symbol && payload.ok === false) throw new Error(payload.message || "查無股票資料");
-          status.textContent = `完成：${payload.symbol || symbol}`;
+          const modeText = payload.response_mode === "snapshot"
+            ? "快照模式：未重新抓取即時行情，僅供觀察。"
+            : "即時重算完成。";
+          status.textContent = `完成：${payload.symbol || symbol}｜${modeText}`;
           renderResult(payload);
         } catch (error) {
           status.textContent = "掃描失敗";
@@ -3763,6 +3776,16 @@ def tw_advisor_script() -> str:
         }
         window.history.replaceState({}, "", advisorLink(symbol));
         scan(symbol);
+      });
+
+      liveScanButton?.addEventListener("click", () => {
+        const symbol = input.value.trim();
+        if (!symbol) {
+          status.textContent = "請先輸入股票代號，再執行即時重算。";
+          return;
+        }
+        window.history.replaceState({}, "", advisorLink(symbol));
+        scan(symbol, { forceLive: true });
       });
 
       document.querySelectorAll("[data-symbol]").forEach((button) => {
@@ -4257,6 +4280,9 @@ def tw_advisor_css() -> str:
     .advisor-form { display:grid; grid-template-columns:minmax(220px,320px) auto; align-items:end; gap:10px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:12px; }
     .advisor-form label { margin:0; font-size:12px; color:#344054; }
     .advisor-form button { background:#175cd3; border-color:#175cd3; color:#fff; height:38px; }
+    .advisor-form .secondary-button { background:#fff; border-color:#98a2b3; color:#344054; }
+    .advisor-form-actions { display:flex; gap:8px; align-items:center; }
+    .advisor-form-hint { grid-column:1 / -1; margin:0; font-size:12px; color:#667085; }
     .advisor-result { margin-top:14px; }
     .advisor-card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; }
     .quick-read-card { border-width:2px; border-color:#bfdbfe; background:#eff6ff; }

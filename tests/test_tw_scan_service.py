@@ -1,8 +1,12 @@
 import unittest
+import json
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.data import Bar
+from stock_daytrade_system.db import connect
 from stock_daytrade_system.tw_scan_service import (
     _advisor_market_mode_payload,
     _bars_from_fugle_candles,
@@ -11,10 +15,146 @@ from stock_daytrade_system.tw_scan_service import (
     _intraday_chart_payload,
     _radar_quote_payload,
     _safety_payload,
+    scan_tw_symbol_payload,
 )
 
 
 class TWScanServiceTests(unittest.TestCase):
+    def test_scan_symbol_uses_snapshot_fast_path_without_live_fetch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_dir = root / "config"
+            config_dir.mkdir(parents=True)
+            (config_dir / "watchlist.json").write_text(
+                json.dumps(
+                    {
+                        "market": {
+                            "timezone": "Asia/Taipei",
+                            "premarket_run_time": "08:30",
+                            "benchmark": "^TWII",
+                            "taiwan_futures": "TX=F",
+                            "us_market_symbols": [],
+                        },
+                        "risk": {
+                            "min_price": 10,
+                            "min_avg_volume": 1000,
+                            "max_loss_per_trade": 2000,
+                            "round_lot_size": 1000,
+                            "max_candidates_per_side": 20,
+                        },
+                        "symbols": [{"symbol": "2330.TW", "name": "台積電", "sector": "semiconductor"}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            captured = "2026-06-18T09:35:00+08:00"
+            with connect(root / "data" / "daytrade.db") as conn:
+                conn.execute(
+                    "INSERT INTO symbols (symbol, name, sector, market, is_active) VALUES (?, ?, ?, ?, ?)",
+                    ("2330.TW", "台積電", "semiconductor", "TW", 1),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO daily_snapshots (
+                      date, symbol, close, change_pct, volume, turnover, avg_volume_20,
+                      volume_ratio, previous_high, high_5d, high_10d, break_prev_high,
+                      break_5d_high, break_10d_high
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    ("2026-06-18", "2330.TW", 101, 1.2, 10000, 1_000_000, 8000, 1.25, 100, 102, 105, 1, 0, 0),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO intraday_snapshots (
+                      captured_at, date, symbol, last_price, volume, turnover, vwap,
+                      above_vwap, volume_ratio, opening_range_high, opening_range_low
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (captured, "2026-06-18", "2330.TW", 101, 5000, 500_000, 100, 1, 1.2, 101.5, 99.5),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO long_scores (
+                      captured_at, date, symbol, bullish_score, risk_score, grade,
+                      reasons, risk_reasons, confidence_score, confidence_level,
+                      conflicts_count, conflicts, conflict_summary, confidence_summary
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        captured,
+                        "2026-06-18",
+                        "2330.TW",
+                        78,
+                        42,
+                        "B+",
+                        json.dumps(["站上 VWAP", "突破昨高"], ensure_ascii=False),
+                        json.dumps([], ensure_ascii=False),
+                        66,
+                        "medium",
+                        0,
+                        "[]",
+                        "",
+                        "快照測試",
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, market_type, source_scope, price,
+                      change_pct, volume, turnover, volume_ratio, vwap, above_vwap,
+                      break_prev_high, break_5d_high, entered_candidate_pool,
+                      entered_ai_candidates, ai_grade, entry_status, trade_bias,
+                      not_selected_reason, reason_code, data_status, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        captured,
+                        "2026-06-18",
+                        "2330.TW",
+                        "台積電",
+                        "TWSE",
+                        "full_market",
+                        101,
+                        1.2,
+                        10000,
+                        1_000_000,
+                        1.2,
+                        100,
+                        1,
+                        1,
+                        0,
+                        1,
+                        1,
+                        "B+",
+                        "wait_breakout",
+                        "long",
+                        "等待突破",
+                        "candidate_but_not_triggered",
+                        "ok",
+                        captured,
+                    ),
+                )
+                conn.commit()
+
+            payload = scan_tw_symbol_payload(
+                root,
+                "2330",
+                now=datetime(2026, 6, 18, 9, 40, tzinfo=ZoneInfo("Asia/Taipei")),
+            )
+
+            self.assertEqual(payload["response_mode"], "snapshot")
+            self.assertEqual(payload["symbol"], "2330.TW")
+            self.assertEqual(payload["display"]["current_price"], 101)
+            self.assertEqual(payload["data_health"]["price_status"], "delayed")
+            self.assertFalse(payload["data_health"]["can_show_strong_long"])
+            self.assertEqual(payload["front_trade"]["category"], "觀察")
+            self.assertIn("snapshot_mode", payload["warnings"])
+
     def test_cached_last_known_price_blocks_strong_long(self):
         captured_at = datetime(2026, 6, 18, 9, 40, tzinfo=ZoneInfo("Asia/Taipei"))
         data_health = _data_health_payload(
