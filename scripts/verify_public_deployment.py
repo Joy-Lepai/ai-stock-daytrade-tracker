@@ -874,7 +874,7 @@ def main(argv: list[str] | None = None) -> int:
         "--advisor-symbol",
         action="append",
         default=[],
-        help="Optionally smoke-test /api/tw/scan/symbol. Can be repeated or comma-separated, e.g. 6919,2886,8150.",
+        help="Optionally smoke-test /api/tw/scan/symbol. Can be repeated or comma-separated, e.g. 6919,2886,8150,3711.",
     )
     parser.add_argument("--timeout", type=float, default=15.0)
     args = parser.parse_args(argv)

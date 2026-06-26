@@ -12,7 +12,7 @@ class CheckPublicReadinessScriptTests(unittest.TestCase):
         self.assertIn("SKIP_RELEASE_READINESS", script)
         self.assertIn("scripts/check_release_readiness.py", script)
         self.assertIn("scripts/verify_public_deployment.py", script)
-        self.assertIn("6919,2886,8150", script)
+        self.assertIn("6919,2886,8150,3711", script)
 
     def test_script_allows_explicit_skip_for_public_only_checks(self):
         script = (ROOT / "scripts" / "check_public_readiness.sh").read_text()

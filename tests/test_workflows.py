@@ -82,7 +82,7 @@ class WorkflowTests(unittest.TestCase):
 
         self.assertIn("Verify Public Deployment", text)
         self.assertIn("advisor_symbol:", text)
-        self.assertIn('default: "6919,2886,8150"', text)
+        self.assertIn('default: "6919,2886,8150,3711"', text)
         self.assertIn("scripts/verify_public_deployment.py", text)
         self.assertIn("--advisor-symbol", text)
         self.assertIn("github.event.inputs.advisor_symbol", text)

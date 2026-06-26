@@ -12,9 +12,9 @@ on:
         required: false
         default: ""
       advisor_symbol:
-        description: "TW symbol(s) for /tw/advisor API smoke test, e.g. 6919 or 6919,2886,8150."
+        description: "TW symbol(s) for /tw/advisor API smoke test, e.g. 6919 or 6919,2886,8150,3711."
         required: false
-        default: "6919,2886,8150"
+        default: "6919,2886,8150,3711"
 
 jobs:
   verify:
