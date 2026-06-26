@@ -66,3 +66,7 @@ if [[ -n "$ADVISOR_SYMBOL" ]]; then
 fi
 
 python3 scripts/verify_public_deployment.py "${args[@]}"
+
+echo
+echo "==> Checking operational health after public validation..."
+python3 scripts/check_operational_health.py --base-url "$BASE_URL" --timeout "$TIMEOUT"
