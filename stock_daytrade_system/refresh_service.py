@@ -752,7 +752,9 @@ def _front_category_summary(
     total = strong + buy + watch + bearish
     bearish_ratio = round((bearish / total * 100) if total else 0.0, 2)
     no_signal_reason = ""
-    if market_mode != "intraday":
+    if total <= 0:
+        no_signal_reason = "尚未產生四分類候選資料，先確認 full_market / watchlist 是否完成刷新。"
+    elif market_mode != "intraday":
         no_signal_reason = "非盤中模式，強烈買多為 0 屬於正常安全規則。"
     elif not intraday:
         no_signal_reason = "目前不允許盤中訊號，先看資料模式與刷新層。"

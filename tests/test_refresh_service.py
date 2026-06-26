@@ -8,6 +8,7 @@ from stock_daytrade_system.db import connect, default_db_path, upsert_last_known
 from stock_daytrade_system.refresh_service import (
     DEFAULT_TRACKER_TIMEOUT_SECONDS,
     RefreshCoordinator,
+    _front_category_summary,
     _layer_has_usable_fresh_success,
     _refresh_operation_summary,
     _status_allows_strong_long,
@@ -79,6 +80,19 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["data_source_health_compact"]["twse"], "OK")
         self.assertEqual(payload["data_source_health_compact"]["c_money"], "ERROR")
         self.assertTrue(payload["data_source_degraded"])
+
+    def test_front_category_summary_distinguishes_missing_candidate_data(self):
+        summary = _front_category_summary(
+            [],
+            market_mode="intraday",
+            data_today=True,
+            intraday=True,
+            stale=False,
+            allow_strong_long=True,
+        )
+
+        self.assertEqual(summary["total"], 0)
+        self.assertIn("尚未產生四分類候選資料", summary["no_signal_reason"])
 
     def test_status_payload_includes_front_category_no_signal_summary(self):
         now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
