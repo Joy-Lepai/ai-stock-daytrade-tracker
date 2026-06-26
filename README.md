@@ -333,6 +333,16 @@ python3 scripts/check_operational_health.py \
 
 注意：未加 `--apply-refresh-plan` 時只會讀取狀態，不會觸發任何刷新。
 
+若要給 GitHub Actions、監控或其他自動化讀取，使用 JSON 輸出：
+
+```bash
+python3 scripts/check_operational_health.py \
+  --base-url https://stock.letslepai.com \
+  --json
+```
+
+也可以搭配 `--apply-refresh-plan --json`，輸出刷新前、每個刷新 endpoint 的結果，以及刷新後的健康狀態。
+
 若狀態為 `blocked`，前台不應顯示即時強烈買多；若狀態為 `warning`，代表可看，但要注意資料延遲、使用上一筆或非盤中模式。
 
 `Refresh Stock Dashboard` GitHub Actions 每次分層刷新後也會讀取 `operational_health`；若狀態為 `blocked`，該次 workflow 會失敗，方便及早發現資料源或刷新層問題。
@@ -341,6 +351,7 @@ python3 scripts/check_operational_health.py \
 
 - `refresh-status.json`：完整 `/api/refresh/status` 快照。
 - `operational-health.txt`：可讀的營運健康報告、刷新順序與下一步。
+- `operational-health.json`：給自動化讀取的狀態、operator mode、阻擋原因與刷新計畫。
 
 如果 GitHub Actions 顯示失敗，先下載這個 artifact 看「作戰模式」、「阻擋原因」與「刷新計畫」，再決定要不要手動跑 `/refresh_full_market`、`/refresh_watchlist` 或 Render Deploy。
 

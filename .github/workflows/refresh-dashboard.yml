@@ -83,6 +83,7 @@ jobs:
                 echo "FAILED /api/refresh/status operational health"
                 failures=$((failures + 1))
               fi
+              python3 scripts/check_operational_health.py --base-url "$DASHBOARD_URL" --timeout 30 --json > operational-health.json || true
             else
               echo "FAILED /api/refresh/status"
               {
@@ -91,6 +92,7 @@ jobs:
                 echo "Dashboard URL: ${DASHBOARD_URL}"
                 echo "Next action: check Render service health, then run a manual /refresh_full_market or /refresh_watchlist after the app is live."
               } > operational-health.txt
+              python3 -c 'import json, os; print(json.dumps({"status": "blocked", "summary": "Refresh status fetch failed.", "dashboard_url": os.environ.get("DASHBOARD_URL", ""), "next_action": "Check Render service health, then run a manual /refresh_full_market or /refresh_watchlist after the app is live.", "can_trust_public": False}, ensure_ascii=False, indent=2))' > operational-health.json
               failures=$((failures + 1))
             fi
           }
@@ -151,4 +153,5 @@ jobs:
           path: |
             refresh-status.json
             operational-health.txt
+            operational-health.json
           if-no-files-found: ignore
