@@ -15,6 +15,7 @@ from scripts.check_release_readiness import (
     main,
     optional_git_output,
     parse_ahead_count,
+    load_ahead_count,
     recommended_next_action,
     release_report_payload,
     release_steps,
@@ -28,7 +29,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(parse_ahead_count("72"), 72)
         self.assertEqual(parse_ahead_count("## main...origin/main"), 0)
 
-    def test_load_release_state_skips_slow_ahead_count_scan(self):
+    def test_load_release_state_reports_local_ahead_count(self):
         calls = []
 
         def fake_runner(command, **kwargs):
@@ -40,19 +41,25 @@ class CheckReleaseReadinessTests(unittest.TestCase):
             if command[-2:] == ["rev-parse", "--show-toplevel"]:
                 return "/repo/path\n"
             if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
-                raise AssertionError("rev-list should not be called")
+                return "1\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 return "## main...origin/main\n"
             raise AssertionError(command)
 
         state = load_release_state(runner=fake_runner, fetch_public=False)
 
-        self.assertEqual(state.ahead_count, -1)
+        self.assertEqual(state.ahead_count, 1)
         self.assertEqual(state.status_line, "## main...origin/main")
         self.assertEqual(state.repo_path, "/repo/path")
         self.assertIn(["git", "status", "-sb", "--no-ahead-behind", "--untracked-files=no"], calls)
-        self.assertNotIn(["git", "rev-list", "--count", "origin/main..HEAD"], calls)
+        self.assertIn(["git", "rev-list", "--count", "origin/main..HEAD"], calls)
         self.assertNotIn(["git", "status", "-sb"], calls)
+
+    def test_load_ahead_count_falls_back_to_unknown_on_git_failure(self):
+        def fake_runner(command, **kwargs):
+            raise subprocess.CalledProcessError(1, command)
+
+        self.assertEqual(load_ahead_count("local", "origin", runner=fake_runner), -1)
 
     def test_load_release_state_marks_zero_ahead_when_origin_matches(self):
         def fake_runner(command, **kwargs):
@@ -87,6 +94,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
                 return "origincommit\n"
             if command[-2:] == ["rev-parse", "--show-toplevel"]:
                 return "/repo/path\n"
+            if command[-3:] == ["rev-list", "--count", "origin/main..HEAD"]:
+                return "1\n"
             if command[-4:] == ["status", "-sb", "--no-ahead-behind", "--untracked-files=no"]:
                 raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout"))
             if command[-3:] == ["status", "--porcelain=v1", "--untracked-files=no"]:

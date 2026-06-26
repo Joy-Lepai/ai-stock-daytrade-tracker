@@ -98,7 +98,7 @@ def load_release_state(
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
     repo_path = git_output(["rev-parse", "--show-toplevel"], runner=runner)
-    ahead_count = 0 if head == origin else -1
+    ahead_count = load_ahead_count(head, origin, runner=runner)
     try:
         status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
         dirty = is_worktree_dirty(status)
@@ -133,6 +133,16 @@ def parse_ahead_count(status_line: str) -> int:
         return int(value)
     match = re.search(r"\bahead\s+(\d+)", status_line or "")
     return int(match.group(1)) if match else 0
+
+
+def load_ahead_count(head: str, origin: str, *, runner: Callable[..., str] = subprocess.check_output) -> int:
+    if head == origin:
+        return 0
+    raw = optional_git_output(["rev-list", "--count", "origin/main..HEAD"], runner=runner, default="-1")
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
 
 
 def is_worktree_dirty(status_output: str) -> bool:
