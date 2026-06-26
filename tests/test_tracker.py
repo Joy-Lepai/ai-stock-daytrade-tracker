@@ -13,6 +13,7 @@ from stock_daytrade_system.tracker import (
     _change_number,
     _data_status_block,
     _decision_overview,
+    _display_trade_bias_label,
     _entry_radar_scorecard_panel,
     _entry_status_message,
     _focus_card,
@@ -133,6 +134,13 @@ def opening(direction="偏多確認"):
 
 
 class TrackerStatusTests(unittest.TestCase):
+    def test_display_trade_bias_label_only_marks_executable_as_radar_passed(self):
+        self.assertEqual(_display_trade_bias_label("executable", "long", "買多"), "進場雷達通過")
+        self.assertEqual(_display_trade_bias_label("wait_volume", "long", "買多"), "買多")
+        self.assertEqual(_display_trade_bias_label("wait_vwap", "long", ""), "買多")
+        self.assertEqual(_display_trade_bias_label("high_risk", "long", "買多"), "方向偏多")
+        self.assertEqual(_display_trade_bias_label("practice_long", "long", "買多"), "練習買多")
+
     def test_marks_aligned_candidate_and_opening_signal_as_actionable(self):
         status, priority, _notes = classify_status(candidate(), opening())
 
