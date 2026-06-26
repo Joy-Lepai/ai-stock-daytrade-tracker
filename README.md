@@ -438,7 +438,7 @@ STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS=900
 追蹤器可排在 09:20 或手動重跑：
 
 ```cron
-20 9 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && /usr/bin/python3 -m stock_daytrade_system.cli tracker
+20 9 * * 1-5 cd /Users/dengjoy/Documents/AI股票系統 && scripts/run_tracker.sh
 ```
 
 ## 調整追蹤標的

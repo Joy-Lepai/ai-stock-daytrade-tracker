@@ -92,13 +92,19 @@ def load_release_state(
     base_url: str = DEFAULT_BASE_URL,
     timeout: float = 12.0,
     runner: Callable[..., str] = subprocess.check_output,
+    exit_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
     fetch_public: bool = True,
 ) -> ReleaseState:
     head = git_output(["rev-parse", "HEAD"], runner=runner)
     origin = git_output(["rev-parse", "origin/main"], runner=runner)
     ahead_count = 0 if head == origin else -1
-    status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
-    first_line = status.splitlines()[0] if status else ""
+    try:
+        status = git_output(["status", "-sb", "--no-ahead-behind", "--untracked-files=no"], runner=runner)
+        dirty = is_worktree_dirty(status)
+        first_line = status.splitlines()[0] if status else ""
+    except ReleaseReadinessError as exc:
+        dirty = worktree_dirty_fallback(exit_runner=exit_runner)
+        first_line = f"## main...origin/main [status unavailable: {exc}]"
     public_runtime = ""
     public_tracker = ""
     if fetch_public:
@@ -112,7 +118,7 @@ def load_release_state(
         head=head,
         origin=origin,
         ahead_count=ahead_count,
-        dirty=is_worktree_dirty(status),
+        dirty=dirty,
         status_line=first_line,
         public_runtime=public_runtime,
         public_tracker=public_tracker,
@@ -130,6 +136,39 @@ def parse_ahead_count(status_line: str) -> int:
 def is_worktree_dirty(status_output: str) -> bool:
     lines = [line for line in (status_output or "").splitlines()[1:] if line.strip()]
     return bool(lines)
+
+
+def worktree_dirty_fallback(
+    *,
+    exit_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> bool:
+    try:
+        unstaged = git_exit_code(["diff", "--quiet", "--ignore-submodules", "--"], runner=exit_runner)
+        staged = git_exit_code(["diff", "--cached", "--quiet", "--ignore-submodules", "--"], runner=exit_runner)
+    except ReleaseReadinessError:
+        return True
+    return unstaged != 0 or staged != 0
+
+
+def git_exit_code(
+    args: list[str],
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+    timeout: Optional[float] = None,
+) -> int:
+    try:
+        result = runner(
+            ["git", *args],
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout if timeout is not None else git_command_timeout(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ReleaseReadinessError(describe_git_timeout(args, exc)) from exc
+    except OSError as exc:
+        raise ReleaseReadinessError(f"`git {' '.join(args)}` failed: {exc}") from exc
+    return int(result.returncode)
 
 
 def fetch_system_version(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
