@@ -259,6 +259,10 @@ class WebTests(unittest.TestCase):
         self.assertIn("runtime commit", html)
         self.assertIn("abc123", html)
         self.assertIn("/operator", html)
+        self.assertIn("/api/operator/runbook", html)
+        self.assertIn("window.OperatorRunbook", html)
+        self.assertIn("作戰手冊會每 30 秒自動更新", html)
+        self.assertIn("operator-refresh-status", html)
 
     def test_liveness_payload_is_lightweight_and_alive(self):
         payload = build_liveness_payload()

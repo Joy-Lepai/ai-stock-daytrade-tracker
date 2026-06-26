@@ -816,64 +816,66 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
         refresh_forms = '<p class="muted">目前沒有建議手動刷新動作。</p>'
     content = f"""
   <main class="operator-page">
-    <header class="operator-hero {status_class}">
+    <header id="operator-hero" class="operator-hero {status_class}">
       <div>
         <p class="eyebrow">開盤前 / 盤中作戰手冊</p>
-        <h1>{_escape(str(payload.get('headline') or '台股做多當沖追蹤器'))}</h1>
-        <p>{_escape(str(payload.get('first_action') or '先確認資料狀態，再看強烈買多與進場雷達。'))}</p>
+        <h1 id="operator-headline">{_escape(str(payload.get('headline') or '台股做多當沖追蹤器'))}</h1>
+        <p id="operator-first-action">{_escape(str(payload.get('first_action') or '先確認資料狀態，再看強烈買多與進場雷達。'))}</p>
       </div>
       <div class="operator-decision">
         <span>目前判斷</span>
-        <strong>{_escape(str(payload.get('decision') or '-'))}</strong>
+        <strong id="operator-decision">{_escape(str(payload.get('decision') or '-'))}</strong>
       </div>
     </header>
     <section class="operator-grid">
-      {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-')}
-      {_operator_metric('資料可信度', payload.get('data_quality_status') or '-')}
-      {_operator_metric('可否盤中判斷', _yes_no(payload.get('can_use_intraday_signals')))}
-      {_operator_metric('可否信任強烈買多', _yes_no(payload.get('can_trust_strong_buy')))}
+      {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-', 'operator-mode')}
+      {_operator_metric('資料可信度', payload.get('data_quality_status') or '-', 'operator-data-quality')}
+      {_operator_metric('可否盤中判斷', _yes_no(payload.get('can_use_intraday_signals')), 'operator-intraday')}
+      {_operator_metric('可否信任強烈買多', _yes_no(payload.get('can_trust_strong_buy')), 'operator-strong-buy')}
     </section>
     <section class="decision-center">
       <h2>現在照這樣做</h2>
-      {_operator_list(payload.get('now_steps'), '目前沒有下一步指令。')}
+      {_operator_list(payload.get('now_steps'), '目前沒有下一步指令。', 'operator-now-steps')}
     </section>
     <section class="operator-two-col">
       <div class="decision-center">
         <h2>進場前檢查</h2>
-        {_operator_list(payload.get('checklist'), '目前沒有額外檢查項目。')}
+        {_operator_list(payload.get('checklist'), '目前沒有額外檢查項目。', 'operator-checklist')}
       </div>
       <div class="decision-center">
         <h2>今天不要做</h2>
-        {_operator_list(payload.get('do_not_do'), '目前沒有額外禁止動作。')}
+        {_operator_list(payload.get('do_not_do'), '目前沒有額外禁止動作。', 'operator-do-not-do')}
       </div>
     </section>
     <section class="operator-two-col">
       <div class="decision-center">
         <h2>手動刷新建議</h2>
         <p class="muted">只在資料層過期或你剛部署完成時使用。盤中不要一直按完整刷新。</p>
-        <div class="operator-refresh-actions">{refresh_forms}</div>
+        <div id="operator-refresh-actions" class="operator-refresh-actions">{refresh_forms}</div>
       </div>
       <div class="decision-center">
         <h2>部署與資料</h2>
-        <p><strong>runtime commit：</strong>{_escape(str(deployment.get('runtime_commit') or '-'))}</p>
-        <p><strong>tracker commit：</strong>{_escape(str(deployment.get('tracker_commit') or '-'))}</p>
-        <p><strong>產生時間：</strong>{_escape(str(payload.get('generated_at') or '-'))}</p>
-        <p><strong>看盤狀態：</strong>{_escape(str(payload.get('watch_readiness') or '-'))}</p>
-        <p class="muted">{_escape(str(payload.get('watch_readiness_message') or ''))}</p>
+        <p><strong>runtime commit：</strong><span id="operator-runtime-commit">{_escape(str(deployment.get('runtime_commit') or '-'))}</span></p>
+        <p><strong>tracker commit：</strong><span id="operator-tracker-commit">{_escape(str(deployment.get('tracker_commit') or '-'))}</span></p>
+        <p><strong>產生時間：</strong><span id="operator-generated-at">{_escape(str(payload.get('generated_at') or '-'))}</span></p>
+        <p><strong>看盤狀態：</strong><span id="operator-watch-readiness">{_escape(str(payload.get('watch_readiness') or '-'))}</span></p>
+        <p id="operator-watch-message" class="muted">{_escape(str(payload.get('watch_readiness_message') or ''))}</p>
+        <p id="operator-refresh-status" class="muted">作戰手冊會每 30 秒自動更新。</p>
       </div>
     </section>
     <section class="operator-two-col">
       <div class="decision-center">
         <h2>阻擋原因</h2>
-        {_operator_list(payload.get('blockers'), '目前沒有阻擋原因。')}
+        {_operator_list(payload.get('blockers'), '目前沒有阻擋原因。', 'operator-blockers')}
       </div>
       <div class="decision-center">
         <h2>提醒</h2>
-        {_operator_list(payload.get('warnings'), '目前沒有額外提醒。')}
+        {_operator_list(payload.get('warnings'), '目前沒有額外提醒。', 'operator-warnings')}
       </div>
     </section>
     <section class="notice">本系統僅供資料整理、策略追蹤、虛擬交易與回測，不構成投資建議，也不保證獲利。</section>
   </main>
+  <script>{operator_runbook_script()}</script>
 """
     return render_shell(content, active_file="operator runbook", extra_css=operator_page_css(), show_logout=show_logout)
 
@@ -904,15 +906,17 @@ def operator_page_css() -> str:
     """
 
 
-def _operator_metric(label: str, value: Any) -> str:
-    return f'<div class="metric"><span class="muted">{_escape(str(label))}</span><strong>{_escape(str(value))}</strong></div>'
+def _operator_metric(label: str, value: Any, element_id: str = "") -> str:
+    id_attr = f' id="{_escape(element_id)}"' if element_id else ""
+    return f'<div class="metric"><span class="muted">{_escape(str(label))}</span><strong{id_attr}>{_escape(str(value))}</strong></div>'
 
 
-def _operator_list(items: Any, empty_text: str) -> str:
+def _operator_list(items: Any, empty_text: str, element_id: str = "") -> str:
     rows = [str(item).strip() for item in (items or []) if str(item).strip()]
+    id_attr = f' id="{_escape(element_id)}"' if element_id else ""
     if not rows:
-        return f'<p class="muted">{_escape(empty_text)}</p>'
-    return '<ol class="operator-list">' + "".join(f"<li>{_escape(item)}</li>" for item in rows) + "</ol>"
+        return f'<p{id_attr} class="muted">{_escape(empty_text)}</p>'
+    return f'<ol{id_attr} class="operator-list">' + "".join(f"<li>{_escape(item)}</li>" for item in rows) + "</ol>"
 
 
 def _operator_refresh_label(endpoint: str) -> str:
@@ -927,6 +931,106 @@ def _operator_refresh_label(endpoint: str) -> str:
 
 def _yes_no(value: Any) -> str:
     return "是" if bool(value) else "否"
+
+
+def operator_runbook_script() -> str:
+    return r"""
+    (() => {
+      const REFRESH_MS = 30000;
+      const $ = (id) => document.getElementById(id);
+      const text = (id, value) => {
+        const node = $(id);
+        if (node) node.textContent = value || "-";
+      };
+      const yesNo = (value) => value ? "是" : "否";
+      const renderList = (id, items, emptyText) => {
+        const node = $(id);
+        if (!node) return;
+        const rows = Array.isArray(items) ? items.filter((item) => String(item || "").trim()) : [];
+        const tag = rows.length ? "ol" : "p";
+        const replacement = document.createElement(tag);
+        replacement.id = id;
+        replacement.className = rows.length ? "operator-list" : "muted";
+        if (!rows.length) {
+          replacement.textContent = emptyText;
+        } else {
+          rows.forEach((item) => {
+            const li = document.createElement("li");
+            li.textContent = String(item);
+            replacement.appendChild(li);
+          });
+        }
+        node.replaceWith(replacement);
+      };
+      const refreshLabel = (endpoint) => ({
+        "/refresh_full_market": "更新全市場",
+        "/refresh_watchlist": "更新重點觀察",
+        "/refresh_positions": "更新持倉 / 觸發",
+        "/refresh_post_close_validation": "更新盤後驗證",
+        "/refresh": "完整刷新",
+      }[endpoint] || endpoint);
+      const renderRefreshActions = (actions) => {
+        const panel = $("operator-refresh-actions");
+        if (!panel) return;
+        panel.innerHTML = "";
+        const rows = Array.isArray(actions) ? actions.filter((endpoint) => String(endpoint || "").startsWith("/refresh")) : [];
+        if (!rows.length) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "目前沒有建議手動刷新動作。";
+          panel.appendChild(p);
+          return;
+        }
+        rows.forEach((endpoint) => {
+          const form = document.createElement("form");
+          form.method = "post";
+          form.action = endpoint;
+          const button = document.createElement("button");
+          button.type = "submit";
+          button.textContent = refreshLabel(endpoint);
+          form.appendChild(button);
+          panel.appendChild(form);
+        });
+      };
+      const render = (payload) => {
+        const hero = $("operator-hero");
+        if (hero) {
+          hero.classList.remove("operator-ok", "operator-warn", "operator-blocked");
+          hero.classList.add(Array.isArray(payload.blockers) && payload.blockers.length ? "operator-blocked" : payload.can_trade_now ? "operator-ok" : "operator-warn");
+        }
+        text("operator-headline", payload.headline || "台股做多當沖追蹤器");
+        text("operator-first-action", payload.first_action || "先確認資料狀態，再看強烈買多與進場雷達。");
+        text("operator-decision", payload.decision || "-");
+        text("operator-mode", payload.mode || payload.market_mode_label || payload.market_mode || "-");
+        text("operator-data-quality", payload.data_quality_status || "-");
+        text("operator-intraday", yesNo(payload.can_use_intraday_signals));
+        text("operator-strong-buy", yesNo(payload.can_trust_strong_buy));
+        text("operator-runtime-commit", payload.deployment?.runtime_commit || "-");
+        text("operator-tracker-commit", payload.deployment?.tracker_commit || "-");
+        text("operator-generated-at", payload.generated_at || "-");
+        text("operator-watch-readiness", payload.watch_readiness || "-");
+        text("operator-watch-message", payload.watch_readiness_message || "");
+        renderList("operator-now-steps", payload.now_steps, "目前沒有下一步指令。");
+        renderList("operator-checklist", payload.checklist, "目前沒有額外檢查項目。");
+        renderList("operator-do-not-do", payload.do_not_do, "目前沒有額外禁止動作。");
+        renderList("operator-blockers", payload.blockers, "目前沒有阻擋原因。");
+        renderList("operator-warnings", payload.warnings, "目前沒有額外提醒。");
+        renderRefreshActions(payload.refresh_actions);
+        text("operator-refresh-status", `作戰手冊已更新：${new Date().toLocaleTimeString("zh-TW", { hour12: false })}`);
+      };
+      const refresh = async () => {
+        try {
+          const response = await fetch("/api/operator/runbook", { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          render(await response.json());
+        } catch (error) {
+          text("operator-refresh-status", `作戰手冊暫時無法更新：${error.message}`);
+        }
+      };
+      window.OperatorRunbook = { refresh };
+      window.setInterval(refresh, REFRESH_MS);
+    })();
+    """
 
 
 def _compact_operator_steps(do_now: list[Any], steps: list[Any]) -> list[str]:

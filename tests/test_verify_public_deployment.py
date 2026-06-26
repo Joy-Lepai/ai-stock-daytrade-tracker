@@ -285,6 +285,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         今天不要做
         手動刷新建議
         部署與資料
+        作戰手冊會每 30 秒自動更新
+        operator-refresh-status
+        /api/operator/runbook
         本系統僅供資料整理
         """
 
@@ -301,6 +304,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         今天不要做
         手動刷新建議
         部署與資料
+        作戰手冊會每 30 秒自動更新
+        operator-refresh-status
+        /api/operator/runbook
         本系統僅供資料整理
         做多確認
         """

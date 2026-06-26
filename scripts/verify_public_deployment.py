@@ -435,6 +435,9 @@ def validate_operator_page_html(html: str) -> list[Check]:
         "今天不要做",
         "手動刷新建議",
         "部署與資料",
+        "作戰手冊會每 30 秒自動更新",
+        "operator-refresh-status",
+        "/api/operator/runbook",
         "本系統僅供資料整理",
     ]
     missing_markers = [marker for marker in required_markers if marker not in html]
