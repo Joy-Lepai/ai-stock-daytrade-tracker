@@ -18,6 +18,14 @@ from scripts.verify_public_deployment import (
 
 
 class VerifyPublicDeploymentTests(unittest.TestCase):
+    def _opening_preflight(self, light="yellow", label="復盤 / 開盤前觀察"):
+        return {
+            "light": light,
+            "label": label,
+            "reason": "目前不是盤中即時模式，只能看復盤與下個交易日觀察。",
+            "next_action": "等待盤中 live 資料再判斷。",
+        }
+
     def _health_payload(self, **overrides):
         payload = {
             "api_status": "ok",
@@ -42,6 +50,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "price_status_summary": {"status": "休市復盤"},
             "deployment": {"runtime_commit": "abc123", "tracker_commit": "abc123"},
             "can_show_strong_long": False,
+            "opening_preflight": self._opening_preflight(),
         }
         payload.update(overrides)
         return payload
@@ -119,6 +128,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "不需手動更新"},
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
+                "opening_preflight": self._opening_preflight(label="開盤前觀察"),
             },
         }
 
@@ -141,6 +151,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "查看復盤"},
                 "watch_readiness": "僅供復盤或開盤前觀察",
                 "refresh_plan": [],
+                "opening_preflight": self._opening_preflight(),
             },
         }
 
@@ -164,6 +175,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "更新重點觀察"},
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
+                "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
             },
         }
 
@@ -188,6 +200,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "先修正資料"},
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
+                "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
             },
         }
 
@@ -250,6 +263,15 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has operator briefing", failed)
 
+    def test_health_payload_requires_opening_preflight(self):
+        payload = self._health_payload()
+        payload.pop("opening_preflight")
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("health has opening preflight", failed)
+
     def test_blocked_health_cannot_show_strong_buy(self):
         payload = self._health_payload(
             status="blocked",
@@ -262,12 +284,41 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             price_status_summary={"status": "嚴重缺漏"},
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=True,
+            opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
         )
 
         checks = validate_health_payload(payload)
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("blocked health blocks strong buy", failed)
+
+    def test_blocked_health_requires_red_opening_preflight(self):
+        payload = self._health_payload(
+            status="blocked",
+            summary="資料異常",
+            next_action={"label": "先修資料"},
+            watch_readiness="暫不適合進場判斷",
+            operator_steps=["先執行刷新計畫"],
+            refresh_plan=["/refresh_watchlist"],
+            market_mode="intraday",
+            price_status_summary={"status": "嚴重缺漏"},
+            deployment={"runtime_commit": "abc123"},
+            can_show_strong_long=False,
+            opening_preflight=self._opening_preflight("yellow", "復盤 / 開盤前觀察"),
+        )
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("blocked health has red preflight", failed)
+
+    def test_non_intraday_health_cannot_have_green_opening_preflight(self):
+        payload = self._health_payload(opening_preflight=self._opening_preflight("green", "可進入盤中追蹤"))
+
+        checks = validate_health_payload(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("non-intraday health preflight is not green", failed)
 
     def test_liveness_payload_requires_alive_status(self):
         payload = {"api_status": "ok", "status": "alive", "service": "tw-daytrade-tracker"}
@@ -288,6 +339,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             price_status_summary={"status": "嚴重缺漏"},
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=False,
+            opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
         )
 
         checks = validate_readiness_payload(503, payload)
@@ -306,6 +358,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             price_status_summary={"status": "嚴重缺漏"},
             deployment={"runtime_commit": "abc123"},
             can_show_strong_long=False,
+            opening_preflight=self._opening_preflight("red", "暫停使用即時訊號"),
         )
 
         checks = validate_readiness_payload(200, payload)
@@ -331,6 +384,53 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("operational health status valid", failed)
         self.assertIn("operational health has next action", failed)
 
+    def test_refresh_status_requires_opening_preflight(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": False,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "開盤前準備模式",
+                "next_action": {"label": "不需手動更新"},
+                "watch_readiness": "僅供復盤或開盤前觀察",
+                "refresh_plan": [],
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("operational health has opening preflight", failed)
+
+    def test_non_intraday_refresh_status_cannot_have_green_opening_preflight(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "closed_review",
+            "required_refresh_layers": ["full_market"],
+            "required_stale_layers": [],
+            "allow_strong_long": False,
+            "price_status_summary": {"status": "正常"},
+            "refresh_operation_summary": {"severity": "ok", "message": "休市復盤模式。"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "休市復盤模式",
+                "next_action": {"label": "查看復盤"},
+                "watch_readiness": "僅供復盤或開盤前觀察",
+                "refresh_plan": [],
+                "opening_preflight": self._opening_preflight("green", "可進入盤中追蹤"),
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("non-intraday opening preflight is not green", failed)
+
     def test_blocked_operational_health_must_block_strong_buy(self):
         payload = {
             "api_status": "ok",
@@ -346,6 +446,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
                 "next_action": {"label": "先修資料"},
                 "watch_readiness": "暫不適合進場判斷",
                 "refresh_plan": ["/refresh_watchlist"],
+                "opening_preflight": self._opening_preflight("red", "暫停使用即時訊號"),
             },
         }
 

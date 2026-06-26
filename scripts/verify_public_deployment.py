@@ -206,6 +206,11 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             isinstance(health.get("refresh_plan"), list) if isinstance(health, dict) else False,
             f"refresh_plan={health.get('refresh_plan') if isinstance(health, dict) else '-'}",
         ),
+        Check(
+            "operational health has opening preflight",
+            _opening_preflight_valid(health.get("opening_preflight") if isinstance(health, dict) else None),
+            _opening_preflight_detail(health.get("opening_preflight") if isinstance(health, dict) else None),
+        ),
     ]
     if health_status == "blocked":
         checks.append(
@@ -232,11 +237,19 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             )
         )
     if mode != "intraday":
+        preflight = health.get("opening_preflight") if isinstance(health, dict) else {}
         checks.append(
             Check(
                 "non-intraday blocks strong buy",
                 not allow_strong,
                 f"mode={mode or '-'} allow_strong_long={allow_strong}",
+            )
+        )
+        checks.append(
+            Check(
+                "non-intraday opening preflight is not green",
+                not isinstance(preflight, dict) or preflight.get("light") != "green",
+                _opening_preflight_detail(preflight),
             )
         )
     return checks
@@ -293,6 +306,11 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
             isinstance(payload.get("decision_checklist"), list) and bool(payload.get("decision_checklist")),
             f"decision_checklist={payload.get('decision_checklist') if isinstance(payload.get('decision_checklist'), list) else '-'}",
         ),
+        Check(
+            "health has opening preflight",
+            _opening_preflight_valid(payload.get("opening_preflight")),
+            _opening_preflight_detail(payload.get("opening_preflight")),
+        ),
         Check("health includes market mode", bool(payload.get("market_mode")), f"market_mode={payload.get('market_mode') or '-'}"),
         Check("health includes price summary", bool(price), f"price_status={price.get('status', '-') if isinstance(price, dict) else '-'}"),
         Check(
@@ -302,6 +320,7 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
         ),
     ]
     if status == "blocked":
+        preflight = payload.get("opening_preflight")
         checks.append(
             Check(
                 "blocked health blocks strong buy",
@@ -309,7 +328,44 @@ def validate_health_payload(payload: dict[str, Any]) -> list[Check]:
                 f"status={status} can_show_strong_long={bool(payload.get('can_show_strong_long'))}",
             )
         )
+        checks.append(
+            Check(
+                "blocked health has red preflight",
+                isinstance(preflight, dict) and preflight.get("light") == "red",
+                _opening_preflight_detail(preflight),
+            )
+        )
+    mode = str(payload.get("market_mode") or "")
+    if mode and mode != "intraday":
+        preflight = payload.get("opening_preflight")
+        checks.append(
+            Check(
+                "non-intraday health preflight is not green",
+                not isinstance(preflight, dict) or preflight.get("light") != "green",
+                _opening_preflight_detail(preflight),
+            )
+        )
     return checks
+
+
+def _opening_preflight_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return (
+        str(value.get("light") or "") in {"green", "yellow", "red"}
+        and bool(value.get("label"))
+        and bool(value.get("reason"))
+        and bool(value.get("next_action"))
+    )
+
+
+def _opening_preflight_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "opening_preflight=-"
+    return (
+        f"light={value.get('light') or '-'} label={value.get('label') or '-'} "
+        f"reason={value.get('reason') or '-'} next_action={value.get('next_action') or '-'}"
+    )
 
 
 def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:
