@@ -8,6 +8,7 @@ from scripts.verify_public_deployment import (
     validate_dashboard_html,
     validate_health_payload,
     validate_liveness_payload,
+    validate_operator_runbook_payload,
     validate_readiness_payload,
     validate_refresh_status,
     validate_system_version,
@@ -238,6 +239,41 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("health has watch readiness", failed)
+
+    def test_operator_runbook_payload_requires_user_action_fields(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "先看強烈買多，再確認進場雷達",
+            "now_steps": ["先看強烈買多候選"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_operator_runbook_payload_fails_without_first_action(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "",
+            "now_steps": ["先看強烈買多候選"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator runbook has first action", failed)
 
     def test_health_payload_requires_refresh_plan(self):
         payload = self._health_payload()

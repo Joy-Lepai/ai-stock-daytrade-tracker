@@ -400,6 +400,32 @@ def _operator_decision_detail(value: Any) -> str:
     )
 
 
+def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
+    return [
+        Check("operator runbook API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
+        Check("operator runbook has decision", bool(payload.get("decision")), f"decision={payload.get('decision') or '-'}"),
+        Check("operator runbook has headline", bool(payload.get("headline")), f"headline={payload.get('headline') or '-'}"),
+        Check("operator runbook has first action", bool(payload.get("first_action")), f"first_action={payload.get('first_action') or '-'}"),
+        Check("operator runbook has mode", bool(payload.get("mode") or payload.get("market_mode")), f"mode={payload.get('mode') or payload.get('market_mode') or '-'}"),
+        Check(
+            "operator runbook has now steps",
+            isinstance(payload.get("now_steps"), list) and bool(payload.get("now_steps")),
+            f"now_steps={payload.get('now_steps') if isinstance(payload.get('now_steps'), list) else '-'}",
+        ),
+        Check(
+            "operator runbook has checklist",
+            isinstance(payload.get("checklist"), list) and bool(payload.get("checklist")),
+            f"checklist={payload.get('checklist') if isinstance(payload.get('checklist'), list) else '-'}",
+        ),
+        Check(
+            "operator runbook has do-not-do list",
+            isinstance(payload.get("do_not_do"), list) and bool(payload.get("do_not_do")),
+            f"do_not_do={payload.get('do_not_do') if isinstance(payload.get('do_not_do'), list) else '-'}",
+        ),
+        Check("operator runbook includes data quality", bool(payload.get("data_quality_status")), f"data_quality={payload.get('data_quality_status') or '-'}"),
+    ]
+
+
 def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:
     return [
         Check("healthz HTTP ok", http_status == 200, f"http_status={http_status}"),
@@ -794,6 +820,11 @@ def main(argv: list[str] | None = None) -> int:
         failures += print_checks("Health endpoint", validate_health_payload(health_payload))
     except Exception as exc:
         failures += print_fetch_failure("Health endpoint", exc)
+    try:
+        runbook_payload = fetch_json(args.base_url, "/api/operator/runbook", timeout=args.timeout)
+        failures += print_checks("Operator runbook endpoint", validate_operator_runbook_payload(runbook_payload))
+    except Exception as exc:
+        failures += print_fetch_failure("Operator runbook endpoint", exc)
     try:
         healthz_status, healthz_payload = fetch_json_with_status(args.base_url, "/healthz", timeout=args.timeout)
         failures += print_checks("Liveness endpoint", validate_liveness_payload(healthz_status, healthz_payload))
