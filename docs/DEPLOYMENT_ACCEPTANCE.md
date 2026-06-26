@@ -33,6 +33,23 @@
 - `8150`：強勢但追價風險案例。
 - `3711`：大型權值 / 等待突破或練習觀察案例。
 
+### 若驗收被擋下
+
+`check_public_readiness.sh` 會先檢查「本機 → GitHub → Render → 公開站」版本鏈路。若卡住，不要先猜，也不要重跑模型，先看輸出的欄位：
+
+| 欄位 | 怎麼判讀 | 下一步 |
+| --- | --- | --- |
+| `local_differs_from_origin: true` | 本機 commit 還沒和 GitHub `origin/main` 對齊。 | 先在 GitHub Desktop 確認 repo 是本專案，再按 `Push origin`。 |
+| `ahead_count` 大於 0 | 本機有幾個 commit 尚未推上 GitHub。 | 先 Push，不要直接去 Render Deploy。 |
+| `public_reachable: false` | 公開站連不到，可能是 Render 休眠、部署中、DNS 或服務錯誤。 | 先打開公開站或 Render Logs，確認服務已啟動。 |
+| `public_status` 是 `unreachable` | 腳本讀不到公開 runtime commit。 | 先確認網域、Render runtime 與 `/api/system/version`。 |
+| `public_runtime` 與 `local_head` 不同 | Render 還在跑舊 commit。 | 若 GitHub 已推送，去 Render 按 `Manual Deploy → Deploy latest commit`。 |
+| `can_push: true` | 現在最該做的是 Push。 | 先 Push，成功後再部署 Render。 |
+| `can_deploy_render: true` | GitHub 已對齊，本機乾淨，可部署。 | 去 Render 按 `Deploy latest commit`。 |
+| `can_trust_public: false` | 公開站目前不可作為驗收或看盤依據。 | 先完成上方版本鏈路，不要依公開站訊號判斷。 |
+
+如果輸出有 `unpushed_commits`，代表腳本已列出尚未推送的 commit。先確認這些 commit 都是本次要上線的內容，再 Push。
+
 ## 3. 營運健康
 
 執行：
@@ -96,4 +113,3 @@ python3 scripts/check_operational_health.py --base-url https://stock.letslepai.c
 5. 量比是否不足。
 6. 是否被 high_risk 擋下。
 7. 是否只是沒有符合條件，而不是系統壞掉。
-

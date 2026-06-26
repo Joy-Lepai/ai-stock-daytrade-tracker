@@ -223,6 +223,8 @@ python3 scripts/verify_public_deployment.py \
 
 這個一鍵腳本會先執行 release readiness 檢查；如果本機 commit 還沒推到 GitHub，或公開站還沒部署到本機 HEAD，會先停止，避免拿舊版公開站做功能驗收。
 
+如果腳本顯示 `Release readiness blocked`，先不要重跑模型。請看 [部署後驗收清單](docs/DEPLOYMENT_ACCEPTANCE.md#若驗收被擋下) 的欄位判讀表，依序確認 `local_differs_from_origin`、`ahead_count`、`public_reachable`、`public_runtime` 與 `can_deploy_render`。這能快速分辨現在應該先 Push、先 Render Deploy，還是先檢查公開站服務。
+
 參數順序為 `公開網址 個股代號 預期commit`：
 
 ```bash
