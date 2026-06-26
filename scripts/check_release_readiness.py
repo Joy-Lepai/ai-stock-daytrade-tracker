@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import signal
 import subprocess
@@ -13,6 +14,7 @@ from typing import Any, Callable, Optional
 
 
 DEFAULT_BASE_URL = "https://stock.letslepai.com"
+DEFAULT_GIT_TIMEOUT_SECONDS = 12.0
 
 
 @dataclass(frozen=True)
@@ -37,13 +39,27 @@ class ReleaseReadinessError(RuntimeError):
     pass
 
 
-def git_output(args: list[str], *, runner: Callable[..., str] = subprocess.check_output) -> str:
+def git_output(args: list[str], *, runner: Callable[..., str] = subprocess.check_output, timeout: Optional[float] = None) -> str:
     try:
-        return runner(["git", *args], text=True, stderr=subprocess.DEVNULL).strip()
+        return runner(
+            ["git", *args],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout if timeout is not None else git_command_timeout(),
+        ).strip()
     except subprocess.CalledProcessError as exc:
         raise ReleaseReadinessError(describe_git_failure(args, exc)) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ReleaseReadinessError(describe_git_timeout(args, exc)) from exc
     except OSError as exc:
         raise ReleaseReadinessError(f"`git {' '.join(args)}` failed: {exc}") from exc
+
+
+def git_command_timeout() -> float:
+    try:
+        return max(float(os.getenv("STOCK_RELEASE_GIT_TIMEOUT_SECONDS", DEFAULT_GIT_TIMEOUT_SECONDS)), 1.0)
+    except (TypeError, ValueError):
+        return DEFAULT_GIT_TIMEOUT_SECONDS
 
 
 def describe_git_failure(args: list[str], exc: subprocess.CalledProcessError) -> str:
@@ -56,6 +72,12 @@ def describe_git_failure(args: list[str], exc: subprocess.CalledProcessError) ->
             reason = f"signal {-code}"
         return f"`{command}` failed: {reason}"
     return f"`{command}` failed: exit status {code}"
+
+
+def describe_git_timeout(args: list[str], exc: subprocess.TimeoutExpired) -> str:
+    command = "git " + " ".join(args)
+    timeout = exc.timeout if exc.timeout is not None else git_command_timeout()
+    return f"`{command}` timed out after {timeout:g}s; Git status may be scanning a large or locked worktree"
 
 
 def load_release_state(
@@ -201,12 +223,37 @@ def release_steps(state: ReleaseState) -> list[str]:
     ]
 
 
+def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> dict[str, Any]:
+    failures = [check for check in checks if not check.ok]
+    return {
+        "status": "ok" if not failures else "blocked",
+        "local_head": state.head,
+        "origin_main": state.origin,
+        "ahead_count": state.ahead_count,
+        "worktree_clean": not state.dirty,
+        "status_line": state.status_line,
+        "public_runtime": state.public_runtime,
+        "public_tracker": state.public_tracker,
+        "checks": [
+            {"name": check.name, "ok": check.ok, "detail": check.detail}
+            for check in checks
+        ],
+        "failed_checks": [check.name for check in failures],
+        "next_action": recommended_next_action(state),
+        "release_steps": release_steps(state),
+        "can_push": (not state.dirty) and (state.head != state.origin or state.ahead_count > 0),
+        "can_deploy_render": (not state.dirty) and state.head == state.origin and state.ahead_count == 0,
+        "can_trust_public": not failures,
+    }
+
+
 def short(value: str, length: int = 12) -> str:
     return str(value or "-")[:length]
 
 
 def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int:
     failures = 0
+    payload = release_report_payload(state, checks)
     print("Release readiness")
     print(f"local HEAD:   {state.head}")
     print(f"origin/main:  {state.origin}")
@@ -220,10 +267,26 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
         failures += 0 if check.ok else 1
     print()
     print("Next action:", recommended_next_action(state))
+    print("Operator gate:")
+    print(f"- can_push: {'yes' if payload['can_push'] else 'no'}")
+    print(f"- can_deploy_render: {'yes' if payload['can_deploy_render'] else 'no'}")
+    print(f"- can_trust_public: {'yes' if payload['can_trust_public'] else 'no'}")
     print("Release steps:")
     for index, item in enumerate(release_steps(state), start=1):
         print(f"{index}. {item}")
     return failures
+
+
+def load_failure_payload(error: Exception) -> dict[str, Any]:
+    return {
+        "status": "blocked",
+        "failed_checks": ["local Git state readable"],
+        "error": str(error),
+        "next_action": "無法讀取本機 Git 狀態；請先確認此目錄是正確 repo，或重跑 git status 後再驗收。",
+        "can_push": False,
+        "can_deploy_render": False,
+        "can_trust_public": False,
+    }
 
 
 def print_load_failure(error: Exception) -> int:
@@ -231,7 +294,7 @@ def print_load_failure(error: Exception) -> int:
     print()
     print(f"[FAIL] local Git state readable: {error}")
     print()
-    print("Next action: 無法讀取本機 Git 狀態；請先確認此目錄是正確 repo，或重跑 git status 後再驗收。")
+    print("Next action:", load_failure_payload(error)["next_action"])
     return 1
 
 
@@ -240,12 +303,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--no-public", action="store_true", help="Skip public /api/system/version probe.")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable readiness JSON.")
     args = parser.parse_args(argv)
     try:
         state = load_release_state(base_url=args.base_url, timeout=args.timeout, fetch_public=not args.no_public)
     except ReleaseReadinessError as exc:
+        if args.json:
+            print(json.dumps(load_failure_payload(exc), ensure_ascii=False, indent=2))
+            return 1
         return print_load_failure(exc)
     checks = evaluate_release_state(state)
+    if args.json:
+        print(json.dumps(release_report_payload(state, checks), ensure_ascii=False, indent=2))
+        return 1 if any(not check.ok for check in checks) else 0
     return 1 if print_release_report(state, checks) else 0
 
 

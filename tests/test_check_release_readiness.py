@@ -7,6 +7,7 @@ from scripts.check_release_readiness import (
     ReleaseState,
     commit_matches,
     describe_git_failure,
+    describe_git_timeout,
     evaluate_release_state,
     git_output,
     is_worktree_dirty,
@@ -14,6 +15,7 @@ from scripts.check_release_readiness import (
     main,
     parse_ahead_count,
     recommended_next_action,
+    release_report_payload,
     release_steps,
 )
 
@@ -98,6 +100,27 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn("一致", recommended_next_action(state))
         self.assertIn("verify_public_deployment.py", " ".join(release_steps(state)))
 
+    def test_release_report_payload_exposes_operator_gates(self):
+        state = ReleaseState(
+            head="local123456",
+            origin="origin999999",
+            ahead_count=3,
+            dirty=False,
+            status_line="## main...origin/main [different]",
+            public_runtime="origin999999",
+            public_tracker="origin999999",
+        )
+
+        payload = release_report_payload(state, evaluate_release_state(state))
+
+        self.assertEqual(payload["status"], "blocked")
+        self.assertEqual(payload["ahead_count"], 3)
+        self.assertTrue(payload["can_push"])
+        self.assertFalse(payload["can_deploy_render"])
+        self.assertFalse(payload["can_trust_public"])
+        self.assertIn("local pushed to origin/main", payload["failed_checks"])
+        self.assertIn("Repository → Push", payload["next_action"])
+
     def test_release_steps_detect_tracker_mismatch(self):
         state = ReleaseState(
             head="abcdef123456",
@@ -120,6 +143,21 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         error = subprocess.CalledProcessError(-10, ["git", "status", "-sb"])
 
         self.assertIn("SIGBUS", describe_git_failure(["status", "-sb"], error))
+
+    def test_git_timeout_describes_large_or_locked_worktree(self):
+        error = subprocess.TimeoutExpired(["git", "status", "-sb"], timeout=7)
+
+        message = describe_git_timeout(["status", "-sb"], error)
+
+        self.assertIn("timed out after 7s", message)
+        self.assertIn("large or locked worktree", message)
+
+    def test_git_output_wraps_runner_timeout(self):
+        def timeout_runner(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout"))
+
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            git_output(["status", "-sb"], runner=timeout_runner, timeout=1)
 
     def test_git_output_wraps_runner_failure(self):
         def failing_runner(*args, **kwargs):
@@ -147,6 +185,57 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("local Git state readable", stream.getvalue())
         self.assertIn("Next action", stream.getvalue())
+        self.assertNotIn("Traceback", stream.getvalue())
+
+    def test_main_json_outputs_machine_readable_payload(self):
+        import scripts.check_release_readiness as module
+
+        original = module.load_release_state
+
+        def fake_load_release_state(**kwargs):
+            return ReleaseState(
+                head="abcdef123456",
+                origin="abcdef123456",
+                ahead_count=0,
+                dirty=False,
+                status_line="## main...origin/main",
+                public_runtime="abcdef123456",
+                public_tracker="abcdef123456",
+            )
+
+        module.load_release_state = fake_load_release_state
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = main(["--json"])
+        finally:
+            module.load_release_state = original
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn('"status": "ok"', stream.getvalue())
+        self.assertIn('"can_deploy_render": true', stream.getvalue())
+        self.assertIn('"can_trust_public": true', stream.getvalue())
+
+    def test_main_json_outputs_machine_readable_failure(self):
+        import scripts.check_release_readiness as module
+
+        original = module.git_output
+
+        def failing_git_output(args, **kwargs):
+            raise module.ReleaseReadinessError("`git status -sb` timed out after 2s")
+
+        module.git_output = failing_git_output
+        stream = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(stream):
+                exit_code = main(["--no-public", "--json"])
+        finally:
+            module.git_output = original
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn('"status": "blocked"', stream.getvalue())
+        self.assertIn('"local Git state readable"', stream.getvalue())
+        self.assertIn('"can_deploy_render": false', stream.getvalue())
         self.assertNotIn("Traceback", stream.getvalue())
 
 
