@@ -55,16 +55,67 @@ def post_json(base_url: str, path: str, *, timeout: float = 240.0) -> dict[str, 
 
 def fetch_health_payload(base_url: str, *, timeout: float = 12.0) -> dict[str, Any]:
     try:
-        payload = fetch_json(base_url, "/api/health", timeout=timeout)
-        payload["_health_source"] = "/api/health"
+        payload = fetch_json(base_url, "/api/operator/runbook", timeout=timeout)
+        payload["_health_source"] = "/api/operator/runbook"
         return payload
-    except Exception as health_error:
-        payload = fetch_json(base_url, "/api/refresh/status", timeout=timeout)
-        payload["_health_source"] = f"/api/refresh/status fallback after /api/health failed: {health_error}"
-        return payload
+    except Exception as runbook_error:
+        try:
+            payload = fetch_json(base_url, "/api/health", timeout=timeout)
+            payload["_health_source"] = f"/api/health fallback after /api/operator/runbook failed: {runbook_error}"
+            return payload
+        except Exception as health_error:
+            payload = fetch_json(base_url, "/api/refresh/status", timeout=timeout)
+            payload["_health_source"] = (
+                "/api/refresh/status fallback after /api/operator/runbook and /api/health failed: "
+                f"{runbook_error}; {health_error}"
+            )
+            return payload
+
+
+def _is_runbook_payload(payload: dict[str, Any]) -> bool:
+    return payload.get("api_status") == "ok" and (
+        "now_steps" in payload or "first_action" in payload or "refresh_actions" in payload
+    )
 
 
 def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
+    if _is_runbook_payload(payload):
+        status = "blocked" if payload.get("blockers") else "ok" if payload.get("can_trade_now") else "warning"
+        return {
+            "status": status,
+            "summary": payload.get("headline") or payload.get("decision") or "",
+            "operator_decision": {
+                "decision": payload.get("decision") or "",
+                "headline": payload.get("headline") or "",
+                "reason": payload.get("watch_readiness_message") or "",
+                "first_action": payload.get("first_action") or "",
+                "can_trade_now": bool(payload.get("can_trade_now")),
+                "can_use_intraday_signals": bool(payload.get("can_use_intraday_signals")),
+                "can_trust_strong_buy": bool(payload.get("can_trust_strong_buy")),
+            },
+            "operator_briefing": {
+                "headline": payload.get("headline") or "",
+                "posture": payload.get("mode") or "",
+                "next_check": payload.get("first_action") or "",
+                "risk_gate": "只依資料可信、盤中且進場雷達通過的標的判斷。",
+            },
+            "watch_readiness": payload.get("watch_readiness") or "",
+            "watch_readiness_message": payload.get("watch_readiness_message") or "",
+            "operator_mode": payload.get("mode") or "",
+            "primary_focus": payload.get("first_action") or "",
+            "do_now": list(payload.get("now_steps") or []),
+            "do_not_do": list(payload.get("do_not_do") or []),
+            "decision_checklist": list(payload.get("checklist") or []),
+            "market_mode": payload.get("market_mode") or "",
+            "market_mode_label": payload.get("market_mode_label") or "",
+            "data_quality_status": payload.get("data_quality_status") or "",
+            "blockers": list(payload.get("blockers") or []),
+            "warnings": list(payload.get("warnings") or []),
+            "operator_steps": list(payload.get("now_steps") or []),
+            "next_action": _runbook_next_action(payload),
+            "refresh_plan": [str(item) for item in (payload.get("refresh_actions") or []) if str(item).startswith("/refresh")],
+            "deployment": dict(payload.get("deployment") or {}),
+        }
     health = payload.get("operational_health") if isinstance(payload.get("operational_health"), dict) else None
     if health is None and payload.get("status") in {"ok", "warning", "blocked"}:
         health = payload
@@ -129,7 +180,7 @@ def build_failure_json(error: Exception | str) -> dict[str, Any]:
     return {
         "status": "blocked",
         "exit_code": 1,
-        "summary": f"無法讀取 /api/health 或 /api/refresh/status：{message}",
+        "summary": f"無法讀取 /api/operator/runbook、/api/health 或 /api/refresh/status：{message}",
         "operator_briefing": {
             "headline": "健康檢查讀取失敗",
             "posture": "暫停進場判斷",
@@ -178,7 +229,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     mark = "PASS" if status == "ok" else "WARN" if status == "warning" else "FAIL"
     price = health.get("price_status_summary") if isinstance(health.get("price_status_summary"), dict) else {}
     lines = [
-        "Operational health",
+        "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
         f"watch_readiness: {_watch_readiness_label(status, health, payload)}",
         f"market_mode: {health.get('market_mode') or payload.get('market_mode') or '-'}",
@@ -292,7 +343,17 @@ def _next_action(payload: dict[str, Any], health: dict[str, Any]) -> dict[str, A
     return {"label": "-", "endpoint": ""}
 
 
+def _runbook_next_action(payload: dict[str, Any]) -> dict[str, Any]:
+    refresh_actions = [str(item) for item in (payload.get("refresh_actions") or []) if str(item).startswith("/refresh")]
+    first_action = str(payload.get("first_action") or "")
+    if refresh_actions:
+        return {"label": first_action or "執行建議刷新", "endpoint": refresh_actions[0]}
+    return {"label": first_action or "-", "endpoint": ""}
+
+
 def refresh_plan(payload: dict[str, Any], health: Optional[dict[str, Any]] = None) -> list[str]:
+    if _is_runbook_payload(payload):
+        return [str(endpoint) for endpoint in (payload.get("refresh_actions") or []) if str(endpoint).startswith("/refresh")]
     health = health or payload.get("operational_health") or {}
     provided_plan = health.get("refresh_plan") if isinstance(health, dict) else None
     if isinstance(provided_plan, list):
@@ -341,7 +402,7 @@ def _layer_endpoint(layer: str) -> str:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Check dashboard operational readiness from /api/health.")
+    parser = argparse.ArgumentParser(description="Check dashboard operational readiness from /api/operator/runbook.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument(
@@ -358,8 +419,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.json:
             print(json.dumps(build_failure_json(exc), ensure_ascii=False, indent=2))
             return 1
-        print("Operational health")
-        print(f"[FAIL] 無法讀取 /api/health 或 /api/refresh/status：{exc}")
+        print("Operator runbook")
+        print(f"[FAIL] 無法讀取 /api/operator/runbook、/api/health 或 /api/refresh/status：{exc}")
         print("next_action: 確認網站是否啟動，或稍後重試。")
         return 1
     if args.json and args.apply_refresh_plan:

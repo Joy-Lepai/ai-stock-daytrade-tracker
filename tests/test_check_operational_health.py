@@ -57,6 +57,74 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("live=20", report)
         self.assertIn("/api/health", report)
 
+    def test_render_report_understands_operator_runbook_payload(self):
+        exit_code, report = script.render_report(
+            {
+                "api_status": "ok",
+                "mode": "盤中作戰模式",
+                "headline": "可以進入盤中追蹤",
+                "decision": "可盯盤",
+                "first_action": "先看強烈買多，再確認進場雷達",
+                "can_trade_now": True,
+                "can_use_intraday_signals": True,
+                "can_trust_strong_buy": True,
+                "data_quality_status": "正常",
+                "market_mode": "intraday",
+                "watch_readiness": "可正常看盤",
+                "watch_readiness_message": "仍需依停損確認",
+                "now_steps": ["先看強烈買多候選", "確認進場雷達", "檢查停損距離"],
+                "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
+                "do_not_do": ["不要追 high_risk"],
+                "refresh_actions": ["/refresh_watchlist"],
+                "_health_source": "/api/operator/runbook",
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Operator runbook", report)
+        self.assertIn("[PASS] 可以進入盤中追蹤", report)
+        self.assertIn("decision: 可盯盤", report)
+        self.assertIn("first_action: 先看強烈買多，再確認進場雷達", report)
+        self.assertIn("operator_steps:", report)
+        self.assertIn("1. 先看強烈買多候選", report)
+        self.assertIn("refresh_plan: /refresh_watchlist", report)
+        self.assertIn("/api/operator/runbook", report)
+
+    def test_build_json_report_understands_operator_runbook_payload(self):
+        report = script.build_json_report(
+            {
+                "api_status": "ok",
+                "mode": "盤中作戰模式",
+                "headline": "可以進入盤中追蹤",
+                "decision": "可盯盤",
+                "first_action": "先看強烈買多，再確認進場雷達",
+                "can_trade_now": True,
+                "can_use_intraday_signals": True,
+                "can_trust_strong_buy": True,
+                "data_quality_status": "正常",
+                "market_mode": "intraday",
+                "watch_readiness": "可正常看盤",
+                "watch_readiness_message": "仍需依停損確認",
+                "now_steps": ["先看強烈買多候選", "確認進場雷達"],
+                "checklist": ["是否站上 VWAP？"],
+                "do_not_do": ["不要追 high_risk"],
+                "refresh_actions": ["/refresh_watchlist"],
+                "_health_source": "/api/operator/runbook",
+            },
+            base_url="https://stock.letslepai.com",
+        )
+
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["source"], "/api/operator/runbook")
+        self.assertEqual(report["operator_decision"]["decision"], "可盯盤")
+        self.assertTrue(report["operator_decision"]["can_trade_now"])
+        self.assertEqual(report["do_now"], ["先看強烈買多候選", "確認進場雷達"])
+        self.assertEqual(report["decision_checklist"], ["是否站上 VWAP？"])
+        self.assertEqual(report["do_not_do"], ["不要追 high_risk"])
+        self.assertEqual(report["manual_endpoint"], "POST /refresh_watchlist")
+        self.assertEqual(report["refresh_plan"], ["/refresh_watchlist"])
+
     def test_render_report_returns_zero_for_warning(self):
         exit_code, report = script.render_report(
             {
@@ -388,12 +456,31 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(payload["apply_results"][0]["endpoint"], "/refresh_watchlist")
         self.assertEqual(payload["refreshed"]["status"], "ok")
 
-    def test_fetch_health_payload_prefers_health_endpoint(self):
+    def test_fetch_health_payload_prefers_operator_runbook_endpoint(self):
         calls = []
         original = script.fetch_json
 
         def fake_fetch(base_url, path, **kwargs):
             calls.append(path)
+            return {"api_status": "ok", "decision": "可盯盤", "now_steps": ["先看 dashboard"]}
+
+        script.fetch_json = fake_fetch
+        try:
+            payload = script.fetch_health_payload("https://example.test")
+        finally:
+            script.fetch_json = original
+
+        self.assertEqual(calls, ["/api/operator/runbook"])
+        self.assertEqual(payload["_health_source"], "/api/operator/runbook")
+
+    def test_fetch_health_payload_falls_back_to_health_endpoint(self):
+        calls = []
+        original = script.fetch_json
+
+        def fake_fetch(base_url, path, **kwargs):
+            calls.append(path)
+            if path == "/api/operator/runbook":
+                raise RuntimeError("404")
             return {"status": "ok", "summary": "ok", "next_action": {"label": "不用更新"}}
 
         script.fetch_json = fake_fetch
@@ -402,8 +489,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         finally:
             script.fetch_json = original
 
-        self.assertEqual(calls, ["/api/health"])
-        self.assertEqual(payload["_health_source"], "/api/health")
+        self.assertEqual(calls, ["/api/operator/runbook", "/api/health"])
+        self.assertIn("/api/health fallback", payload["_health_source"])
 
     def test_fetch_health_payload_falls_back_to_refresh_status(self):
         calls = []
@@ -411,7 +498,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
 
         def fake_fetch(base_url, path, **kwargs):
             calls.append(path)
-            if path == "/api/health":
+            if path in {"/api/operator/runbook", "/api/health"}:
                 raise RuntimeError("404")
             return {
                 "market_mode": "intraday",
@@ -429,7 +516,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         finally:
             script.fetch_json = original
 
-        self.assertEqual(calls, ["/api/health", "/api/refresh/status"])
+        self.assertEqual(calls, ["/api/operator/runbook", "/api/health", "/api/refresh/status"])
         self.assertIn("fallback", payload["_health_source"])
 
 
