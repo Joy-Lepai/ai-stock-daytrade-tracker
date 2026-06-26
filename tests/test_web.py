@@ -16,6 +16,7 @@ from stock_daytrade_system.web import (
     _scheduled_refresh_layers,
     _scheduled_tracker_interval,
     _tracker_html_needs_refresh,
+    _truthy_query_value,
     latest_tracker_file,
     render_accuracy_page,
     render_paper_dashboard_page,
@@ -173,6 +174,12 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["service"], "tw-daytrade-tracker")
         self.assertIn("generated_at", payload)
 
+    def test_truthy_query_value_accepts_explicit_live_flags(self):
+        for value in ("1", "true", "yes", "y", "on", " TRUE "):
+            self.assertTrue(_truthy_query_value(value))
+        for value in ("", "0", "false", "no", "snapshot"):
+            self.assertFalse(_truthy_query_value(value))
+
     def test_readiness_http_status_only_fails_when_blocked(self):
         self.assertEqual(readiness_http_status({"status": "ok"}), HTTPStatus.OK)
         self.assertEqual(readiness_http_status({"status": "warning"}), HTTPStatus.OK)
@@ -265,6 +272,10 @@ class WebTests(unittest.TestCase):
         self.assertIn("data-symbol=\"1301\"", html)
         self.assertIn("new URLSearchParams(window.location.search).get(\"symbol\")", html)
         self.assertIn("/api/tw/scan/symbol", html)
+        self.assertIn("快速查詢", html)
+        self.assertIn("即時重算", html)
+        self.assertIn("force_live", html)
+        self.assertIn("快照模式：未重新抓取即時行情", html)
         self.assertIn("/tw/advisor?symbol=", html)
         self.assertIn("買多", html)
         self.assertIn("看空", html)

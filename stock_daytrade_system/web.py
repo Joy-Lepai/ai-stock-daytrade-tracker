@@ -239,6 +239,12 @@ class StockWebHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/symbol/"):
             self._send_json(self._symbol_payload(path.removeprefix("/api/symbol/")))
             return
+        if path == "/api/tw/scan/symbol":
+            symbol = (query.get("symbol") or query.get("query") or [""])[0]
+            force_live = _truthy_query_value((query.get("force_live") or query.get("live") or [""])[0])
+            result = scan_tw_symbol_payload(PROJECT_ROOT, str(symbol), prefer_snapshot=not force_live)
+            self._send_json(result, HTTPStatus.OK if result.get("symbol") else HTTPStatus.BAD_REQUEST)
+            return
         if path == "/api/backtest":
             with connect(default_db_path(PROJECT_ROOT)) as conn:
                 self._send_json(backtest_summary(conn))
@@ -4775,6 +4781,10 @@ def _extract_style(html: str) -> str:
 
 def _session_cookie(token: str) -> str:
     return f"{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax"
+
+
+def _truthy_query_value(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
 def _escape(value: str) -> str:
