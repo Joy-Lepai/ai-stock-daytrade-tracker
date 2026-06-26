@@ -740,6 +740,7 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
         "兆豐金",
         "本系統僅供資料整理",
         "確認品質",
+        "不代表建議放空",
     ]
     forbidden_terms = LEGACY_MISLEADING_TERMS
     missing_markers = [marker for marker in required_markers if marker not in html]

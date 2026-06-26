@@ -873,7 +873,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
         強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
-        本系統僅供資料整理 確認品質
+        本系統僅供資料整理 確認品質 不代表建議放空
         """
 
         for legacy_word in ["買多推薦", "建議買多", "今日做多推薦"]:
@@ -896,7 +896,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         個股當沖作戰卡 輸入股票代號後 本系統不是報明牌
         強烈買多、買多、觀察、看空或資料不足 台積電 兆豐金
-        本系統僅供資料整理 確認品質
+        本系統僅供資料整理 確認品質 不代表建議放空
         new URLSearchParams(window.location.search).get("symbol")
         /api/tw/scan/symbol
         """

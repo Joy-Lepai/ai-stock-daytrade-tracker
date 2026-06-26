@@ -3459,7 +3459,7 @@ def tw_advisor_script() -> str:
         if (!dataUsable) return "先等資料恢復即時，再重新判斷。";
         if (state === "強烈買多") return "進入重點盯盤；仍要檢查停損距離與部位大小。";
         if (state === "買多") return "方向偏多，但需等待觸發或進場雷達確認。";
-        if (state === "看空") return "多方結構失效，暫不做多。";
+        if (state === "看空") return "多方結構失效，暫不做多；不代表建議放空。";
         if (nextStep && nextStep !== "等待條件確認。") return nextStep;
         return "只觀察，不提前進場。";
       };
@@ -4088,6 +4088,7 @@ def tw_advisor_script() -> str:
               ${metric("模式說明", escapeHtml(marketMode.review_mode_message || dataHealth.review_mode_message || safety.market_mode_message || "-"))}
               ${metric("資料符合模式", escapeHtml(yesNo(marketMode.is_data_current_for_mode ?? dataHealth.is_data_current_for_mode)))}
               ${metric("允許即時進場", escapeHtml(yesNo(marketMode.allow_intraday_signal)))}
+              ${metric("允許即時強烈買多", escapeHtml(yesNo(marketMode.allow_strong_long ?? dataHealth.can_show_strong_long)))}
               ${metric("是否今天資料", escapeHtml(yesNo(dataHealth.is_today_data)))}
               ${metric("是否盤中資料", escapeHtml(yesNo(dataHealth.is_intraday_data)))}
               ${metric("最後更新時間", escapeHtml(dataHealth.quote_time || display.quote_time || "-"))}
