@@ -61,7 +61,10 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
 
     allow_intraday_signal = bool(status_payload.get("allow_intraday_signal"))
     can_show_strong = bool(status_payload.get("can_show_any_strong_long"))
-    if front_category and _int(front_category.get("strong_buy_count")) <= 0:
+    if allow_intraday_signal and not front_category:
+        can_show_strong = False
+        warnings.append("尚未取得四分類摘要，不可信任強烈買多。")
+    elif front_category and _int(front_category.get("strong_buy_count")) <= 0:
         can_show_strong = False
     if not allow_intraday_signal and market_mode in REVIEW_MODES:
         warnings.append("目前不是盤中即時模式，只顯示復盤或下個交易日觀察。")

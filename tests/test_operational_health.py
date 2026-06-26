@@ -21,6 +21,14 @@ class OperationalHealthTests(unittest.TestCase):
             },
             "required_stale_layers": [],
             "stale_layers": [],
+            "front_category_summary": {
+                "counts": {"強烈買多": 1, "買多": 2, "觀察": 3, "看空": 4},
+                "strong_buy_count": 1,
+                "buy_count": 2,
+                "watch_count": 3,
+                "bearish_count": 4,
+                "no_signal_reason": "已有強烈買多候選，仍需逐檔確認進場雷達。",
+            },
             "refresh_guidance": {"severity": "ok"},
             "refresh_operation_summary": {"severity": "ok"},
         }
@@ -46,6 +54,34 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["operator_briefing"]["posture"], "盤中作戰")
         self.assertIn("強烈買多", health["operator_briefing"]["headline"])
         self.assertIn("VWAP", health["operator_briefing"]["next_check"])
+
+    def test_intraday_missing_front_category_summary_blocks_trusting_strong_buy(self):
+        payload = {
+            "market_mode": "intraday",
+            "market_mode_label": "盤中",
+            "allow_intraday_signal": True,
+            "allow_strong_long": True,
+            "can_show_any_strong_long": True,
+            "price_status_summary": {
+                "status": "正常",
+                "live_count": 40,
+                "delayed_count": 0,
+                "cached_count": 0,
+                "missing_count": 0,
+                "missing_ratio": 0,
+            },
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "refresh_guidance": {"severity": "ok"},
+            "refresh_operation_summary": {"severity": "ok"},
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["status"], "warning")
+        self.assertFalse(health["can_show_strong_long"])
+        self.assertFalse(health["operator_decision"]["can_trust_strong_buy"])
+        self.assertIn("四分類摘要", " ".join(health["warnings"]))
 
     def test_stale_required_layer_blocks_dashboard(self):
         payload = {
