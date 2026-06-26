@@ -3459,8 +3459,6 @@ def _display_trade_bias_label(entry_status: str, value: str, label: str) -> str:
         return "進場雷達通過"
     if label in {"強烈" + "看漲", "看漲"}:
         return _safe_bullish_label(label)
-    if value == "long" and (label == "買多" or (label.startswith("做多") and label.endswith("確認"))):
-        return "進場雷達通過"
     return label or {"long": "買多", "short": "賣空", "watch": "觀察"}.get(value, "觀察")
 
 
