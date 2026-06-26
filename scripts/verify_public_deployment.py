@@ -13,6 +13,15 @@ from typing import Any
 
 
 DEFAULT_BASE_URL = "https://stock.letslepai.com"
+LEGACY_MISLEADING_TERMS = [
+    "強烈看漲",
+    "做多確認",
+    "買多推薦",
+    "建議買多",
+    "今日做多推薦",
+    "可執行做多",
+    "強勢做多觀察",
+]
 
 
 @dataclass(frozen=True)
@@ -318,11 +327,7 @@ def validate_dashboard_html(html: str) -> list[Check]:
         "刷新順序",
     ]
     forbidden_terms = [
-        "強烈看漲",
-        "做多確認",
-        "買多推薦",
-        "可執行做多",
-        "強勢做多觀察",
+        *LEGACY_MISLEADING_TERMS,
         "舊版參考：今日看漲焦點",
         "舊版參考：系統自動選股",
     ]
@@ -415,13 +420,7 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
         "兆豐金",
         "本系統僅供資料整理",
     ]
-    forbidden_terms = [
-        "強烈看漲",
-        "做多確認",
-        "買多推薦",
-        "可執行做多",
-        "強勢做多觀察",
-    ]
+    forbidden_terms = LEGACY_MISLEADING_TERMS
     missing_markers = [marker for marker in required_markers if marker not in html]
     found_forbidden = [term for term in forbidden_terms if term in html]
     checks = [
@@ -478,7 +477,7 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
     radar = payload.get("entry_radar_summary") or {}
     health = payload.get("data_health") or {}
     market_mode = payload.get("market_mode") or {}
-    forbidden_categories = {"強烈看漲", "做多確認", "買多推薦", "可執行做多", "強勢做多觀察"}
+    forbidden_categories = set(LEGACY_MISLEADING_TERMS)
     category = str(front_trade.get("category") or decision_card.get("final_decision") or "")
     checks = [
         Check("advisor scan returned symbol", bool(symbol), f"symbol={symbol or '-'}"),

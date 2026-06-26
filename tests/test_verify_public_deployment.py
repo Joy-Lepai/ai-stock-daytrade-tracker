@@ -330,10 +330,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
         """
 
-        checks = validate_dashboard_html(required_html + " 做多確認")
+        for legacy_word in ["做多確認", "建議買多", "今日做多推薦"]:
+            with self.subTest(legacy_word=legacy_word):
+                checks = validate_dashboard_html(required_html + f" {legacy_word}")
 
-        failed = [item.name for item in checks if not item.ok]
-        self.assertIn("dashboard has no legacy misleading wording", failed)
+                failed = [item.name for item in checks if not item.ok]
+                self.assertIn("dashboard has no legacy misleading wording", failed)
 
         checks = validate_dashboard_html(required_html)
         self.assertTrue(all(item.ok for item in checks), checks)
@@ -386,10 +388,12 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         本系統僅供資料整理
         """
 
-        checks = validate_tw_advisor_html(required_html + " 買多推薦")
+        for legacy_word in ["買多推薦", "建議買多", "今日做多推薦"]:
+            with self.subTest(legacy_word=legacy_word):
+                checks = validate_tw_advisor_html(required_html + f" {legacy_word}")
 
-        failed = [item.name for item in checks if not item.ok]
-        self.assertIn("advisor has no legacy misleading wording", failed)
+                failed = [item.name for item in checks if not item.ok]
+                self.assertIn("advisor has no legacy misleading wording", failed)
 
         checks = validate_tw_advisor_html(required_html)
         self.assertTrue(all(item.ok for item in checks), checks)
