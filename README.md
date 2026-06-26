@@ -293,9 +293,10 @@ Fugle 基本用戶即時行情 WebSocket 最多 5 檔訂閱。本系統不會拿
 python3 scripts/check_operational_health.py --base-url https://stock.letslepai.com
 ```
 
-這個指令會優先讀輕量 `/api/health`；若公開站尚未部署新端點，會 fallback 到 `/api/refresh/status`，並整理成：
+這個指令會優先讀 `/api/operator/runbook`；若公開站尚未部署新端點，會 fallback 到 `/api/health`，最後才 fallback 到 `/api/refresh/status`，並整理成：
 
 - 目前是可用、警告，還是阻擋狀態
+- 作戰手冊網址，例如 `https://stock.letslepai.com/operator`
 - 目前作戰模式：盤中作戰、盤中保守、開盤前準備、復盤準備，或資料修復
 - `operator_briefing`：一眼可讀的作戰簡報，包含 headline、看盤姿態、下一個檢查點與風控閘門
 - 現在要做什麼、不要做什麼，以及進場前檢查清單

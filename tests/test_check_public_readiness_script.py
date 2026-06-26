@@ -20,6 +20,15 @@ class CheckPublicReadinessScriptTests(unittest.TestCase):
         self.assertIn('if [[ "$SKIP_RELEASE_READINESS" != "1" ]]', script)
 
 
+class OperationalRunbookDocsTests(unittest.TestCase):
+    def test_readme_documents_operator_runbook_health_entrypoint(self):
+        readme = (ROOT / "README.md").read_text()
+
+        self.assertIn("優先讀 `/api/operator/runbook`", readme)
+        self.assertIn("https://stock.letslepai.com/operator", readme)
+        self.assertIn("fallback 到 `/api/health`", readme)
+
+
 class RunOpenCheckScriptTests(unittest.TestCase):
     def test_open_check_script_runs_release_and_operational_gates_first(self):
         script = (ROOT / "scripts" / "run_open_check.sh").read_text()
