@@ -587,7 +587,7 @@ def render_tracker_html(
     {_timeframe_gap_report_panel(long_summary)}
     <h2>明日續強候選股</h2>
     <div class="table-wrap">{_tomorrow_continuation_candidates(long_summary)}</div>
-    <h2>明日買多觀察池</h2>
+    <h2>明日觀察池</h2>
     <div class="table-wrap">{_tomorrow_long_watch_pool(long_summary)}</div>
     <h2>今日異動股掃描</h2>
     <div class="table-wrap">{_momentum_scan_table(long_summary)}</div>
@@ -1158,9 +1158,9 @@ def _decision_overview_section_copy(mode: str) -> tuple[str, str, str, str]:
         )
     return (
         "最接近強烈買多 5 檔",
-        "買多觀察池 10 檔",
+        "等待確認池 10 檔",
         "目前沒有接近強烈買多的標的。",
-        "目前沒有買多觀察池標的。",
+        "目前沒有等待確認標的。",
     )
 
 
@@ -2372,7 +2372,7 @@ def _tomorrow_long_watch_pool(summary: Optional[LongModelSummary]) -> str:
     pool = _tomorrow_pool_items(items)
     if not pool:
         return (
-            "<table><tbody><tr><td>目前沒有足夠資料建立明日買多觀察池。"
+            "<table><tbody><tr><td>目前沒有足夠資料建立明日觀察池。"
             "明天開盤後請先等待 VWAP、量比與突破條件確認。</td></tr></tbody></table>"
         )
     priority = sum(1 for item in pool if _tomorrow_pool_status(item)[0] == "明日優先觀察")
@@ -2429,7 +2429,7 @@ def _tomorrow_continuation_candidates(summary: Optional[LongModelSummary]) -> st
     if not candidates:
         return (
             "<table><tbody><tr><td>目前沒有符合「明日續強候選」條件的標的；"
-            "可改看明日買多觀察池，明天開盤後再確認 VWAP、量比與突破。</td></tr></tbody></table>"
+            "可改看明日觀察池，明天開盤後再確認 VWAP、量比與突破。</td></tr></tbody></table>"
         )
     above_vwap_count = sum(1 for item in candidates if bool(item.get("above_vwap")))
     high_turnover_count = sum(1 for item in candidates if _is_high_turnover_rank(item))
