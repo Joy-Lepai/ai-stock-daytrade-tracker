@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-OPERATIONAL_HEALTH_VERSION = "operational_health_v4_operator_mode_2026-06-26"
+OPERATIONAL_HEALTH_VERSION = "operational_health_v5_front_category_triage_2026-06-26"
 
 BLOCKING_PRICE_STATUSES = {"嚴重缺漏", "資料異常"}
 INTRADAY_MODES = {"intraday"}
@@ -14,6 +14,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     """Turn low-level refresh/data status into an operator-friendly readiness report."""
     market_mode = str(status_payload.get("market_mode") or "unknown")
     price_status = _as_dict(status_payload.get("price_status_summary"))
+    front_category = _as_dict(status_payload.get("front_category_summary"))
     refresh_guidance = _as_dict(status_payload.get("refresh_guidance"))
     refresh_summary = _as_dict(status_payload.get("refresh_operation_summary"))
     required_stale_layers = _list(status_payload.get("required_stale_layers"))
@@ -59,11 +60,18 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         warnings.append("有非必要刷新層過期：" + "、".join(_layer_label(layer) for layer in stale_layers))
 
     allow_intraday_signal = bool(status_payload.get("allow_intraday_signal"))
-    can_show_strong = bool(status_payload.get("can_show_any_strong_long") or status_payload.get("allow_strong_long"))
+    can_show_strong = bool(status_payload.get("can_show_any_strong_long"))
+    if front_category and _int(front_category.get("strong_buy_count")) <= 0:
+        can_show_strong = False
     if not allow_intraday_signal and market_mode in REVIEW_MODES:
         warnings.append("目前不是盤中即時模式，只顯示復盤或下個交易日觀察。")
     elif allow_intraday_signal and not can_show_strong:
-        warnings.append(str(status_payload.get("reason_if_blocked") or "目前沒有可顯示強烈買多的即時訊號。"))
+        no_signal_reason = str(front_category.get("no_signal_reason") or "").strip()
+        warnings.append(str(status_payload.get("reason_if_blocked") or no_signal_reason or "目前沒有可顯示強烈買多的即時訊號。"))
+    elif allow_intraday_signal and _int(front_category.get("strong_buy_count")) <= 0:
+        no_signal_reason = str(front_category.get("no_signal_reason") or "").strip()
+        if no_signal_reason:
+            warnings.append(no_signal_reason)
 
     status = "blocked" if blockers else "warning" if warnings else "ok"
     next_action = _next_action(status, refresh_guidance, required_stale_layers, market_mode)
@@ -139,6 +147,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "market_mode": market_mode,
         "market_mode_label": status_payload.get("market_mode_label") or "",
         "data_quality_status": price_label or "未知",
+        "front_category_summary": front_category,
         "live_count": live_count,
         "delayed_count": delayed_count,
         "cached_count": cached_count,

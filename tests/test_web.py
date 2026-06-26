@@ -226,6 +226,69 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
         self.assertNotIn("price_status_summary", payload)
 
+    def test_operator_runbook_includes_front_category_no_signal_triage(self):
+        refresh_payload = {
+            "generated_at": "2026-06-26T09:05:00+08:00",
+            "market_mode": "intraday",
+            "market_mode_label": "盤中",
+            "allow_intraday_signal": True,
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "price_status_summary": {"status": "正常", "live_count": 40},
+            "front_category_summary": {
+                "counts": {"強烈買多": 0, "買多": 0, "觀察": 8, "看空": 32},
+                "strong_buy_count": 0,
+                "buy_count": 0,
+                "watch_count": 8,
+                "bearish_count": 32,
+                "no_signal_reason": "看空比例偏高，這不是做空建議；先查資料模式、VWAP、價格狀態與四分類原因診斷。",
+            },
+            "refresh_guidance": {"severity": "ok"},
+            "operational_health": {
+                "status": "warning",
+                "summary": "看空比例偏高。",
+                "opening_preflight": {"light": "yellow", "label": "等待訊號", "can_open_dashboard": True, "can_trust_strong_buy": False},
+                "operator_decision": {
+                    "decision": "等待",
+                    "headline": "資料可用，但現在等訊號",
+                    "first_action": "等待 VWAP、量比、突破或雷達轉強",
+                    "can_trade_now": False,
+                    "can_use_intraday_signals": True,
+                    "can_trust_strong_buy": False,
+                },
+                "operator_mode": "盤中作戰模式",
+                "front_category_summary": {
+                    "counts": {"強烈買多": 0, "買多": 0, "觀察": 8, "看空": 32},
+                    "strong_buy_count": 0,
+                    "buy_count": 0,
+                    "watch_count": 8,
+                    "bearish_count": 32,
+                    "no_signal_reason": "看空比例偏高，這不是做空建議；先查資料模式、VWAP、價格狀態與四分類原因診斷。",
+                },
+                "do_now": ["先看四分類原因診斷"],
+                "do_not_do": ["不要把看空當作做空建議"],
+                "decision_checklist": ["是否站上 VWAP？"],
+                "watch_readiness": "可看但需保守",
+                "operator_steps": ["先看四分類原因診斷"],
+                "refresh_plan": [],
+                "next_action": {"label": "不需手動更新"},
+                "can_use_dashboard": True,
+                "can_show_strong_long": False,
+                "data_quality_status": "正常",
+            },
+        }
+        system_payload = {
+            "runtime": {"commit": "abc123"},
+            "tracker_html": {"commit": "abc123"},
+            "consistency": {"runtime_matches_tracker": True, "is_ready": True, "warnings": []},
+        }
+
+        payload = build_operator_runbook_payload(refresh_payload, system_payload)
+
+        triage = " ".join(payload["no_signal_triage"])
+        self.assertIn("強烈買多 0 檔、買多 0 檔、觀察 8 檔、看空 32 檔", triage)
+        self.assertIn("這不是做空建議", triage)
+
     def test_operator_page_renders_user_action_runbook(self):
         html = render_operator_page(
             {

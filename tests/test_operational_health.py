@@ -237,6 +237,38 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertFalse(health["can_use_dashboard"])
         self.assertIn("嚴重缺漏", " ".join(health["blockers"]))
 
+    def test_intraday_no_strong_buy_adds_front_category_warning(self):
+        payload = {
+            "market_mode": "intraday",
+            "allow_intraday_signal": True,
+            "allow_strong_long": True,
+            "can_show_any_strong_long": True,
+            "price_status_summary": {
+                "status": "正常",
+                "live_count": 40,
+                "missing_ratio": 0,
+            },
+            "front_category_summary": {
+                "strong_buy_count": 0,
+                "buy_count": 0,
+                "watch_count": 8,
+                "bearish_count": 32,
+                "bearish_ratio": 80,
+                "no_signal_reason": "看空比例偏高，這不是做空建議；先查資料模式、VWAP、價格狀態與四分類原因診斷。",
+            },
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "refresh_guidance": {"severity": "ok"},
+            "refresh_operation_summary": {"severity": "ok"},
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["status"], "warning")
+        self.assertEqual(health["front_category_summary"]["bearish_count"], 32)
+        self.assertIn("這不是做空建議", " ".join(health["warnings"]))
+        self.assertFalse(health["can_show_strong_long"])
+
 
 if __name__ == "__main__":
     unittest.main()

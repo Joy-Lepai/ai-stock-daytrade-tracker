@@ -22,6 +22,7 @@ from stock_daytrade_system.db import (
     update_backtests,
     upsert_refresh_state,
 )
+from stock_daytrade_system.frontend_language import front_trade_counts
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
@@ -124,6 +125,7 @@ class RefreshCoordinator:
             data_meta = _latest_data_meta(conn)
             inferred_layers = _latest_layer_data_meta(conn)
             price_status = _price_status_summary(conn, now=now)
+            front_category_items = _latest_front_category_items(conn)
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
             layer = row["layer"]
@@ -153,6 +155,26 @@ class RefreshCoordinator:
             market_mode=market_mode.to_dict(),
             price_status=price_status,
             required_stale_layers=required_stale_layers,
+        )
+        front_category_summary = _front_category_summary(
+            front_category_items,
+            market_mode=market_mode.mode,
+            data_today=bool(market_mode.is_data_current_for_mode),
+            intraday=bool(market_mode.allow_intraday_signal),
+            stale=market_mode.mode == "stale_data",
+            allow_strong_long=strong_long_allowed,
+        )
+        can_show_any_strong_long = bool(
+            strong_long_allowed and int(front_category_summary.get("strong_buy_count") or 0) > 0
+        )
+        strong_long_block_reason = (
+            ""
+            if can_show_any_strong_long
+            else (
+                _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status)
+                if not strong_long_allowed
+                else str(front_category_summary.get("no_signal_reason") or "目前沒有可顯示強烈買多的即時訊號。")
+            )
         )
         operation_summary = _refresh_operation_summary(
             by_layer,
@@ -189,6 +211,7 @@ class RefreshCoordinator:
             "deployment_status": deployment_status(self.project_root),
             "signal_guard_version": SIGNAL_GUARD_VERSION,
             "price_status_summary": price_status,
+            "front_category_summary": front_category_summary,
             "live_count": price_status["live_count"],
             "delayed_count": price_status["delayed_count"],
             "cached_count": price_status["cached_count"],
@@ -204,10 +227,10 @@ class RefreshCoordinator:
             "any_layer_stale": any_layer_stale,
             "any_stale": any_required_stale,
             "refresh_guidance": refresh_guidance,
-            "can_show_any_strong_long": strong_long_allowed,
+            "can_show_any_strong_long": can_show_any_strong_long,
             "allow_strong_long": strong_long_allowed,
-            "reason_if_blocked": "" if strong_long_allowed else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
-            "strong_long_block_reason": "" if strong_long_allowed else _strong_long_block_reason(by_layer, market_mode.to_dict(), price_status),
+            "reason_if_blocked": strong_long_block_reason,
+            "strong_long_block_reason": strong_long_block_reason,
         }
         payload["operational_health"] = build_operational_health(payload)
         return payload
@@ -650,6 +673,107 @@ def _price_status_summary(conn, now: datetime) -> dict:
         "most_common_error": most_common_error,
         "data_source_status": status,
         "can_show_any_strong_long": counts["live"] > 0 and missing_ratio < 35,
+    }
+
+
+def _latest_front_category_items(conn) -> list[dict]:
+    captured_row = conn.execute("SELECT MAX(captured_at) AS captured_at FROM long_scores").fetchone()
+    captured_at = captured_row["captured_at"] if captured_row else None
+    if not captured_at:
+        return []
+    rows = conn.execute(
+        """
+        SELECT
+               ls.captured_at,
+               ls.date,
+               ls.symbol,
+               ls.bullish_score,
+               ls.risk_score,
+               ls.grade,
+               ls.confidence_score,
+               ls.confidence_level,
+               ls.conflicts,
+               ls.confidence_summary,
+               COALESCE(NULLIF(ls.adjusted_entry_status, ''), NULLIF(ls.original_entry_status, ''), r.entry_status, '') AS entry_status,
+               r.stop_loss,
+               r.target_price,
+               r.trigger_price,
+               s.name,
+               s.sector,
+               ds.change_pct,
+               ds.break_prev_high,
+               intr.last_price,
+               intr.vwap,
+               intr.above_vwap,
+               intr.volume_ratio
+        FROM long_scores ls
+        LEFT JOIN recommendations r
+          ON r.market = 'TW'
+         AND r.date = ls.date
+         AND r.symbol = ls.symbol
+        LEFT JOIN symbols s ON s.symbol = ls.symbol
+        LEFT JOIN daily_snapshots ds ON ds.date = ls.date AND ds.symbol = ls.symbol
+        LEFT JOIN intraday_snapshots intr ON intr.captured_at = ls.captured_at AND intr.symbol = ls.symbol
+        WHERE ls.captured_at = ?
+        ORDER BY
+          CASE ls.grade WHEN 'A' THEN 1 WHEN 'B+' THEN 2 WHEN 'B' THEN 3 WHEN 'C' THEN 4 ELSE 5 END,
+          ls.bullish_score DESC,
+          ls.risk_score ASC
+        LIMIT 240
+        """,
+        (captured_at,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _front_category_summary(
+    items: list[dict],
+    *,
+    market_mode: str,
+    data_today: bool,
+    intraday: bool,
+    stale: bool,
+    allow_strong_long: bool,
+) -> dict:
+    views_payload = front_trade_counts(
+        items,
+        data_today=data_today,
+        intraday=intraday,
+        stale=stale,
+        allow_strong_long=allow_strong_long,
+        market_mode=market_mode,
+    )
+    counts = dict(views_payload.get("counts") or {})
+    bearish = int(counts.get("看空", 0) or 0)
+    watch = int(counts.get("觀察", 0) or 0)
+    strong = int(counts.get("強烈買多", 0) or 0)
+    buy = int(counts.get("買多", 0) or 0)
+    data_missing = int(counts.get("資料不足", 0) or 0)
+    total = strong + buy + watch + bearish
+    bearish_ratio = round((bearish / total * 100) if total else 0.0, 2)
+    no_signal_reason = ""
+    if market_mode != "intraday":
+        no_signal_reason = "非盤中模式，強烈買多為 0 屬於正常安全規則。"
+    elif not intraday:
+        no_signal_reason = "目前不允許盤中訊號，先看資料模式與刷新層。"
+    elif strong <= 0 and buy <= 0 and bearish_ratio >= 60:
+        no_signal_reason = "看空比例偏高，這不是做空建議；先查資料模式、VWAP、價格狀態與四分類原因診斷。"
+    elif strong <= 0 and buy <= 0:
+        no_signal_reason = "目前沒有強烈買多或買多，先查 VWAP、量比、突破、風險與信心分數卡關。"
+    elif strong <= 0:
+        no_signal_reason = "目前沒有強烈買多，先看買多清單的下一步觸發條件。"
+    else:
+        no_signal_reason = "已有強烈買多候選，仍需逐檔確認進場雷達與停損距離。"
+    return {
+        "counts": counts,
+        "total": total,
+        "strong_buy_count": strong,
+        "buy_count": buy,
+        "watch_count": watch,
+        "bearish_count": bearish,
+        "data_missing_count": data_missing,
+        "bearish_ratio": bearish_ratio,
+        "no_signal_reason": no_signal_reason,
     }
 
 

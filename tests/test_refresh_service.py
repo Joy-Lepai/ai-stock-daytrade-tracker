@@ -80,6 +80,73 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["data_source_health_compact"]["c_money"], "ERROR")
         self.assertTrue(payload["data_source_degraded"])
 
+    def test_status_payload_includes_front_category_no_signal_summary(self):
+        now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
+        captured = "2026-06-25T09:29:00+08:00"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute("INSERT INTO symbols (symbol, name, sector) VALUES ('2330.TW', '台積電', '半導體')")
+                conn.execute("INSERT INTO symbols (symbol, name, sector) VALUES ('2886.TW', '兆豐金', '金融')")
+                for symbol in ("2330.TW", "2886.TW"):
+                    conn.execute(
+                        """
+                        INSERT INTO daily_snapshots (
+                          date, symbol, close, change_pct, volume, turnover, volume_ratio,
+                          previous_high, break_prev_high
+                        ) VALUES ('2026-06-25', ?, 100, -1, 1000, 100000, 1.2, 101, 0)
+                        """,
+                        (symbol,),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO intraday_snapshots (
+                          captured_at, date, symbol, last_price, volume, turnover, vwap,
+                          above_vwap, volume_ratio, opening_range_high, opening_range_low
+                        ) VALUES (?, '2026-06-25', ?, 99, 1000, 100000, 100, 0, 1.2, 101, 98)
+                        """,
+                        (captured, symbol),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO long_scores (
+                          captured_at, date, symbol, bullish_score, risk_score, grade,
+                          reasons, risk_reasons, confidence_score, confidence_level,
+                          adjusted_entry_status
+                        ) VALUES (?, '2026-06-25', ?, 40, 65, 'D', '[]', '[]', 40, 'low', 'avoid')
+                        """,
+                        (captured, symbol),
+                    )
+                upsert_refresh_state(
+                    conn,
+                    layer="watchlist",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=now,
+                    success_at=now,
+                    symbols_count=2,
+                )
+                upsert_refresh_state(
+                    conn,
+                    layer="positions",
+                    status="success",
+                    stale_after_seconds=300,
+                    started_at=now,
+                    success_at=now,
+                    symbols_count=0,
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        summary = payload["front_category_summary"]
+        self.assertEqual(summary["bearish_count"], 2)
+        self.assertEqual(summary["strong_buy_count"], 0)
+        self.assertFalse(payload["can_show_any_strong_long"])
+        self.assertIn("這不是做空建議", summary["no_signal_reason"])
+        self.assertIn("這不是做空建議", " ".join(payload["operational_health"]["warnings"]))
+
     def test_manual_full_refresh_marks_dependent_layers_success(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

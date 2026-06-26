@@ -727,6 +727,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "market_mode_label": refresh_payload.get("market_mode_label") or "",
         "data_quality_status": health.get("data_quality_status") or (refresh_payload.get("price_status_summary") or {}).get("status") or "",
         "price_status_summary": refresh_payload.get("price_status_summary") or {},
+        "front_category_summary": health.get("front_category_summary") or refresh_payload.get("front_category_summary") or {},
         "required_stale_layers": refresh_payload.get("required_stale_layers") or [],
         "stale_layers": refresh_payload.get("stale_layers") or [],
         "refresh_guidance": refresh_payload.get("refresh_guidance") or {},
@@ -1064,11 +1065,24 @@ def _operator_no_signal_triage(health: dict[str, Any]) -> list[str]:
     cached_count = _safe_int(price_status.get("cached_count") or health.get("cached_count"))
     missing_count = _safe_int(price_status.get("missing_count") or health.get("missing_count"))
     required_stale_layers = _compact_text_list(list(health.get("required_stale_layers") or []))
+    front_summary = health.get("front_category_summary") if isinstance(health.get("front_category_summary"), dict) else {}
+    front_counts = front_summary.get("counts") if isinstance(front_summary.get("counts"), dict) else {}
+    strong_count = _safe_int(front_summary.get("strong_buy_count") or front_counts.get("強烈買多"))
+    buy_count = _safe_int(front_summary.get("buy_count") or front_counts.get("買多"))
+    watch_count = _safe_int(front_summary.get("watch_count") or front_counts.get("觀察"))
+    bearish_count = _safe_int(front_summary.get("bearish_count") or front_counts.get("看空"))
+    no_signal_reason = str(front_summary.get("no_signal_reason") or "").strip()
 
     triage: list[str] = []
     if market_mode != "intraday":
         triage.append("先確認目前不是盤中：0 檔強烈買多可能只是休市、盤前或盤後模式，不代表模型失效。")
         triage.append("只整理上一交易日復盤與下個交易日觀察清單，等開盤後 live 資料再判斷。")
+    elif front_summary:
+        triage.append(
+            f"先看四分類摘要：強烈買多 {strong_count} 檔、買多 {buy_count} 檔、觀察 {watch_count} 檔、看空 {bearish_count} 檔。"
+        )
+        if no_signal_reason:
+            triage.append(no_signal_reason)
     if blockers:
         triage.append(f"先修阻擋原因：{blockers[0]}")
     if required_stale_layers:
