@@ -714,7 +714,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單
         進場雷達成績單 資料健康度 台股全市場異動掃描池
         漏抓股票診斷 強烈買多漏斗 系統狀態與資料來源 看盤狀態 刷新順序
-        開盤前準備模式。看空偏多不代表全市場都適合做空，僅供復盤，等開盤後再確認。
+        開盤前準備模式。看空偏多這不是做空建議，僅供復盤，等開盤後再確認。
         <div class="metric"><span>強烈買多</span><strong>0</strong></div>
         <div class="metric"><span>買多</span><strong>0</strong></div>
         <div class="metric"><span>觀察</span><strong>0</strong></div>

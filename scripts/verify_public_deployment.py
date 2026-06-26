@@ -559,6 +559,7 @@ def validate_dashboard_html(html: str) -> list[Check]:
     bearish_review_has_guard = (not bearish_dominates_review) or any(
         marker in html
         for marker in [
+            "這不是做空建議",
             "不代表全市場都適合做空",
             "不提供即時買多判斷",
             "僅供復盤",
