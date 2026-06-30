@@ -31,6 +31,7 @@ from stock_daytrade_system.market_clock import taiwan_market_session
 from stock_daytrade_system.market_context import build_market_indicators
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
 from stock_daytrade_system.scoring import score_market_bias
+from stock_daytrade_system.session_policy import time_bucket_for_market
 from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION, evaluate_signal_guard
 from stock_daytrade_system.official_institutional import fetch_official_institutional_contexts
 from stock_daytrade_system.position_management import position_action_for_symbol
@@ -972,7 +973,7 @@ def _advisor_market_mode_payload(captured_at: datetime, data_health: dict) -> di
         bool(data_health.get("is_data_missing")) and not quote_time
     )
     data_stale = bool(data_health.get("is_stale")) if session == "regular" else False
-    return evaluate_tw_market_mode(
+    payload = evaluate_tw_market_mode(
         now=captured_at,
         data_date=quote_time[:10] if quote_time else None,
         latest_data_at=quote_time or None,
@@ -981,6 +982,33 @@ def _advisor_market_mode_payload(captured_at: datetime, data_health: dict) -> di
         watchlist_fresh=True,
         positions_fresh=True,
     ).to_dict()
+    bucket = time_bucket_for_market(captured_at, "TW")
+    payload["time_bucket"] = bucket
+    payload["time_bucket_label"] = _time_bucket_label(bucket)
+    payload["time_bucket_guidance"] = _time_bucket_guidance(bucket)
+    return payload
+
+
+def _time_bucket_label(bucket: str) -> str:
+    return {
+        "pre_open": "開盤前準備",
+        "opening_observation": "開盤觀察 09:00-09:20",
+        "main_entry": "主進場區 09:20-10:30",
+        "pullback_only": "回測觀察 10:30-11:30",
+        "late_avoid": "尾盤避免追價",
+        "after_close": "盤後復盤",
+    }.get(bucket, bucket or "-")
+
+
+def _time_bucket_guidance(bucket: str) -> str:
+    return {
+        "pre_open": "只整理觀察名單，尚未有今日 VWAP、量比與突破確認。",
+        "opening_observation": "先看量價與開盤區間，不急著進場；等 VWAP、量比、突破與買盤延續確認。",
+        "main_entry": "可檢查強烈買多與買多標的，但仍需進場雷達、停損距離與資料 live。",
+        "pullback_only": "不追伸，優先等待回測 VWAP 不破或風險下降。",
+        "late_avoid": "避免新追價，只管理既有持倉或觀察明日續強。",
+        "after_close": "只做復盤與下個交易日觀察，不作即時進場判斷。",
+    }.get(bucket, "依目前市場模式判斷，先確認資料是否 live。")
 
 
 def _safety_payload(

@@ -3511,6 +3511,27 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderAdvisorTimeBucketCard = (marketMode) => {
+        marketMode = marketMode || {};
+        const bucket = marketMode.time_bucket || "";
+        if (bucket !== "opening_observation") return "";
+        const label = marketMode.time_bucket_label || "開盤觀察 09:00-09:20";
+        const guidance = marketMode.time_bucket_guidance || "先看量價與開盤區間，不急著進場。";
+        return `
+          <article class="advisor-card time-bucket-card">
+            <h3>單檔作戰時段</h3>
+            <div class="advisor-decision">
+              <strong>${escapeHtml(label)}：先看量價，不急著進場</strong>
+              <span>${escapeHtml(guidance)}</span>
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel"><h3>現在先做</h3><p>觀察是否站上 VWAP、量比是否放大、開盤區間是否形成。</p></section>
+              <section class="advisor-panel"><h3>等到什麼</h3><p>等突破開盤高、守住 VWAP、買盤延續，且停損距離合理。</p></section>
+              <section class="advisor-panel"><h3>不要做</h3><p>不要追第一波急拉、接近漲停或 high_risk；沒有進場雷達確認前先觀察。</p></section>
+            </div>
+          </article>
+        `;
+      };
       const advisorNowAction = ({ state, dataHealth, nextStep }) => {
         dataHealth = dataHealth || {};
         const dataUsable = Boolean(dataHealth.can_use_for_daytrade && !dataHealth.uses_cache && !dataHealth.is_delayed && !dataHealth.is_data_missing);
@@ -4104,6 +4125,7 @@ def tw_advisor_script() -> str:
         result.className = "advisor-result";
         result.innerHTML = `
           ${renderAdvisorQuickReadCard({ decisionCard, entryRadarSummary, dataHealth, safety, frontTrade })}
+          ${renderAdvisorTimeBucketCard(marketMode)}
           <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
             <div class="advisor-title">
               <div>

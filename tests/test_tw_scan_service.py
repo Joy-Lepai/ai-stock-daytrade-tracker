@@ -384,6 +384,28 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertFalse(payload["is_stale"])
         self.assertFalse(payload["can_show_strong_long"])
         self.assertTrue(mode["is_data_current_for_mode"])
+        self.assertEqual(mode["time_bucket"], "pre_open")
+        self.assertEqual(mode["time_bucket_label"], "開盤前準備")
+
+    def test_opening_observation_time_bucket_is_exposed_to_advisor(self):
+        captured_at = datetime(2026, 6, 22, 9, 5, tzinfo=ZoneInfo("Asia/Taipei"))
+        payload = _data_health_payload(
+            captured_at,
+            {
+                "current_price": 100,
+                "quote_time": "2026-06-22T09:05:00+08:00",
+            },
+            {},
+            {},
+            {},
+            "2330.TW",
+        )
+        mode = _advisor_market_mode_payload(captured_at, payload)
+
+        self.assertEqual(mode["mode"], "intraday")
+        self.assertEqual(mode["time_bucket"], "opening_observation")
+        self.assertEqual(mode["time_bucket_label"], "開盤觀察 09:00-09:20")
+        self.assertIn("不急著進場", mode["time_bucket_guidance"])
 
     def test_pre_open_safety_uses_prepare_mode(self):
         captured_at = datetime(2026, 6, 22, 8, 55, tzinfo=ZoneInfo("Asia/Taipei"))
