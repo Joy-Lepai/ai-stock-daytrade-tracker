@@ -1078,6 +1078,8 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
     )
     front_counts = front["counts"]
     strong_funnel = (diagnostics or {}).get("strong_long_funnel") or {}
+    limit_up = (diagnostics or {}).get("limit_up_strength_analysis") or {}
+    limit_brief = _limit_up_brief(limit_up)
     strong_long_count = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈買多", 0)) or 0)
     executable_count = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
     tendency = data.get("operation_tendency") or "資料不足"
@@ -1097,6 +1099,8 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         )
     if mode.get("mode") == "stale_data":
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
+    elif mode.get("mode") == "intraday" and limit_brief["count"] > 0:
+        reminder += " " + limit_brief["reminder"]
     reminder += _non_intraday_bearish_guard_copy(front_counts, str(mode.get("mode") or ""))
     closest_title, observation_title, closest_empty, observation_empty = _decision_overview_section_copy(str(mode.get("mode") or ""))
     closest_items = _top_decision_items(summary, front_context, categories={"強烈買多", "買多"}, limit=5)
@@ -1117,15 +1121,65 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric("買多", int(front_counts.get("買多", 0)))}'
         f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
         f'{_metric("看空", int(front_counts.get("看空", 0)))}'
+        f'{_metric("接近漲停 / 漲停", int(limit_brief["count"]))}'
+        f'{_metric("漲停高風險觀察", int(limit_brief["high_risk"]))}'
+        f'{_metric("漲停真漏抓", int(limit_brief["missed"]))}'
         f'{_metric_text("今日強勢族群", sector_summary)}'
         f'{_metric_text("籌碼背景提醒", institutional_summary)}'
         '</div>'
         f'<div class="notice"><strong>今日最重要提醒</strong><br>{escape(str(reminder))}</div>'
+        f'{_limit_up_brief_notice(limit_brief)}'
         f'{front_diagnostics}'
         f'<h3>{escape(closest_title)}</h3>'
         f'<div class="signal-grid">{closest_html}</div>'
         f'<h3>{escape(observation_title)}</h3>'
         f'<div class="signal-grid">{observation_html}</div>'
+        '</section>'
+    )
+
+
+def _limit_up_brief(data: dict) -> dict:
+    count = int(data.get("near_limit_up_count", 0) or 0)
+    high_risk = int(data.get("high_risk_count", 0) or 0)
+    entered = int(data.get("entered_ai_count", 0) or 0)
+    missed = int(data.get("missed_by_pool_count", 0) or 0)
+    data_missing = int(data.get("data_missing_count", 0) or 0)
+    if count <= 0:
+        headline = "目前沒有接近漲停或漲停鎖住的掃描標的。"
+        reminder = ""
+    elif missed > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停，其中 {missed} 檔是真漏抓，需檢查候選池或資料源。"
+        reminder = f"漲停強勢股診斷顯示 {missed} 檔真漏抓，先看資料源與候選池門檻，不要只看四分類結果。"
+    elif high_risk > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停，系統有看到；其中 {high_risk} 檔被列為追價高風險。"
+        reminder = f"今天有 {count} 檔接近漲停 / 漲停，已看到的高風險股不等於看空，而是避免追價。"
+    elif entered > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停，其中 {entered} 檔進入 A/B+/B 觀察層。"
+        reminder = f"接近漲停股已有 {entered} 檔進入模型層，仍需看 VWAP、停損距離與進場雷達。"
+    elif data_missing > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停，但 {data_missing} 檔資料不足。"
+        reminder = f"接近漲停股有資料不足，不能硬判買多。"
+    else:
+        headline = f"有 {count} 檔接近漲停 / 漲停，已列入診斷觀察。"
+        reminder = f"接近漲停股需先看追價風險與停損距離，不直接升級買多。"
+    return {
+        "count": count,
+        "high_risk": high_risk,
+        "entered": entered,
+        "missed": missed,
+        "data_missing": data_missing,
+        "headline": headline,
+        "reminder": reminder,
+    }
+
+
+def _limit_up_brief_notice(brief: dict) -> str:
+    if int(brief.get("count", 0) or 0) <= 0:
+        return ""
+    return (
+        '<section class="notice">'
+        f'<strong>漲停強勢速讀</strong><br>{escape(str(brief.get("headline") or ""))}'
+        '<br><span class="muted">接近漲停代表動能強，但也可能是追價高風險；請往下看「漲停強勢股診斷」確認是有看到、等待確認、資料不足，還是真漏抓。</span>'
         '</section>'
     )
 

@@ -1202,6 +1202,47 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("多數股票未站上 VWAP", html)
         self.assertIn("這不是做空建議", html)
 
+    def test_decision_overview_surfaces_limit_up_strength_brief(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "data_health": {
+                    "status": "正常",
+                    "data_date": "2026-06-30",
+                    "latest_intraday_at": "2026-06-30T10:00:00+08:00",
+                },
+                "strong_long_funnel": {
+                    "strong_long_candidate_count": 0,
+                    "executable_count": 0,
+                    "top_blockers": [{"reason": "high_risk", "count": 8}],
+                },
+                "limit_up_strength_analysis": {
+                    "near_limit_up_count": 12,
+                    "seen_count": 12,
+                    "entered_ai_count": 0,
+                    "high_risk_count": 9,
+                    "missed_by_pool_count": 0,
+                    "data_missing_count": 0,
+                },
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 30, 10, 0))
+
+        self.assertIn("漲停強勢速讀", html)
+        self.assertIn("接近漲停 / 漲停", html)
+        self.assertIn("漲停高風險觀察", html)
+        self.assertIn("漲停真漏抓", html)
+        self.assertIn("已看到的高風險股不等於看空，而是避免追價", html)
+        self.assertIn("其中 9 檔被列為追價高風險", html)
+
     def test_front_category_diagnostics_warns_when_bearish_ratio_is_abnormally_high(self):
         bearish_items = [
             long_candidate(
