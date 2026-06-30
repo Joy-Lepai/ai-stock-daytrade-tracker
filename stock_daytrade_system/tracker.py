@@ -577,6 +577,8 @@ def render_tracker_html(
     {_data_health_panel(long_summary)}
     <h2>台股全市場異動掃描池</h2>
     {_full_market_scan_panel(long_summary)}
+    <h2>漲停強勢股診斷</h2>
+    {_limit_up_strength_panel(long_summary)}
     <h2>漏抓股票診斷</h2>
     {_missed_stock_diagnostic_table(long_summary)}
     <h2>模型條件診斷</h2>
@@ -2905,6 +2907,57 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
         '<th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th><th>未入選原因</th><th data-sort="text">reason code</th>'
         '</tr></thead><tbody>'
         + ("".join(body) or '<tr><td colspan="15">目前沒有掃描列。</td></tr>')
+        + '</tbody></table></div>'
+    )
+
+
+def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
+    data = ((summary.diagnostics or {}).get("limit_up_strength_analysis") if summary else None) or {}
+    if not data:
+        return '<section class="notice">目前沒有漲停強勢股診斷資料。</section>'
+    rows = list(data.get("rows") or [])
+    metrics = (
+        '<div class="summary">'
+        f'{_metric("接近漲停 / 漲停", int(data.get("near_limit_up_count", 0)))}'
+        f'{_metric("系統有看到", int(data.get("seen_count", 0)))}'
+        f'{_metric("進入 A/B+/B", int(data.get("entered_ai_count", 0)))}'
+        f'{_metric("high_risk 觀察", int(data.get("high_risk_count", 0)))}'
+        f'{_metric("avoid", int(data.get("avoid_count", 0)))}'
+        f'{_metric("資料不足", int(data.get("data_missing_count", 0)))}'
+        f'{_metric("真漏抓", int(data.get("missed_by_pool_count", 0)))}'
+        '</div>'
+    )
+    body = []
+    for item in rows[:30]:
+        advisor_url = f"/tw/advisor?symbol={escape(str(item.get('symbol', '')))}"
+        body.append(
+            '<tr>'
+            f'<td><a href="{advisor_url}"><strong>{escape(str(item.get("symbol", "")))}｜{escape(str(item.get("name", "")))}</strong></a><br><span class="muted">{escape(str(item.get("latest_at", "")))}</span></td>'
+            f'<td>{escape(str(item.get("limit_up_status", "-")))}</td>'
+            f'{_change_cell(item.get("change_pct"))}'
+            f'<td data-sort-value="{_sort_value(item.get("latest_price"))}">{_fmt(item.get("latest_price"))}</td>'
+            f'<td data-sort-value="{_sort_value(item.get("volume_ratio"))}">{_fmt(item.get("volume_ratio"))}x</td>'
+            f'<td>{_yes_no(bool(item.get("above_vwap")))}</td>'
+            f'<td>{_yes_no(bool(item.get("break_prev_high")))}</td>'
+            f'<td>{escape(str(item.get("ai_grade", "-")))}</td>'
+            f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
+            f'<td><strong>{escape(str(item.get("limit_up_decision", "-")))}</strong><br><span class="muted">{escape(str(item.get("limit_up_explanation", "-")))}</span></td>'
+            f'<td>{escape(str(item.get("reason_code", "-")))}</td>'
+            '</tr>'
+        )
+    return (
+        '<section class="data-status">'
+        f'<strong>{escape(str(data.get("definition", "")))}</strong><br>'
+        f'<span class="muted">{escape(str(data.get("not_buy_reason", "")))}</span>'
+        '</section>'
+        f'{metrics}'
+        '<div class="table-wrap"><table class="sortable"><thead><tr>'
+        '<th data-sort="text">股票</th><th data-sort="text">漲停狀態</th><th data-sort="number">漲幅</th>'
+        '<th data-sort="number">現價</th><th data-sort="number">量比</th><th data-sort="text">站上 VWAP</th>'
+        '<th data-sort="text">突破昨高</th><th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th>'
+        '<th>系統判斷</th><th data-sort="text">reason code</th>'
+        '</tr></thead><tbody>'
+        + ("".join(body) or '<tr><td colspan="11">目前沒有接近漲停或漲停鎖住的掃描標的。</td></tr>')
         + '</tbody></table></div>'
     )
 

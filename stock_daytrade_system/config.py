@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -45,7 +46,10 @@ def load_config(path: Path) -> AppConfig:
     raw = json.loads(path.read_text(encoding="utf-8"))
     auto_universe = [WatchSymbol(**item) for item in raw.get("auto_universe", raw.get("symbols", []))]
     manual_symbols = [WatchSymbol(**item) for item in raw.get("manual_symbols", [])]
-    fugle_priority_symbols = [str(item).strip().upper() for item in raw.get("fugle_priority_symbols", []) if str(item).strip()]
+    fugle_priority_symbols = _dedupe_text(
+        [str(item).strip().upper() for item in raw.get("fugle_priority_symbols", []) if str(item).strip()]
+        + _env_list("FUGLE_PRIORITY_SYMBOLS")
+    )
     symbols = _dedupe_symbols(auto_universe + manual_symbols)
     return AppConfig(
         market=MarketConfig(**raw["market"]),
@@ -75,5 +79,21 @@ def _dedupe_symbols(symbols: List[WatchSymbol]) -> List[WatchSymbol]:
         if item.symbol in seen:
             continue
         seen.add(item.symbol)
+        result.append(item)
+    return result
+
+
+def _env_list(name: str) -> List[str]:
+    raw = os.environ.get(name, "")
+    return [item.strip().upper() for item in raw.split(",") if item.strip()]
+
+
+def _dedupe_text(items: List[str]) -> List[str]:
+    seen = set()
+    result: List[str] = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
         result.append(item)
     return result

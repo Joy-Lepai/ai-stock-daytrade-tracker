@@ -50,12 +50,14 @@ def build_tw_diagnostics(inputs: DiagnosticInputs) -> dict:
     scan_items = list((inputs.momentum_scan or {}).get("items") or [])
     data_health = _data_health(inputs)
     missed = _missed_stock_analysis(scan_items, candidates)
+    limit_up = _limit_up_strength_analysis(scan_items, candidates)
     full_market = _full_market_summary(inputs.full_market_scan or {}, scan_items)
     return {
         "version": TW_DIAGNOSTICS_VERSION,
         "data_health": data_health,
         "full_market_scan": full_market,
         "missed_stock_analysis": missed,
+        "limit_up_strength_analysis": limit_up,
         "model_conditions": model_conditions(),
         "timeframe_gap_report": build_timeframe_gap_report(),
         "trend_continuation_report": build_trend_continuation_report(candidates),
@@ -63,6 +65,118 @@ def build_tw_diagnostics(inputs: DiagnosticInputs) -> dict:
         "user_guide": user_guide(),
         "backtest_diagnostic": _backtest_diagnostic(),
     }
+
+
+def _limit_up_strength_analysis(scan_items: list[dict], candidates: list[LongCandidate]) -> dict:
+    candidate_map = {item.symbol: item for item in candidates}
+    rows = []
+    seen_count = 0
+    entered_count = 0
+    high_risk_count = 0
+    avoid_count = 0
+    data_missing_count = 0
+    missed_count = 0
+    for item in scan_items:
+        row = _diagnostic_row(item, candidate_map.get(str(item.get("symbol", ""))))
+        if not _is_near_limit_up_item(item, row):
+            continue
+        status = str(row.get("entry_status") or "")
+        bucket = str(row.get("diagnostic_bucket") or "")
+        seen = bucket != "missed_by_pool"
+        entered = bool(row.get("entered_ai_candidates"))
+        seen_count += 1 if seen else 0
+        entered_count += 1 if entered else 0
+        high_risk_count += 1 if status == "high_risk" else 0
+        avoid_count += 1 if status == "avoid" else 0
+        data_missing_count += 1 if row.get("reason_code") in {"data_missing", "data_insufficient", "yahoo_intraday_failed"} else 0
+        missed_count += 1 if bucket == "missed_by_pool" else 0
+        row["limit_up_status"] = _limit_up_status_label(item, row)
+        row["limit_up_decision"] = _limit_up_decision_label(row)
+        row["limit_up_explanation"] = _limit_up_explanation(row)
+        rows.append(row)
+    rows.sort(
+        key=lambda item: (
+            -(_float(item.get("change_pct")) or 0),
+            -(_float(item.get("turnover")) or 0),
+            str(item.get("symbol") or ""),
+        )
+    )
+    return {
+        "definition": "此區只診斷漲停或接近漲停強勢股；不會把追價高風險股票升級成買多。",
+        "near_limit_up_count": len(rows),
+        "seen_count": seen_count,
+        "entered_ai_count": entered_count,
+        "high_risk_count": high_risk_count,
+        "avoid_count": avoid_count,
+        "data_missing_count": data_missing_count,
+        "missed_by_pool_count": missed_count,
+        "not_buy_reason": "接近漲停通常代表動能強，但也常伴隨停損距離大、追價風險高或五檔鎖價；系統會先列為觀察或 high_risk，而不是直接顯示買多。",
+        "rows": rows[:40],
+    }
+
+
+def _is_near_limit_up_item(item: dict, row: dict) -> bool:
+    change = _float(item.get("change_pct"))
+    if change is None:
+        change = _float(row.get("change_pct"))
+    if change is not None and change >= 9:
+        return True
+    flags = [
+        item.get("near_limit_up"),
+        item.get("is_limit_up_locked"),
+        item.get("is_limit_up_bid"),
+        item.get("is_limit_up_price"),
+        item.get("twse_mis_is_limit_up_locked"),
+    ]
+    return any(bool(flag) for flag in flags)
+
+
+def _limit_up_status_label(item: dict, row: dict) -> str:
+    if item.get("is_limit_up_locked") or item.get("is_limit_up_bid") or item.get("twse_mis_is_limit_up_locked"):
+        return "漲停鎖住"
+    change = _float(row.get("change_pct"))
+    if change is not None and change >= 9:
+        return "接近漲停"
+    return "強勢上漲"
+
+
+def _limit_up_decision_label(row: dict) -> str:
+    if row.get("entered_ai_candidates"):
+        return "已進 A/B+/B 模型層"
+    status = str(row.get("entry_status") or "")
+    if status == "high_risk":
+        return "有看到，但追價風險高"
+    if status == "avoid":
+        return "有看到，但多方條件失效"
+    if status.startswith("wait_"):
+        return "有看到，等待確認"
+    if row.get("reason_code") in {"data_missing", "data_insufficient", "yahoo_intraday_failed"}:
+        return "資料不足，不能判斷"
+    if row.get("diagnostic_bucket") == "missed_by_pool":
+        return "真漏抓，需檢查候選池門檻"
+    return "有看到，但未達買多條件"
+
+
+def _limit_up_explanation(row: dict) -> str:
+    status = str(row.get("entry_status") or "")
+    reason = str(row.get("not_selected_reason") or "")
+    if row.get("entered_ai_candidates"):
+        return "已進入 A/B+/B 觀察層，仍需盤中 VWAP、量比與進場雷達確認。"
+    if status == "high_risk":
+        return reason or "股價很強，但停損距離、VWAP 距離或追價風險偏高，因此只列入觀察。"
+    if status == "avoid":
+        return reason or "多方結構不足或已失效，暫不做多。"
+    if status == "wait_vwap":
+        return "仍需站回 VWAP，否則不能視為買多。"
+    if status == "wait_volume":
+        return "仍需量能確認，避免無量拉抬。"
+    if status == "wait_breakout":
+        return "仍需突破觸發價或昨日高點，不能提前追。"
+    if row.get("reason_code") in {"data_missing", "data_insufficient", "yahoo_intraday_failed"}:
+        return "資料不足或失敗，不產生即時買多判斷。"
+    if row.get("diagnostic_bucket") == "missed_by_pool":
+        return "符合強勢條件但沒有進入候選池，需檢查掃描門檻或資料源。"
+    return reason or "條件未完整，先列入觀察，不包裝成買多。"
 
 
 def model_conditions() -> dict:

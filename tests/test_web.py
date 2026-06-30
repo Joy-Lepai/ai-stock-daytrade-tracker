@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.web import (
@@ -219,7 +220,8 @@ class WebTests(unittest.TestCase):
             "consistency": {"runtime_matches_tracker": True, "is_ready": True, "warnings": []},
         }
 
-        payload = build_operator_runbook_payload(refresh_payload, system_payload)
+        with patch.dict("os.environ", {"FUGLE_PRIORITY_SYMBOLS": "8150.TW"}, clear=False):
+            payload = build_operator_runbook_payload(refresh_payload, system_payload)
 
         self.assertEqual(payload["api_status"], "ok")
         self.assertEqual(payload["decision"], "可盯盤")
@@ -237,6 +239,9 @@ class WebTests(unittest.TestCase):
         self.assertEqual(payload["checklist"], ["是否站上 VWAP？", "量比是否足夠？"])
         self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
+        self.assertIn("6919.TW", payload["fugle_tracking"]["symbols"])
+        self.assertIn("8150.TW", payload["fugle_tracking"]["symbols"])
+        self.assertIn("不會改模型", payload["fugle_tracking"]["message"])
         self.assertNotIn("price_status_summary", payload)
 
     def test_operator_runbook_includes_front_category_no_signal_triage(self):
@@ -403,6 +408,13 @@ class WebTests(unittest.TestCase):
                     "tracker_commit": "abc123",
                     "warnings": ["runtime 與 tracker HTML 不一致"],
                 },
+                "fugle_tracking": {
+                    "symbols": ["6919.TW", "8150.TW"],
+                    "count": 2,
+                    "source": "config_and_env",
+                    "message": "指定追蹤只作即時確認資源配置，不會改模型或推薦數量。",
+                    "how_to_change": "Render Environment 設定 FUGLE_PRIORITY_SYMBOLS。",
+                },
             }
         )
 
@@ -439,6 +451,10 @@ class WebTests(unittest.TestCase):
         self.assertIn("operator-refresh-status", html)
         self.assertIn("operator-deployment-warnings", html)
         self.assertIn("runtime 與 tracker HTML 不一致", html)
+        self.assertIn("Fugle 指定追蹤", html)
+        self.assertIn("operator-fugle-symbols", html)
+        self.assertIn("6919.TW、8150.TW", html)
+        self.assertIn("不會改模型或推薦數量", html)
 
     def test_liveness_payload_is_lightweight_and_alive(self):
         payload = build_liveness_payload()

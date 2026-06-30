@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.auth import AuthConfig, load_auth_config, verify_password
 from stock_daytrade_system.app_version import current_commit_info
+from stock_daytrade_system.config import load_config
 from stock_daytrade_system.accuracy_service import (
     build_accuracy_dashboard_payload,
     build_accuracy_group_payload,
@@ -803,9 +804,40 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "blockers": _compact_text_list(health.get("blockers") or []),
         "warnings": _compact_text_list(health.get("warnings") or []),
         "deployment": health.get("deployment") or {},
+        "fugle_tracking": _operator_fugle_tracking_payload(),
     }
     payload["operator_task_card"] = _operator_task_card(payload)
     return payload
+
+
+def _operator_fugle_tracking_payload() -> dict[str, Any]:
+    env_value = os.getenv("FUGLE_PRIORITY_SYMBOLS", "")
+    try:
+        config = load_config(PROJECT_ROOT / "config" / "watchlist.json")
+        symbols = list(config.fugle_priority_symbols)
+    except Exception as exc:  # pragma: no cover - defensive UI guardrail
+        symbols = [item.strip().upper() for item in env_value.split(",") if item.strip()]
+        return {
+            "symbols": symbols,
+            "count": len(symbols),
+            "env_value": env_value,
+            "source": "env_only",
+            "message": f"無法讀取 watchlist 設定，僅顯示環境變數指定追蹤：{exc}",
+            "how_to_change": "Render Environment 設定 FUGLE_PRIORITY_SYMBOLS，例如 6919.TW,8150.TW，重新部署或刷新後生效。",
+        }
+    source = "config_and_env" if env_value.strip() else "config"
+    return {
+        "symbols": symbols,
+        "count": len(symbols),
+        "env_value": env_value,
+        "source": source,
+        "message": (
+            "Fugle 會優先把這些股票排入 5 檔即時追蹤池；指定追蹤只改即時確認資源，不會改模型或推薦數量。"
+            if symbols
+            else "目前沒有指定 Fugle 優先追蹤股票。"
+        ),
+        "how_to_change": "Render Environment 設定 FUGLE_PRIORITY_SYMBOLS，例如 6919.TW,8150.TW；用逗號分隔。",
+    }
 
 
 def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> str:
@@ -833,8 +865,9 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
         <strong id="operator-decision">{_escape(str(payload.get('decision') or '-'))}</strong>
       </div>
     </header>
-    {_operator_task_card_panel(payload)}
-    <section class="operator-grid">
+        {_operator_task_card_panel(payload)}
+        {_operator_fugle_tracking_panel(payload)}
+        <section class="operator-grid">
       {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-', 'operator-mode')}
       {_operator_metric('資料可信度', payload.get('data_quality_status') or '-', 'operator-data-quality')}
       {_operator_metric('可否盤中判斷', _yes_no(payload.get('can_use_intraday_signals')), 'operator-intraday')}
@@ -994,6 +1027,24 @@ def _operator_task_card_panel(payload: dict[str, Any]) -> str:
     """
 
 
+def _operator_fugle_tracking_panel(payload: dict[str, Any]) -> str:
+    fugle = payload.get("fugle_tracking") if isinstance(payload.get("fugle_tracking"), dict) else {}
+    symbols = [str(item) for item in (fugle.get("symbols") or []) if str(item)]
+    symbol_text = "、".join(symbols) if symbols else "未指定"
+    return f"""
+    <section class="decision-center operator-fugle-tracking">
+      <h2>Fugle 指定追蹤</h2>
+      <div class="operator-grid">
+        {_operator_metric('指定檔數', fugle.get('count', len(symbols)), 'operator-fugle-count')}
+        {_operator_metric('指定股票', symbol_text, 'operator-fugle-symbols')}
+        {_operator_metric('來源', fugle.get('source', '-'), 'operator-fugle-source')}
+      </div>
+      <p id="operator-fugle-message" class="muted">{_escape(str(fugle.get('message') or '指定追蹤只作即時確認資源配置，不會改模型或推薦數量。'))}</p>
+      <p id="operator-fugle-how-to-change" class="muted">{_escape(str(fugle.get('how_to_change') or 'Render Environment 可設定 FUGLE_PRIORITY_SYMBOLS。'))}</p>
+    </section>
+    """
+
+
 def _operator_front_category_panel(payload: dict[str, Any]) -> str:
     summary = payload.get("front_category_summary") if isinstance(payload.get("front_category_summary"), dict) else {}
     counts = summary.get("counts") if isinstance(summary.get("counts"), dict) else {}
@@ -1120,6 +1171,13 @@ def operator_runbook_script() -> str:
         text("operator-task-first", task.first_step || "-");
         text("operator-task-do-not", task.do_not || "-");
         text("operator-task-refresh", task.refresh || "-");
+        const fugle = payload.fugle_tracking || {};
+        const fugleSymbols = Array.isArray(fugle.symbols) && fugle.symbols.length ? fugle.symbols.join("、") : "未指定";
+        text("operator-fugle-count", fugle.count ?? (Array.isArray(fugle.symbols) ? fugle.symbols.length : 0));
+        text("operator-fugle-symbols", fugleSymbols);
+        text("operator-fugle-source", fugle.source || "-");
+        text("operator-fugle-message", fugle.message || "指定追蹤只作即時確認資源配置，不會改模型或推薦數量。");
+        text("operator-fugle-how-to-change", fugle.how_to_change || "Render Environment 可設定 FUGLE_PRIORITY_SYMBOLS。");
         const front = payload.front_category_summary || {};
         const counts = front.counts || {};
         text("operator-front-strong", front.strong_buy_count ?? counts["強烈買多"] ?? 0);

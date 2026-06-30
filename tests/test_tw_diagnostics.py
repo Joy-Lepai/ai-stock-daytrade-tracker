@@ -153,6 +153,49 @@ class TWDiagnosticsTests(unittest.TestCase):
         self.assertEqual(missed["rows"][0]["reason_code"], "below_vwap")
         self.assertEqual(missed["rows"][0]["diagnostic_bucket"], "seen_but_filtered")
 
+    def test_limit_up_strength_analysis_separates_seen_high_risk_from_missed(self):
+        now = datetime(2026, 6, 30, 9, 35, tzinfo=ZoneInfo("Asia/Taipei"))
+        payload = build_tw_diagnostics(
+            DiagnosticInputs(
+                now=now,
+                all_symbols=[WatchSymbol("8150.TW", "南茂", "semiconductor")],
+                intraday_symbols=["8150.TW"],
+                daily_data={},
+                intraday_data={},
+                daily_errors={},
+                intraday_errors={},
+                taifex_errors={},
+                cmoney_errors={},
+                market_session="regular",
+                market_status="偏多",
+                momentum_scan={
+                    "items": [
+                        {
+                            "symbol": "8150.TW",
+                            "name": "南茂",
+                            "change_pct": 9.8,
+                            "latest_price": 58.5,
+                            "volume_ratio": 4.2,
+                            "above_vwap": True,
+                            "break_prev_high": True,
+                            "ai_grade": "C",
+                            "entry_status": "high_risk",
+                            "not_selected_reason": "強勢但追價風險高，不列入今日做多。",
+                        }
+                    ]
+                },
+                candidates=[],
+            )
+        )
+
+        limit_up = payload["limit_up_strength_analysis"]
+        self.assertEqual(limit_up["near_limit_up_count"], 1)
+        self.assertEqual(limit_up["seen_count"], 1)
+        self.assertEqual(limit_up["high_risk_count"], 1)
+        self.assertEqual(limit_up["missed_by_pool_count"], 0)
+        self.assertEqual(limit_up["rows"][0]["limit_up_decision"], "有看到，但追價風險高")
+        self.assertIn("不列入今日做多", limit_up["rows"][0]["limit_up_explanation"])
+
 
 if __name__ == "__main__":
     unittest.main()
