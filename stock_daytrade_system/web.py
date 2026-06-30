@@ -3532,6 +3532,39 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderLimitUpPlaybookCard = (playbook) => {
+        playbook = playbook || {};
+        if (!playbook.visible) return "";
+        const evidence = Array.isArray(playbook.evidence) ? playbook.evidence : [];
+        const warnings = Array.isArray(playbook.warnings) ? playbook.warnings : [];
+        return `
+          <article class="advisor-card limit-up-playbook-card">
+            <h3>漲停 / 急拉作戰卡</h3>
+            <div class="advisor-decision">
+              <strong>${escapeHtml(playbook.label || "接近漲停觀察")}</strong>
+              <span>${escapeHtml(playbook.summary || "接近漲停代表動能強，也代表追價風險升高。")}</span>
+            </div>
+            <div class="advisor-grid">
+              ${metric("漲幅", pct(playbook.change_pct))}
+              ${metric("量比", playbook.volume_ratio == null ? "-" : `${escapeHtml(number(playbook.volume_ratio))}x`)}
+              ${metric("站上 VWAP", escapeHtml(yesNo(playbook.above_vwap)))}
+              ${metric("停損距離", playbook.stop_distance_pct == null ? "-" : `${escapeHtml(number(playbook.stop_distance_pct))}%`)}
+              ${metric("風險分數", escapeHtml(number(playbook.risk_score)))}
+              ${metric("是否鎖漲停", escapeHtml(yesNo(playbook.is_limit_up_locked)))}
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel"><h3>現在先做</h3><p>${escapeHtml(playbook.now_action || "先觀察，不直接追價。")}</p></section>
+              <section class="advisor-panel"><h3>等到什麼</h3><p>${escapeHtml(playbook.wait_for || "等待拉回、VWAP、量能與進場雷達確認。")}</p></section>
+              <section class="advisor-panel"><h3>不要做</h3><p>${escapeHtml(playbook.avoid || "不要把接近漲停直接當成買多。")}</p></section>
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel"><h3>支持訊號</h3>${list(evidence.length ? evidence : ["目前沒有足夠證據支持直接追價。"])}</section>
+              <section class="advisor-panel"><h3>風險提醒</h3>${list(warnings.length ? warnings : ["仍需依 VWAP、停損距離與盤口確認。"])}</section>
+            </div>
+            <p class="warn-inline">這張卡只做漲停風險翻譯，不會改 A / B+ / B 條件，也不會增加推薦數量。</p>
+          </article>
+        `;
+      };
       const advisorNowAction = ({ state, dataHealth, nextStep }) => {
         dataHealth = dataHealth || {};
         const dataUsable = Boolean(dataHealth.can_use_for_daytrade && !dataHealth.uses_cache && !dataHealth.is_delayed && !dataHealth.is_data_missing);
@@ -4040,6 +4073,7 @@ def tw_advisor_script() -> str:
         const entryConfirmation = payload.entry_confirmation || {};
         const entryRadarSummary = payload.entry_radar_summary || {};
         const breakoutTrapDiagnosis = payload.breakout_trap_diagnosis || {};
+        const limitUpPlaybook = payload.limit_up_playbook || {};
         const fugleQuote = payload.fugle_quote || {};
         const fugleTrades = payload.fugle_trades || {};
         const fugleCandles = payload.fugle_candles || {};
@@ -4126,6 +4160,7 @@ def tw_advisor_script() -> str:
         result.innerHTML = `
           ${renderAdvisorQuickReadCard({ decisionCard, entryRadarSummary, dataHealth, safety, frontTrade })}
           ${renderAdvisorTimeBucketCard(marketMode)}
+          ${renderLimitUpPlaybookCard(limitUpPlaybook)}
           <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
             <div class="advisor-title">
               <div>

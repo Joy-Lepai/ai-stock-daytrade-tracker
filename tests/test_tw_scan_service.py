@@ -13,6 +13,7 @@ from stock_daytrade_system.tw_scan_service import (
     _data_health_payload,
     _fugle_quote_as_realtime,
     _intraday_chart_payload,
+    _limit_up_playbook_payload,
     _radar_quote_payload,
     _safety_payload,
     scan_tw_symbol_payload,
@@ -406,6 +407,29 @@ class TWScanServiceTests(unittest.TestCase):
         self.assertEqual(mode["time_bucket"], "opening_observation")
         self.assertEqual(mode["time_bucket_label"], "開盤觀察 09:00-09:20")
         self.assertIn("不急著進場", mode["time_bucket_guidance"])
+
+    def test_limit_up_playbook_marks_near_limit_high_risk_as_chase_risk(self):
+        payload = _limit_up_playbook_payload(
+            {
+                "current_price": 109,
+                "change_pct": 9.9,
+                "near_limit_up": True,
+                "volume_ratio": 5.4,
+                "risk_score": 70,
+                "stop_loss": 104,
+            },
+            {"entry_status": "high_risk", "above_vwap": True, "risk_score": 70, "stop_loss": 104},
+            {"above_vwap": True},
+            {"is_live": True, "can_use_for_intraday_signal": True},
+            {"orderbook_status": "neutral", "confirmation_quality": "partial", "large_trade_status": "missing"},
+            {"effective_entry_status": "high_risk"},
+        )
+
+        self.assertTrue(payload["visible"])
+        self.assertEqual(payload["status"], "limit_chase_risk")
+        self.assertIn("漲停追價風險", payload["label"])
+        self.assertIn("不直接追漲停", payload["now_action"])
+        self.assertTrue(payload["does_not_change_model"])
 
     def test_pre_open_safety_uses_prepare_mode(self):
         captured_at = datetime(2026, 6, 22, 8, 55, tzinfo=ZoneInfo("Asia/Taipei"))

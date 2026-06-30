@@ -236,6 +236,14 @@ def scan_tw_symbol_payload(
         intraday=advisor_intraday,
     ).to_dict()
     key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
+    limit_up_playbook_payload = _limit_up_playbook_payload(
+        key_metrics_payload,
+        candidate_payload,
+        scan_payload,
+        data_health,
+        entry_confirmation_payload,
+        safety_payload,
+    )
     reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
     errors = {}
     if item.symbol in daily_errors:
@@ -270,6 +278,7 @@ def scan_tw_symbol_payload(
         "decision_card": decision_card_payload,
         "position_action": position_payload,
         "key_metrics": key_metrics_payload,
+        "limit_up_playbook": limit_up_playbook_payload,
         "reason_groups": reason_payload,
         "historical_validation": history_payload,
         "source_ranking": source_payload,
@@ -442,6 +451,14 @@ def _snapshot_tw_symbol_payload(project_root: Path, item: WatchSymbol, captured_
             data_health=data_health,
         ).to_dict()
         key_metrics_payload = _key_metrics_payload(candidate_payload, scan_payload, display_payload, analysis_payload)
+        limit_up_playbook_payload = _limit_up_playbook_payload(
+            key_metrics_payload,
+            candidate_payload,
+            scan_payload,
+            data_health,
+            entry_confirmation_payload,
+            safety_payload,
+        )
         reason_payload = _reason_payload(candidate_payload, scan_payload, data_health, safety_payload)
         history_payload = _historical_validation_payload(conn, item.symbol)
         source_payload = _source_ranking_payload(conn, item.symbol)
@@ -471,6 +488,7 @@ def _snapshot_tw_symbol_payload(project_root: Path, item: WatchSymbol, captured_
         "decision_card": decision_card_payload,
         "position_action": position_payload,
         "key_metrics": key_metrics_payload,
+        "limit_up_playbook": limit_up_playbook_payload,
         "reason_groups": reason_payload,
         "historical_validation": history_payload,
         "source_ranking": source_payload,
@@ -1115,6 +1133,117 @@ def _key_metrics_payload(candidate: Optional[dict], scan: dict, display: dict, a
         "stop_loss": stop_loss,
         "target_price": target_price,
         "risk_reward_ratio": round(risk_reward, 2) if risk_reward is not None else None,
+    }
+
+
+def _limit_up_playbook_payload(
+    key_metrics: dict,
+    candidate: Optional[dict],
+    scan: dict,
+    data_health: dict,
+    entry_confirmation: dict,
+    safety: dict,
+) -> dict:
+    candidate = candidate or {}
+    scan = scan or {}
+    change_pct = _num(key_metrics.get("change_pct"), scan.get("change_pct"), candidate.get("change_pct"), default=0.0) or 0.0
+    near_limit = bool(key_metrics.get("near_limit_up")) or change_pct >= 9
+    orderbook_status = str(entry_confirmation.get("orderbook_status") or "")
+    locked = bool(
+        scan.get("is_limit_up_locked")
+        or candidate.get("is_limit_up_locked")
+        or orderbook_status == "limit_up_locked"
+        or entry_confirmation.get("is_limit_up_locked")
+    )
+    if not near_limit and not locked:
+        return {
+            "visible": False,
+            "status": "not_near_limit",
+            "label": "未接近漲停",
+            "summary": "目前不是接近漲停型態，回到 VWAP、量比、突破與風控判斷。",
+        }
+
+    current_price = _num(key_metrics.get("current_price"), candidate.get("last_price"), scan.get("latest_price"))
+    stop_loss = _num(key_metrics.get("stop_loss"), candidate.get("stop_loss"))
+    stop_distance_pct = None
+    if current_price and stop_loss and current_price > stop_loss:
+        stop_distance_pct = round((current_price - stop_loss) / current_price * 100, 2)
+    risk_score = _num(key_metrics.get("risk_score"), candidate.get("risk_score"), scan.get("risk_score"), default=999.0) or 999.0
+    volume_ratio = _num(key_metrics.get("volume_ratio"), candidate.get("volume_ratio"), scan.get("volume_ratio"))
+    above_vwap = bool(scan.get("above_vwap") or candidate.get("above_vwap"))
+    data_live = bool(data_health.get("is_live") and data_health.get("can_use_for_intraday_signal"))
+    entry_status = str(safety.get("effective_entry_status") or candidate.get("entry_status") or scan.get("entry_status") or "")
+    confirmation_quality = str(entry_confirmation.get("confirmation_quality") or "")
+    large_trade_status = str(entry_confirmation.get("large_trade_status") or "")
+    warning_parts: list[str] = []
+    evidence: list[str] = []
+
+    if locked:
+        evidence.append("五檔顯示漲停鎖住或買盤堆積。")
+    if above_vwap:
+        evidence.append("股價仍站上 VWAP。")
+    if volume_ratio is not None and volume_ratio >= 1:
+        evidence.append(f"量比 {volume_ratio:.2f}x，短線資金有進場跡象。")
+    if large_trade_status in {"buy_sweep", "large_buy", "inflow"}:
+        evidence.append("逐筆顯示疑似大單敲進。")
+
+    if not data_live:
+        warning_parts.append("資料非 live，只能觀察。")
+    if entry_status in {"high_risk", "avoid", "data_missing"}:
+        warning_parts.append("模型狀態不是可進場型態。")
+    if not above_vwap:
+        warning_parts.append("尚未站上 VWAP。")
+    if stop_distance_pct is None:
+        warning_parts.append("缺停損距離，不能估算風險。")
+    elif stop_distance_pct > 3:
+        warning_parts.append(f"停損距離 {stop_distance_pct:.2f}% 偏大。")
+    if risk_score > 55:
+        warning_parts.append(f"風險分數 {risk_score:.0f} 偏高。")
+    if confirmation_quality in {"weak", "missing"}:
+        warning_parts.append("進場雷達確認不足。")
+    if large_trade_status in {"sell_sweep", "large_sell", "outflow"}:
+        warning_parts.append("逐筆疑似大單敲出。")
+
+    if warning_parts:
+        status = "limit_chase_risk"
+        label = "漲停追價風險"
+        summary = "強勢但不代表可以追；" + "；".join(warning_parts[:3])
+        now_action = "放進觀察，不直接追漲停。"
+        wait_for = "等待拉回 VWAP 附近不破、停損距離縮小，或進場雷達轉強後再評估。"
+        avoid = "不要因為快漲停就改成買多；不要把 high_risk 當成進場。"
+    elif locked:
+        status = "limit_locked_watch"
+        label = "漲停鎖住觀察"
+        summary = "買盤堆積且結構尚可，但漲停附近仍不適合直接追價。"
+        now_action = "只盯盤與記錄，不追價。"
+        wait_for = "若打開後回測不破 VWAP、買盤仍承接，再用進場雷達重新確認。"
+        avoid = "不要在漲停鎖住時用市價追。"
+    else:
+        status = "near_limit_watch"
+        label = "接近漲停觀察"
+        summary = "動能很強，但仍要等 VWAP、量能、停損距離與盤口確認。"
+        now_action = "先確認是否為真強延續，不提前追高。"
+        wait_for = "等突破後不回落、或拉回 VWAP 不破且量能維持。"
+        avoid = "不要買在距離 VWAP 過遠的位置。"
+
+    return {
+        "visible": True,
+        "status": status,
+        "label": label,
+        "summary": summary,
+        "now_action": now_action,
+        "wait_for": wait_for,
+        "avoid": avoid,
+        "evidence": _dedupe(evidence),
+        "warnings": _dedupe(warning_parts),
+        "change_pct": round(change_pct, 2),
+        "stop_distance_pct": stop_distance_pct,
+        "risk_score": round(risk_score, 2) if risk_score != 999.0 else None,
+        "volume_ratio": volume_ratio,
+        "above_vwap": above_vwap,
+        "data_live": data_live,
+        "is_limit_up_locked": locked,
+        "does_not_change_model": True,
     }
 
 
