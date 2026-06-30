@@ -20,6 +20,7 @@ from stock_daytrade_system.paper_trading import PaperTradingSummary
 from stock_daytrade_system.performance import SignalPerformanceSummary
 from stock_daytrade_system.scoring import CandidateScore, MarketBias
 from stock_daytrade_system.sectors import SectorOpeningStrength, SectorStrength
+from stock_daytrade_system.session_policy import time_bucket_for_market
 
 
 @dataclass(frozen=True)
@@ -895,8 +896,14 @@ def _today_playbook_panel(summary: Optional[LongModelSummary], report_time: date
     bearish = int(front_counts.get("看空", 0) or 0)
     radar_passed = int(checklist.get("executable", 0) or 0)
     mode_name = str(mode.get("mode") or "")
+    time_bucket = time_bucket_for_market(report_time, "TW")
 
-    if mode_name == "intraday":
+    if mode_name == "intraday" and time_bucket == "opening_observation":
+        headline = "開盤觀察 09:00-09:20：先看量價，不急著進場"
+        step_one = f"先看哪些股票仍站上 VWAP、量比開始放大；強烈買多 {strong} 檔、買多 {buy} 檔只列入盯盤。"
+        step_two = "等 5 到 20 分鐘形成開盤區間，再確認是否突破開盤高、守住 VWAP、買盤沒有退潮。"
+        step_three = "第一波急拉、接近漲停、high_risk 或停損距離過大的股票，不追；只等回測或雷達通過。"
+    elif mode_name == "intraday":
         headline = "盤中作戰：只盯通過資料與風控的標的"
         step_one = f"先看強烈買多 {strong} 檔、買多 {buy} 檔；進場雷達通過 {radar_passed} 檔才進入下一步。"
         step_two = "每檔都要確認 VWAP、量比、突破、停損距離與資料狀態；high_risk 只觀察，不追價。"

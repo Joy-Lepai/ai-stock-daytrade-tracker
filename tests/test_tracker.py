@@ -1381,6 +1381,32 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("09:00 後先等 5 到 10 分鐘", html)
         self.assertIn("資料沒有 live 前，不做強烈買多判斷", html)
 
+    def test_today_playbook_opening_observation_warns_not_to_chase_first_move(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={"executable": 0},
+            diagnostics={
+                "data_health": {
+                    "status": "正常",
+                    "data_date": "2026-06-25",
+                    "latest_intraday_at": "2026-06-25T09:05:00+08:00",
+                }
+            },
+        )
+
+        html = _today_playbook_panel(summary, datetime(2026, 6, 25, 9, 5))
+
+        self.assertIn("開盤觀察 09:00-09:20", html)
+        self.assertIn("先看量價，不急著進場", html)
+        self.assertIn("形成開盤區間", html)
+        self.assertIn("第一波急拉", html)
+        self.assertIn("不追", html)
+
     def test_candidate_selection_explainer_shows_pool_flow_and_blockers(self):
         summary = LongModelSummary(
             candidates=[],
