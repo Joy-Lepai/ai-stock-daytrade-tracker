@@ -1242,6 +1242,11 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("漲停真漏抓", html)
         self.assertIn("已看到的高風險股不等於看空，而是避免追價", html)
         self.assertIn("其中 9 檔被列為追價高風險", html)
+        self.assertIn("現在先做", html)
+        self.assertIn("等到什麼", html)
+        self.assertIn("不要做", html)
+        self.assertIn("拉回 VWAP", html)
+        self.assertIn("不要在漲停附近直接追價", html)
 
     def test_front_category_diagnostics_warns_when_bearish_ratio_is_abnormally_high(self):
         bearish_items = [

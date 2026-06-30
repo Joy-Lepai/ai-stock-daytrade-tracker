@@ -1147,21 +1147,39 @@ def _limit_up_brief(data: dict) -> dict:
     if count <= 0:
         headline = "目前沒有接近漲停或漲停鎖住的掃描標的。"
         reminder = ""
+        action = "不用追漲停，回到強烈買多漏斗與進場雷達。"
+        wait_for = "等待新的異動候選或重點觀察股觸發。"
+        avoid = "不要因為別處看到漲停新聞就臨時改模型。"
     elif missed > 0:
         headline = f"有 {count} 檔接近漲停 / 漲停，其中 {missed} 檔是真漏抓，需檢查候選池或資料源。"
         reminder = f"漲停強勢股診斷顯示 {missed} 檔真漏抓，先看資料源與候選池門檻，不要只看四分類結果。"
+        action = "先查真漏抓清單與 reason code，確認是否資料源、候選池門檻或上市櫃池問題。"
+        wait_for = "等全市場掃描與資料源恢復後，再重新送進模型評分。"
+        avoid = "不要手動把漏抓股直接升級買多。"
     elif high_risk > 0:
         headline = f"有 {count} 檔接近漲停 / 漲停，系統有看到；其中 {high_risk} 檔被列為追價高風險。"
         reminder = f"今天有 {count} 檔接近漲停 / 漲停，已看到的高風險股不等於看空，而是避免追價。"
+        action = "先看 high_risk 股票是否拉回 VWAP 附近、停損距離縮小，或進場雷達轉強。"
+        wait_for = "等待拉回不破 VWAP、量能延續、五檔賣壓降低或重新突破後再評估。"
+        avoid = "不要在漲停附近直接追價，也不要把 high_risk 當成可進場。"
     elif entered > 0:
         headline = f"有 {count} 檔接近漲停 / 漲停，其中 {entered} 檔進入 A/B+/B 觀察層。"
         reminder = f"接近漲停股已有 {entered} 檔進入模型層，仍需看 VWAP、停損距離與進場雷達。"
+        action = "只盯已進 A/B+/B 的標的，逐檔檢查停損距離與進場雷達。"
+        wait_for = "等待進場雷達通過，或等待拉回後仍站穩 VWAP。"
+        avoid = "不要因為進入模型層就省略停損與部位風控。"
     elif data_missing > 0:
         headline = f"有 {count} 檔接近漲停 / 漲停，但 {data_missing} 檔資料不足。"
         reminder = f"接近漲停股有資料不足，不能硬判買多。"
+        action = "先看資料狀態與最後更新時間，必要時更新重點觀察或完整刷新。"
+        wait_for = "等待 price_status 回到 live，且 VWAP、量比與停損價都完整。"
+        avoid = "不要用 cached / delayed / missing 資料做即時進場。"
     else:
         headline = f"有 {count} 檔接近漲停 / 漲停，已列入診斷觀察。"
         reminder = f"接近漲停股需先看追價風險與停損距離，不直接升級買多。"
+        action = "先看每檔最大卡關原因，再決定是否只放觀察。"
+        wait_for = "等待 VWAP、量比、突破與風控同時改善。"
+        avoid = "不要只因漲幅大就追。"
     return {
         "count": count,
         "high_risk": high_risk,
@@ -1170,6 +1188,9 @@ def _limit_up_brief(data: dict) -> dict:
         "data_missing": data_missing,
         "headline": headline,
         "reminder": reminder,
+        "action": action,
+        "wait_for": wait_for,
+        "avoid": avoid,
     }
 
 
@@ -1180,6 +1201,11 @@ def _limit_up_brief_notice(brief: dict) -> str:
         '<section class="notice">'
         f'<strong>漲停強勢速讀</strong><br>{escape(str(brief.get("headline") or ""))}'
         '<br><span class="muted">接近漲停代表動能強，但也可能是追價高風險；請往下看「漲停強勢股診斷」確認是有看到、等待確認、資料不足，還是真漏抓。</span>'
+        '<div class="decision-grid">'
+        f'<div class="decision-panel"><strong>現在先做</strong><p class="muted">{escape(str(brief.get("action") or ""))}</p></div>'
+        f'<div class="decision-panel"><strong>等到什麼</strong><p class="muted">{escape(str(brief.get("wait_for") or ""))}</p></div>'
+        f'<div class="decision-panel"><strong>不要做</strong><p class="muted">{escape(str(brief.get("avoid") or ""))}</p></div>'
+        '</div>'
         '</section>'
     )
 
