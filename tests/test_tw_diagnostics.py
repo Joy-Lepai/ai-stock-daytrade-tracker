@@ -193,8 +193,13 @@ class TWDiagnosticsTests(unittest.TestCase):
         self.assertEqual(limit_up["seen_count"], 1)
         self.assertEqual(limit_up["high_risk_count"], 1)
         self.assertEqual(limit_up["missed_by_pool_count"], 0)
+        self.assertEqual(limit_up["chase_risk_count"], 1)
+        self.assertIn("追價風險高", limit_up["action_summary"])
         self.assertEqual(limit_up["rows"][0]["limit_up_decision"], "有看到，但追價風險高")
         self.assertIn("不列入今日做多", limit_up["rows"][0]["limit_up_explanation"])
+        self.assertEqual(limit_up["rows"][0]["limit_up_action_type"], "chase_risk")
+        self.assertIn("不直接追漲停", limit_up["rows"][0]["limit_up_now_action"])
+        self.assertIn("拉回 VWAP", limit_up["rows"][0]["limit_up_wait_for"])
 
 
 if __name__ == "__main__":

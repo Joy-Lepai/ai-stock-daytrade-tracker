@@ -19,6 +19,7 @@ from stock_daytrade_system.tracker import (
     _focus_card,
     _fugle_priority_pool_panel,
     _grade_label,
+    _limit_up_strength_panel,
     _market_mode_panel,
     _recommendation_checklist_table,
     _signal_center,
@@ -1247,6 +1248,63 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("不要做", html)
         self.assertIn("拉回 VWAP", html)
         self.assertIn("不要在漲停附近直接追價", html)
+
+    def test_limit_up_strength_panel_shows_action_split_and_next_step(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            diagnostics={
+                "limit_up_strength_analysis": {
+                    "definition": "此區只診斷漲停或接近漲停強勢股；不會把追價高風險股票升級成買多。",
+                    "near_limit_up_count": 2,
+                    "seen_count": 2,
+                    "entered_ai_count": 0,
+                    "locked_count": 1,
+                    "chase_risk_count": 1,
+                    "wait_confirm_count": 0,
+                    "high_risk_count": 1,
+                    "avoid_count": 0,
+                    "data_missing_count": 0,
+                    "missed_by_pool_count": 0,
+                    "not_buy_reason": "接近漲停不直接顯示買多。",
+                    "action_summary": "1 檔鎖漲停先觀察；1 檔追價風險高。",
+                    "rows": [
+                        {
+                            "symbol": "8150.TW",
+                            "name": "南茂",
+                            "latest_at": "2026-06-30T09:35:00+08:00",
+                            "limit_up_status": "接近漲停",
+                            "change_pct": 9.8,
+                            "latest_price": 58.5,
+                            "volume_ratio": 4.2,
+                            "above_vwap": True,
+                            "break_prev_high": True,
+                            "ai_grade": "C",
+                            "entry_status": "high_risk",
+                            "limit_up_decision": "有看到，但追價風險高",
+                            "limit_up_explanation": "強勢但追價風險高，不列入今日做多。",
+                            "limit_up_now_action": "放進觀察，不直接追漲停。",
+                            "limit_up_wait_for": "等待拉回 VWAP 附近不破、停損距離縮小。",
+                            "reason_code": "high_chase_risk",
+                        }
+                    ],
+                }
+            },
+        )
+
+        html = _limit_up_strength_panel(summary)
+
+        self.assertIn("鎖漲停觀察", html)
+        self.assertIn("追價風險", html)
+        self.assertIn("下一步", html)
+        self.assertIn("不直接追漲停", html)
+        self.assertIn("等待拉回 VWAP", html)
 
     def test_front_category_diagnostics_warns_when_bearish_ratio_is_abnormally_high(self):
         bearish_items = [

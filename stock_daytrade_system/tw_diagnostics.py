@@ -76,6 +76,9 @@ def _limit_up_strength_analysis(scan_items: list[dict], candidates: list[LongCan
     avoid_count = 0
     data_missing_count = 0
     missed_count = 0
+    locked_count = 0
+    chase_risk_count = 0
+    wait_confirm_count = 0
     for item in scan_items:
         row = _diagnostic_row(item, candidate_map.get(str(item.get("symbol", ""))))
         if not _is_near_limit_up_item(item, row):
@@ -93,6 +96,11 @@ def _limit_up_strength_analysis(scan_items: list[dict], candidates: list[LongCan
         row["limit_up_status"] = _limit_up_status_label(item, row)
         row["limit_up_decision"] = _limit_up_decision_label(row)
         row["limit_up_explanation"] = _limit_up_explanation(row)
+        action_plan = _limit_up_action_plan(row)
+        row.update(action_plan)
+        locked_count += 1 if row["limit_up_status"] == "漲停鎖住" else 0
+        chase_risk_count += 1 if action_plan["limit_up_action_type"] == "chase_risk" else 0
+        wait_confirm_count += 1 if action_plan["limit_up_action_type"] == "wait_confirm" else 0
         rows.append(row)
     rows.sort(
         key=lambda item: (
@@ -110,7 +118,19 @@ def _limit_up_strength_analysis(scan_items: list[dict], candidates: list[LongCan
         "avoid_count": avoid_count,
         "data_missing_count": data_missing_count,
         "missed_by_pool_count": missed_count,
+        "locked_count": locked_count,
+        "chase_risk_count": chase_risk_count,
+        "wait_confirm_count": wait_confirm_count,
         "not_buy_reason": "接近漲停通常代表動能強，但也常伴隨停損距離大、追價風險高或五檔鎖價；系統會先列為觀察或 high_risk，而不是直接顯示買多。",
+        "action_summary": _limit_up_action_summary(
+            total=len(rows),
+            locked=locked_count,
+            chase_risk=chase_risk_count,
+            wait_confirm=wait_confirm_count,
+            data_missing=data_missing_count,
+            missed=missed_count,
+            entered=entered_count,
+        ),
         "rows": rows[:40],
     }
 
@@ -177,6 +197,106 @@ def _limit_up_explanation(row: dict) -> str:
     if row.get("diagnostic_bucket") == "missed_by_pool":
         return "符合強勢條件但沒有進入候選池，需檢查掃描門檻或資料源。"
     return reason or "條件未完整，先列入觀察，不包裝成買多。"
+
+
+def _limit_up_action_plan(row: dict) -> dict:
+    status = str(row.get("entry_status") or "")
+    reason_code = str(row.get("reason_code") or "")
+    limit_status = str(row.get("limit_up_status") or "")
+    if row.get("diagnostic_bucket") == "missed_by_pool":
+        return {
+            "limit_up_action_type": "missed",
+            "limit_up_now_action": "檢查候選池與資料源，不手動升級買多。",
+            "limit_up_wait_for": "等待下一次全市場掃描重新納入模型評分。",
+            "limit_up_avoid": "不要因為真漏抓就臨時放寬模型。",
+        }
+    if reason_code in {"data_missing", "data_insufficient", "yahoo_intraday_failed"}:
+        return {
+            "limit_up_action_type": "data_missing",
+            "limit_up_now_action": "先確認資料來源與最後更新時間。",
+            "limit_up_wait_for": "等待 price_status 回到 live，且 VWAP、量比、停損價完整。",
+            "limit_up_avoid": "不要用資料不足的漲停股做即時進場。",
+        }
+    if status == "high_risk":
+        return {
+            "limit_up_action_type": "chase_risk",
+            "limit_up_now_action": "放進觀察，不直接追漲停。",
+            "limit_up_wait_for": "等待拉回 VWAP 附近不破、停損距離縮小，或進場雷達轉強。",
+            "limit_up_avoid": "不要把 high_risk 當成可進場。",
+        }
+    if status == "avoid":
+        return {
+            "limit_up_action_type": "avoid",
+            "limit_up_now_action": "暫不做多，只觀察是否重新站回多方結構。",
+            "limit_up_wait_for": "等待重新站上 VWAP、突破有效，且風險分數下降。",
+            "limit_up_avoid": "不要用漲幅掩蓋多方結構失效。",
+        }
+    if status.startswith("wait_"):
+        return {
+            "limit_up_action_type": "wait_confirm",
+            "limit_up_now_action": "等待缺口條件補齊，不提前追價。",
+            "limit_up_wait_for": _limit_up_wait_for_status(status),
+            "limit_up_avoid": "不要在確認條件未成立前追第一波。",
+        }
+    if row.get("entered_ai_candidates"):
+        return {
+            "limit_up_action_type": "model_watch",
+            "limit_up_now_action": "只盯已進模型層標的，逐檔看進場雷達。",
+            "limit_up_wait_for": "等待停損距離合理、VWAP 守住、量能延續與雷達確認。",
+            "limit_up_avoid": "不要因已進 A/B+/B 就省略停損。",
+        }
+    if limit_status == "漲停鎖住":
+        return {
+            "limit_up_action_type": "locked_watch",
+            "limit_up_now_action": "漲停鎖住只記錄與觀察，不用市價追。",
+            "limit_up_wait_for": "若打開後回測不破 VWAP、買盤仍承接，再重新評估。",
+            "limit_up_avoid": "不要在鎖漲停時追價。",
+        }
+    return {
+        "limit_up_action_type": "watch",
+        "limit_up_now_action": "先看 VWAP、停損距離與追價風險。",
+        "limit_up_wait_for": "等待回測不破或進場雷達轉強。",
+        "limit_up_avoid": "不要只因接近漲停就追。",
+    }
+
+
+def _limit_up_wait_for_status(status: str) -> str:
+    return {
+        "wait_vwap": "等待股價站回 VWAP 並維持。",
+        "wait_volume": "等待量比放大並維持，避免無量拉抬。",
+        "wait_breakout": "等待突破觸發價或昨日高點後不回落。",
+        "wait_pullback": "等待拉回 VWAP 附近不破再觀察。",
+    }.get(status, "等待 VWAP、量比、突破與風控條件補齊。")
+
+
+def _limit_up_action_summary(
+    *,
+    total: int,
+    locked: int,
+    chase_risk: int,
+    wait_confirm: int,
+    data_missing: int,
+    missed: int,
+    entered: int,
+) -> str:
+    if total <= 0:
+        return "目前沒有接近漲停或漲停鎖住標的。"
+    parts = []
+    if locked:
+        parts.append(f"{locked} 檔鎖漲停先觀察")
+    if chase_risk:
+        parts.append(f"{chase_risk} 檔追價風險高")
+    if wait_confirm:
+        parts.append(f"{wait_confirm} 檔等待確認")
+    if entered:
+        parts.append(f"{entered} 檔已進模型層")
+    if data_missing:
+        parts.append(f"{data_missing} 檔資料不足")
+    if missed:
+        parts.append(f"{missed} 檔真漏抓")
+    if not parts:
+        parts.append(f"{total} 檔已列入漲停觀察")
+    return "；".join(parts) + "。"
 
 
 def model_conditions() -> dict:

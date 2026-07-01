@@ -1151,6 +1151,9 @@ def _limit_up_brief(data: dict) -> dict:
     entered = int(data.get("entered_ai_count", 0) or 0)
     missed = int(data.get("missed_by_pool_count", 0) or 0)
     data_missing = int(data.get("data_missing_count", 0) or 0)
+    locked = int(data.get("locked_count", 0) or 0)
+    wait_confirm = int(data.get("wait_confirm_count", 0) or 0)
+    action_summary = str(data.get("action_summary") or "")
     if count <= 0:
         headline = "目前沒有接近漲停或漲停鎖住的掃描標的。"
         reminder = ""
@@ -1164,11 +1167,23 @@ def _limit_up_brief(data: dict) -> dict:
         wait_for = "等全市場掃描與資料源恢復後，再重新送進模型評分。"
         avoid = "不要手動把漏抓股直接升級買多。"
     elif high_risk > 0:
-        headline = f"有 {count} 檔接近漲停 / 漲停，系統有看到；其中 {high_risk} 檔被列為追價高風險。"
+        headline = f"有 {count} 檔接近漲停 / 漲停，系統有看到；{action_summary or f'其中 {high_risk} 檔被列為追價高風險。'}"
         reminder = f"今天有 {count} 檔接近漲停 / 漲停，已看到的高風險股不等於看空，而是避免追價。"
         action = "先看 high_risk 股票是否拉回 VWAP 附近、停損距離縮小，或進場雷達轉強。"
         wait_for = "等待拉回不破 VWAP、量能延續、五檔賣壓降低或重新突破後再評估。"
         avoid = "不要在漲停附近直接追價，也不要把 high_risk 當成可進場。"
+    elif locked > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停；{action_summary or f'{locked} 檔鎖漲停先觀察。'}"
+        reminder = "鎖漲停代表買盤堆積，但不能用市價追；重點是打開後是否承接。"
+        action = "只記錄與盯盤，等打開後看 VWAP 是否守住、買盤是否延續。"
+        wait_for = "等待打開後回測不破 VWAP、停損距離合理、進場雷達轉強。"
+        avoid = "不要在鎖漲停時追價，也不要把鎖住視為保證續強。"
+    elif wait_confirm > 0:
+        headline = f"有 {count} 檔接近漲停 / 漲停；{action_summary or f'{wait_confirm} 檔仍等待確認。'}"
+        reminder = "急拉股已被看到，但仍缺 VWAP、量能、突破或停損距離確認。"
+        action = "逐檔看下一步條件，不提前追第一波。"
+        wait_for = "等待缺口條件補齊，或拉回不破後再重新評估。"
+        avoid = "不要把等待確認包裝成買多。"
     elif entered > 0:
         headline = f"有 {count} 檔接近漲停 / 漲停，其中 {entered} 檔進入 A/B+/B 觀察層。"
         reminder = f"接近漲停股已有 {entered} 檔進入模型層，仍需看 VWAP、停損距離與進場雷達。"
@@ -1193,6 +1208,9 @@ def _limit_up_brief(data: dict) -> dict:
         "entered": entered,
         "missed": missed,
         "data_missing": data_missing,
+        "locked": locked,
+        "wait_confirm": wait_confirm,
+        "action_summary": action_summary,
         "headline": headline,
         "reminder": reminder,
         "action": action,
@@ -3008,6 +3026,9 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
         f'{_metric("接近漲停 / 漲停", int(data.get("near_limit_up_count", 0)))}'
         f'{_metric("系統有看到", int(data.get("seen_count", 0)))}'
         f'{_metric("進入 A/B+/B", int(data.get("entered_ai_count", 0)))}'
+        f'{_metric("鎖漲停觀察", int(data.get("locked_count", 0)))}'
+        f'{_metric("追價風險", int(data.get("chase_risk_count", 0)))}'
+        f'{_metric("等待確認", int(data.get("wait_confirm_count", 0)))}'
         f'{_metric("high_risk 觀察", int(data.get("high_risk_count", 0)))}'
         f'{_metric("avoid", int(data.get("avoid_count", 0)))}'
         f'{_metric("資料不足", int(data.get("data_missing_count", 0)))}'
@@ -3029,6 +3050,7 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
             f'<td>{escape(str(item.get("ai_grade", "-")))}</td>'
             f'<td>{escape(_entry_status_label(str(item.get("entry_status", "-"))))}</td>'
             f'<td><strong>{escape(str(item.get("limit_up_decision", "-")))}</strong><br><span class="muted">{escape(str(item.get("limit_up_explanation", "-")))}</span></td>'
+            f'<td><strong>{escape(str(item.get("limit_up_now_action", "-")))}</strong><br><span class="muted">等：{escape(str(item.get("limit_up_wait_for", "-")))}</span></td>'
             f'<td>{escape(str(item.get("reason_code", "-")))}</td>'
             '</tr>'
         )
@@ -3042,9 +3064,9 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
         '<th data-sort="text">股票</th><th data-sort="text">漲停狀態</th><th data-sort="number">漲幅</th>'
         '<th data-sort="number">現價</th><th data-sort="number">量比</th><th data-sort="text">站上 VWAP</th>'
         '<th data-sort="text">突破昨高</th><th data-sort="text">AI 分級</th><th data-sort="text">entry_status</th>'
-        '<th>系統判斷</th><th data-sort="text">reason code</th>'
+        '<th>系統判斷</th><th>下一步</th><th data-sort="text">reason code</th>'
         '</tr></thead><tbody>'
-        + ("".join(body) or '<tr><td colspan="11">目前沒有接近漲停或漲停鎖住的掃描標的。</td></tr>')
+        + ("".join(body) or '<tr><td colspan="12">目前沒有接近漲停或漲停鎖住的掃描標的。</td></tr>')
         + '</tbody></table></div>'
     )
 
