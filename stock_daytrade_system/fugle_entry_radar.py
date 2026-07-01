@@ -47,6 +47,17 @@ def enrich_fugle_priority_pool(
                 "planned_api_calls": 0,
                 "actual_api_calls": 0,
                 "api_budget_message": _api_budget_message(0, 0),
+                "entry_radar_health": _entry_radar_health(
+                    selected_count=0,
+                    tracking_limit=_priority_pool_limit(),
+                    success_count=0,
+                    failed_count=0,
+                    skipped_count=0,
+                    actual_api_calls=0,
+                    planned_api_calls=0,
+                    status="empty",
+                    message="目前沒有符合 Fugle 進場雷達追蹤池的股票。",
+                ),
             }
         )
         return payload
@@ -64,6 +75,17 @@ def enrich_fugle_priority_pool(
                 "entry_radar_status": "disabled" if not client.config.enabled else "not_configured",
                 "entry_radar_message": f"{reason}，已保留 5 檔追蹤池，但不抓五檔 / 逐筆資料。",
                 "selected": [_unavailable_item(item, reason=reason) for item in rows],
+                "entry_radar_health": _entry_radar_health(
+                    selected_count=len(rows),
+                    tracking_limit=_priority_pool_limit(),
+                    success_count=0,
+                    failed_count=len(rows),
+                    skipped_count=0,
+                    actual_api_calls=0,
+                    planned_api_calls=0,
+                    status="disabled" if not client.config.enabled else "not_configured",
+                    message=f"{reason}，保留追蹤池但不可做進場確認。",
+                ),
             }
         )
         return payload
@@ -99,6 +121,13 @@ def enrich_fugle_priority_pool(
         for item in skipped_rows
     ]
 
+    radar_status = "ok" if success_count and not failed_count and not skipped_items else "partial"
+    radar_message = (
+        f"Fugle 進場雷達只追蹤前 {tracking_limit} 檔；"
+        f"超過上限 {len(skipped_items)} 檔保留原模型觀察。"
+        if skipped_items
+        else "Fugle 進場雷達已更新。"
+    )
     payload.update(
         {
             "entry_radar_version": FUGLE_ENTRY_RADAR_VERSION,
@@ -110,14 +139,20 @@ def enrich_fugle_priority_pool(
             "planned_api_calls": len(rows_to_fetch) * 3,
             "actual_api_calls": api_calls,
             "api_budget_message": _api_budget_message(api_calls, len(rows_to_fetch) * 3),
-            "entry_radar_status": "ok" if success_count and not failed_count and not skipped_items else "partial",
-            "entry_radar_message": (
-                f"Fugle 進場雷達只追蹤前 {tracking_limit} 檔；"
-                f"超過上限 {len(skipped_items)} 檔保留原模型觀察。"
-                if skipped_items
-                else "Fugle 進場雷達已更新。"
-            ),
+            "entry_radar_status": radar_status,
+            "entry_radar_message": radar_message,
             "selected": enriched + skipped_items,
+            "entry_radar_health": _entry_radar_health(
+                selected_count=len(rows),
+                tracking_limit=tracking_limit,
+                success_count=success_count,
+                failed_count=failed_count,
+                skipped_count=len(skipped_items),
+                actual_api_calls=api_calls,
+                planned_api_calls=len(rows_to_fetch) * 3,
+                status=radar_status,
+                message=radar_message,
+            ),
         }
     )
     return payload
@@ -287,6 +322,61 @@ def _api_budget_message(actual_calls: int, planned_calls: int) -> str:
         f"若每 {interval_seconds // 60} 分鐘刷新，估計 {estimated_per_minute:.1f}/min，"
         f"基本限制 {calls_per_minute_limit}/min，狀態：{status}。"
     )
+
+
+def _entry_radar_health(
+    *,
+    selected_count: int,
+    tracking_limit: int,
+    success_count: int,
+    failed_count: int,
+    skipped_count: int,
+    actual_api_calls: int,
+    planned_api_calls: int,
+    status: str,
+    message: str,
+) -> dict[str, Any]:
+    interval_seconds = max(_env_int("FUGLE_PRIORITY_REFRESH_SECONDS", DEFAULT_FUGLE_REFRESH_INTERVAL_SECONDS), 60)
+    calls_per_minute_limit = _env_int("FUGLE_REST_CALLS_PER_MINUTE", DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE)
+    calls = int(actual_api_calls or planned_api_calls or 0)
+    estimated_per_minute = round((float(calls) / interval_seconds) * 60, 2)
+    api_budget_status = "safe" if estimated_per_minute <= calls_per_minute_limit * 0.8 else "near_limit"
+    if status in {"disabled", "not_configured"}:
+        operator_status = "not_ready"
+        next_action = "先完成 Fugle 設定；設定前只看原模型與資料可信度。"
+    elif status == "empty":
+        operator_status = "empty"
+        next_action = "等待強烈買多 / 買多 / 觀察池出現接近進場的股票。"
+    elif failed_count:
+        operator_status = "degraded"
+        next_action = "先看成功更新的股票；失敗股票等下一次刷新，不要用缺資料進場。"
+    elif skipped_count:
+        operator_status = "limited"
+        next_action = f"只盯前 {tracking_limit} 檔；超過上限的股票保留觀察，不做即時進場確認。"
+    else:
+        operator_status = "ready"
+        next_action = "逐檔確認五檔、逐筆、大單、價格墊高與 VWAP 後再行動。"
+    can_use_for_entry = operator_status == "ready"
+    can_use_partial = operator_status in {"ready", "limited", "degraded"}
+    return {
+        "status": status,
+        "operator_status": operator_status,
+        "message": message,
+        "next_action": next_action,
+        "selected_count": int(selected_count),
+        "tracking_limit": int(tracking_limit),
+        "success_count": int(success_count),
+        "failed_count": int(failed_count),
+        "skipped_count": int(skipped_count),
+        "actual_api_calls": int(actual_api_calls),
+        "planned_api_calls": int(planned_api_calls),
+        "refresh_interval_seconds": interval_seconds,
+        "calls_per_minute_limit": calls_per_minute_limit,
+        "estimated_calls_per_minute": estimated_per_minute,
+        "api_budget_status": api_budget_status,
+        "can_use_for_entry_confirmation": can_use_for_entry,
+        "can_use_partial_confirmation": can_use_partial,
+    }
 
 
 def _env_int(name: str, default: int) -> int:

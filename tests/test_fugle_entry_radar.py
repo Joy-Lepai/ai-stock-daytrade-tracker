@@ -130,6 +130,9 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(item["confirmation_quality"], "standard")
         self.assertEqual(item["confirmation_quality_label"], "標準確認")
         self.assertTrue(item["critical_data_ready"])
+        self.assertEqual(payload["entry_radar_health"]["operator_status"], "ready")
+        self.assertTrue(payload["entry_radar_health"]["can_use_for_entry_confirmation"])
+        self.assertIn("逐檔確認五檔", payload["entry_radar_health"]["next_action"])
 
     def test_symbol_failure_does_not_break_the_pool(self):
         with TemporaryDirectory() as directory:
@@ -148,6 +151,10 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(rows["6919.TW"]["fugle_confirmation_status"], "failed")
         self.assertIn("暫時無法更新", rows["6919.TW"]["entry_confirmation_summary"])
         self.assertNotIn("confirmation_quality", rows["6919.TW"])
+        self.assertEqual(payload["entry_radar_health"]["operator_status"], "degraded")
+        self.assertFalse(payload["entry_radar_health"]["can_use_for_entry_confirmation"])
+        self.assertTrue(payload["entry_radar_health"]["can_use_partial_confirmation"])
+        self.assertIn("失敗股票等下一次刷新", payload["entry_radar_health"]["next_action"])
 
     def test_disabled_fugle_marks_pool_without_calling_symbol_endpoints(self):
         client = FakeFugleClient()
@@ -168,6 +175,9 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(item["entry_confirmation_status_label"], "等待 Fugle 設定")
         self.assertFalse(item["entry_confirmation_can_consider"])
         self.assertEqual(item["confirmation_quality_label"], "暫不進場")
+        self.assertEqual(payload["entry_radar_health"]["operator_status"], "not_ready")
+        self.assertFalse(payload["entry_radar_health"]["can_use_for_entry_confirmation"])
+        self.assertIn("先完成 Fugle 設定", payload["entry_radar_health"]["next_action"])
 
     def test_basic_user_limit_only_fetches_first_five_symbols(self):
         symbols = ["2330.TW", "2317.TW", "2454.TW", "2886.TW", "6919.TW", "8150.TW"]
@@ -194,6 +204,11 @@ class FugleEntryRadarTests(unittest.TestCase):
         self.assertEqual(client.candle_calls, 5)
         self.assertEqual(rows["8150.TW"]["fugle_confirmation_status"], "disabled")
         self.assertIn("超過 Fugle 進場雷達 5 檔追蹤上限", rows["8150.TW"]["entry_confirmation_summary"])
+        self.assertEqual(payload["entry_radar_health"]["operator_status"], "limited")
+        self.assertFalse(payload["entry_radar_health"]["can_use_for_entry_confirmation"])
+        self.assertTrue(payload["entry_radar_health"]["can_use_partial_confirmation"])
+        self.assertEqual(payload["entry_radar_health"]["tracking_limit"], 5)
+        self.assertIn("只盯前 5 檔", payload["entry_radar_health"]["next_action"])
 
 
 if __name__ == "__main__":
