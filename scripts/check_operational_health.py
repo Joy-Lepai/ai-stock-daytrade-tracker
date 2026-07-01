@@ -148,6 +148,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
     plan = refresh_plan(payload, health)
     task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
     limit_up = _limit_up_report(health.get("limit_up_operational_summary") or payload.get("limit_up_operational_summary"))
+    fugle_tracking = _fugle_tracking_report(health.get("fugle_tracking") or payload.get("fugle_tracking"))
     return {
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
@@ -175,6 +176,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
         },
         "front_category_summary": _front_category_report(front),
         "limit_up_operational_summary": limit_up,
+        "fugle_tracking": fugle_tracking,
         "blockers": list(health.get("blockers") or []),
         "warnings": list(health.get("warnings") or []),
         "operator_steps": [str(item) for item in (health.get("operator_steps") or [])],
@@ -250,6 +252,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     plan = refresh_plan(payload, health)
     task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
     limit_up = _limit_up_report(health.get("limit_up_operational_summary") or payload.get("limit_up_operational_summary"))
+    fugle_tracking = _fugle_tracking_report(health.get("fugle_tracking") or payload.get("fugle_tracking"))
     lines = [
         "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
@@ -305,6 +308,19 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
                     f"- {title}: status={item.get('entry_status') or '-'} "
                     f"action={item.get('action') or '-'} avoid={item.get('avoid') or '-'}"
                 )
+    if fugle_tracking:
+        lines.append("fugle_tracking:")
+        lines.append(
+            "- "
+            f"count={fugle_tracking.get('count', 0)} "
+            f"source={fugle_tracking.get('source') or '-'} "
+            f"symbols={', '.join(fugle_tracking.get('symbols') or []) or '-'}"
+        )
+        if fugle_tracking.get("message"):
+            lines.append(f"- message: {fugle_tracking.get('message')}")
+        if fugle_tracking.get("how_to_change"):
+            lines.append(f"- how_to_change: {fugle_tracking.get('how_to_change')}")
+        lines.append("- safety: 指定追蹤只配置即時確認資源，不會改模型或推薦數量。")
     if payload.get("_health_source"):
         lines.append(f"source: {payload.get('_health_source')}")
     preflight = health.get("opening_preflight") if isinstance(health.get("opening_preflight"), dict) else {}
@@ -425,6 +441,26 @@ def _limit_up_report(summary: Any) -> dict[str, Any]:
         "risk_gate": str(summary.get("risk_gate") or ""),
         "top_symbols": [str(item) for item in (summary.get("top_symbols") or []) if str(item)],
         "top_watchlist": cleaned_watchlist,
+    }
+
+
+def _fugle_tracking_report(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        return {}
+    symbols = [str(item).strip().upper() for item in (value.get("symbols") or []) if str(item).strip()]
+    message = str(value.get("message") or "")
+    source = str(value.get("source") or "")
+    how_to_change = str(value.get("how_to_change") or "")
+    has_context = bool(symbols or message or source or how_to_change)
+    if not has_context:
+        return {}
+    return {
+        "count": _safe_int(value.get("count", len(symbols))),
+        "symbols": symbols,
+        "source": source,
+        "message": message,
+        "how_to_change": how_to_change,
+        "safety": "指定追蹤只配置即時確認資源，不會改模型或推薦數量。",
     }
 
 

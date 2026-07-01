@@ -124,6 +124,13 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                     "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
                 },
                 "limit_up_operational_summary": self._limit_up_summary(),
+                "fugle_tracking": {
+                    "count": 2,
+                    "symbols": ["6919.TW", "8150.TW"],
+                    "source": "config/watchlist.json + FUGLE_PRIORITY_SYMBOLS",
+                    "message": "Fugle 會優先把這些股票排入 5 檔即時追蹤池；指定追蹤只改即時確認資源，不會改模型或推薦數量。",
+                    "how_to_change": "Render Environment 可設定 FUGLE_PRIORITY_SYMBOLS。",
+                },
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -145,6 +152,11 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("limit_up_watchlist:", report)
         self.assertIn("8150.TW｜南茂: status=high_risk", report)
         self.assertIn("不要把 high_risk 當成買多", report)
+        self.assertIn("fugle_tracking:", report)
+        self.assertIn("count=2", report)
+        self.assertIn("6919.TW, 8150.TW", report)
+        self.assertIn("指定追蹤只配置即時確認資源，不會改模型或推薦數量", report)
+        self.assertIn("Render Environment 可設定 FUGLE_PRIORITY_SYMBOLS", report)
         self.assertIn("refresh_plan: /refresh_watchlist", report)
         self.assertIn("/api/operator/runbook", report)
         self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
@@ -177,6 +189,13 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                     "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
                 },
                 "limit_up_operational_summary": self._limit_up_summary(),
+                "fugle_tracking": {
+                    "count": 2,
+                    "symbols": ["6919.TW", "8150.TW"],
+                    "source": "config/watchlist.json + FUGLE_PRIORITY_SYMBOLS",
+                    "message": "Fugle 會優先把這些股票排入 5 檔即時追蹤池；指定追蹤只改即時確認資源，不會改模型或推薦數量。",
+                    "how_to_change": "Render Environment 可設定 FUGLE_PRIORITY_SYMBOLS。",
+                },
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -199,6 +218,9 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["limit_up_operational_summary"]["near_limit_up_count"], 2)
         self.assertEqual(report["limit_up_operational_summary"]["top_watchlist"][0]["symbol"], "8150.TW")
         self.assertIn("不可直接升級買多", report["limit_up_operational_summary"]["risk_gate"])
+        self.assertEqual(report["fugle_tracking"]["count"], 2)
+        self.assertEqual(report["fugle_tracking"]["symbols"], ["6919.TW", "8150.TW"])
+        self.assertIn("不會改模型或推薦數量", report["fugle_tracking"]["safety"])
         self.assertEqual(
             report["front_category_summary"]["no_signal_reason"],
             "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
