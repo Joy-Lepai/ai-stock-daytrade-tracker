@@ -586,6 +586,10 @@ def _limit_up_summary_valid(value: Any) -> bool:
         return False
     if not bool(value.get("summary")) or not bool(value.get("action")) or not bool(value.get("risk_gate")):
         return False
+    if not bool(value.get("market_phase_label")) or not bool(value.get("operator_priority")):
+        return False
+    if not bool(value.get("market_phase")) or not bool(value.get("market_phase_summary")):
+        return False
     if "top_watchlist" in value and not isinstance(value.get("top_watchlist"), list):
         return False
     return True
@@ -603,7 +607,7 @@ def _limit_up_summary_has_context(value: Any) -> bool:
         "data_missing_count",
     )
     return any(_to_int(value.get(key)) > 0 for key in count_keys) or any(
-        bool(value.get(key)) for key in ("summary", "action", "risk_gate", "top_watchlist")
+        bool(value.get(key)) for key in ("summary", "action", "risk_gate", "market_phase_label", "operator_priority", "top_watchlist")
     )
 
 
@@ -616,6 +620,7 @@ def _limit_up_summary_detail(value: Any) -> str:
         f"near_limit_up={value.get('near_limit_up_count', '-')} "
         f"high_risk={value.get('high_risk_count', '-')} "
         f"wait_confirm={value.get('wait_confirm_count', '-')} "
+        f"phase={value.get('market_phase_label', '-')} "
         f"top_watchlist={top_count}"
     )
 
@@ -629,9 +634,10 @@ def _health_surfaces_limit_up_guidance(value: Any) -> bool:
     briefing = value.get("operator_briefing") if isinstance(value.get("operator_briefing"), dict) else {}
     briefing_text = " ".join(str(briefing.get(key) or "") for key in ("headline", "posture", "risk_gate", "next_check"))
     has_action = _contains_any(do_now + [briefing_text], ("急拉", "漲停"))
+    has_priority = _contains_any(do_now + [briefing_text], ("操作優先", "拉回", "VWAP", "停損距離", "逐檔"))
     has_risk_gate = _contains_any(do_not + [briefing_text], ("追價", "不可直接升級買多", "high_risk"))
     has_check = _contains_any(checklist + [briefing_text], ("VWAP", "量比", "急拉", "漲停"))
-    return has_action and has_risk_gate and has_check
+    return has_action and has_priority and has_risk_gate and has_check
 
 
 def _health_limit_up_guidance_detail(value: Any) -> str:
@@ -773,6 +779,8 @@ def validate_dashboard_html(html: str) -> list[Check]:
         marker in html
         for marker in [
             "漲停強勢速讀",
+            "漲停盤面",
+            "操作優先順序",
             "不會把追價高風險股票升級成買多",
         ]
     )

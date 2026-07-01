@@ -112,6 +112,10 @@ class OperationalHealthTests(unittest.TestCase):
                 "summary": "4 檔追價風險高；2 檔等待確認。",
                 "action": "先看漲停強勢速讀與 /tw/advisor 急拉作戰卡。",
                 "risk_gate": "接近漲停不可直接升級買多。",
+                "market_phase": "broad_limit_wave_chase_risk",
+                "market_phase_label": "漲停潮但追價風險主導",
+                "market_phase_summary": "今天有 6 檔接近漲停 / 急拉，且多數被列為追價高風險；盤面很熱，但不代表適合直接追。",
+                "operator_priority": "先挑已看到但 high_risk 的股票，等拉回 VWAP 附近不破、停損距離縮小，再重新評估。",
             },
             "required_stale_layers": [],
             "stale_layers": [],
@@ -124,11 +128,13 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertEqual(health["status"], "ok")
         self.assertTrue(health["can_show_strong_long"])
         self.assertEqual(health["limit_up_operational_summary"]["near_limit_up_count"], 6)
-        self.assertIn("追價風險高", health["primary_focus"])
+        self.assertIn("盤面很熱", health["primary_focus"])
+        self.assertIn("漲停潮但追價風險主導", health["operator_briefing"]["headline"])
+        self.assertIn("拉回 VWAP", health["operator_briefing"]["next_check"])
         self.assertIn("急拉作戰卡", health["do_now"][0])
+        self.assertIn("拉回 VWAP", " ".join(health["do_now"]))
         self.assertIn("接近漲停不可直接升級買多", health["do_not_do"][0])
         self.assertIn("急拉股是否仍站上 VWAP？", health["decision_checklist"])
-        self.assertIn("急拉 / 漲停盤", health["operator_briefing"]["headline"])
 
     def test_stale_required_layer_blocks_dashboard(self):
         payload = {

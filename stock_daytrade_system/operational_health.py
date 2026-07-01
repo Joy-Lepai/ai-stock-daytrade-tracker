@@ -331,8 +331,14 @@ def _operator_briefing(
         and status != "blocked"
         and _int(limit_context.get("near_limit_up_count")) > 0
     ):
-        headline = "急拉 / 漲停盤：先看追價風險與進場雷達"
-        next_check = str(limit_context.get("summary") or next_check)
+        phase_label = str(limit_context.get("market_phase_label") or "急拉 / 漲停盤")
+        headline = f"{phase_label}：先看追價風險與進場雷達"
+        next_check = str(
+            limit_context.get("operator_priority")
+            or limit_context.get("market_phase_summary")
+            or limit_context.get("summary")
+            or next_check
+        )
         risk_gate = str(limit_context.get("risk_gate") or "接近漲停不可直接升級買多。")
 
     return {
@@ -560,8 +566,10 @@ def _apply_limit_up_context(operator_mode: dict[str, Any], limit_up_summary: dic
     checklist = list(updated.get("decision_checklist") or [])
     action = str(limit_up_summary.get("action") or "先看漲停強勢速讀與急拉作戰卡。")
     risk_gate = str(limit_up_summary.get("risk_gate") or "接近漲停不可直接升級買多。")
-    updated["primary_focus"] = str(limit_up_summary.get("summary") or updated.get("primary_focus") or "")
-    updated["do_now"] = _dedupe([action] + do_now)
+    phase_summary = str(limit_up_summary.get("market_phase_summary") or limit_up_summary.get("summary") or "")
+    operator_priority = str(limit_up_summary.get("operator_priority") or "")
+    updated["primary_focus"] = phase_summary or str(updated.get("primary_focus") or "")
+    updated["do_now"] = _dedupe([action, operator_priority] + do_now)
     updated["do_not_do"] = _dedupe([risk_gate] + do_not_do)
     updated["decision_checklist"] = _dedupe(
         [

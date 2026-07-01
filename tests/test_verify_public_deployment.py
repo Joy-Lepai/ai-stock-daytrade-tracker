@@ -61,6 +61,10 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "summary": "1 檔追價風險高。",
             "action": "先看漲停強勢速讀與急拉作戰卡。",
             "risk_gate": "接近漲停不可直接升級買多。",
+            "market_phase": "selective_chase_risk",
+            "market_phase_label": "零星急拉追價風險",
+            "market_phase_summary": "目前有 1 檔急拉 / 接近漲停，其中 1 檔追價風險偏高。",
+            "operator_priority": "不要追第一波；等拉回不破、停損距離合理或雷達轉強。",
             "top_watchlist": [
                 {
                     "symbol": "8150.TW",
@@ -976,7 +980,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
         系統狀態與資料來源 看盤狀態 刷新順序
         <div class="metric"><span>接近漲停 / 漲停</span><strong>6</strong></div>
-        漲停強勢速讀 不會把追價高風險股票升級成買多
+        漲停強勢速讀 漲停盤面 操作優先順序 不會把追價高風險股票升級成買多
         """
 
         checks = validate_dashboard_html(html)

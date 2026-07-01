@@ -295,6 +295,10 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         )
         if limit_up.get("summary"):
             lines.append(f"- summary: {limit_up.get('summary')}")
+        if limit_up.get("market_phase_label"):
+            lines.append(f"- market_phase: {limit_up.get('market_phase_label')}")
+        if limit_up.get("operator_priority"):
+            lines.append(f"- operator_priority: {limit_up.get('operator_priority')}")
         if limit_up.get("action"):
             lines.append(f"- action: {limit_up.get('action')}")
         if limit_up.get("risk_gate"):
@@ -439,6 +443,10 @@ def _limit_up_report(summary: Any) -> dict[str, Any]:
         "summary": str(summary.get("summary") or ""),
         "action": str(summary.get("action") or ""),
         "risk_gate": str(summary.get("risk_gate") or ""),
+        "market_phase": str(summary.get("market_phase") or ""),
+        "market_phase_label": str(summary.get("market_phase_label") or ""),
+        "market_phase_summary": str(summary.get("market_phase_summary") or ""),
+        "operator_priority": str(summary.get("operator_priority") or ""),
         "top_symbols": [str(item) for item in (summary.get("top_symbols") or []) if str(item)],
         "top_watchlist": cleaned_watchlist,
     }

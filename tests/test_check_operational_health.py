@@ -17,6 +17,10 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
             "summary": "1 檔追價風險高；1 檔等待確認。",
             "action": "先看漲停強勢速讀與急拉作戰卡。",
             "risk_gate": "接近漲停不可直接升級買多。",
+            "market_phase": "selective_chase_risk",
+            "market_phase_label": "零星急拉追價風險",
+            "market_phase_summary": "目前有 2 檔急拉 / 接近漲停，其中 1 檔追價風險偏高。",
+            "operator_priority": "不要追第一波；等拉回不破、停損距離合理或雷達轉強。",
             "top_symbols": ["8150.TW｜南茂", "6919.TW｜康霈"],
             "top_watchlist": [
                 {
@@ -147,6 +151,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("front_no_signal_reason: 目前沒有強烈買多，先看買多清單的下一步觸發條件。", report)
         self.assertIn("limit_up_operational_summary:", report)
         self.assertIn("near_limit_up=2", report)
+        self.assertIn("market_phase: 零星急拉追價風險", report)
+        self.assertIn("operator_priority: 不要追第一波", report)
         self.assertIn("action: 先看漲停強勢速讀與急拉作戰卡。", report)
         self.assertIn("risk_gate: 接近漲停不可直接升級買多。", report)
         self.assertIn("limit_up_watchlist:", report)
@@ -218,6 +224,8 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["limit_up_operational_summary"]["near_limit_up_count"], 2)
         self.assertEqual(report["limit_up_operational_summary"]["top_watchlist"][0]["symbol"], "8150.TW")
         self.assertIn("不可直接升級買多", report["limit_up_operational_summary"]["risk_gate"])
+        self.assertEqual(report["limit_up_operational_summary"]["market_phase_label"], "零星急拉追價風險")
+        self.assertIn("不要追第一波", report["limit_up_operational_summary"]["operator_priority"])
         self.assertEqual(report["fugle_tracking"]["count"], 2)
         self.assertEqual(report["fugle_tracking"]["symbols"], ["6919.TW", "8150.TW"])
         self.assertIn("不會改模型或推薦數量", report["fugle_tracking"]["safety"])
