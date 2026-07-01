@@ -118,6 +118,7 @@ def _resolve_health(payload: dict[str, Any]) -> dict[str, Any]:
             "market_mode_label": payload.get("market_mode_label") or "",
             "data_quality_status": payload.get("data_quality_status") or "",
             "front_category_summary": front_summary,
+            "limit_up_operational_summary": dict(payload.get("limit_up_operational_summary") or {}),
             "blockers": list(payload.get("blockers") or []),
             "warnings": warnings,
             "operator_steps": list(payload.get("now_steps") or []),
@@ -146,6 +147,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
     next_action = _next_action(payload, health)
     plan = refresh_plan(payload, health)
     task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
+    limit_up = _limit_up_report(health.get("limit_up_operational_summary") or payload.get("limit_up_operational_summary"))
     return {
         "status": status,
         "exit_code": 0 if status in {"ok", "warning"} else 1,
@@ -172,6 +174,7 @@ def build_json_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_U
             "missing": health.get("missing_count", price.get("missing_count", 0)),
         },
         "front_category_summary": _front_category_report(front),
+        "limit_up_operational_summary": limit_up,
         "blockers": list(health.get("blockers") or []),
         "warnings": list(health.get("warnings") or []),
         "operator_steps": [str(item) for item in (health.get("operator_steps") or [])],
@@ -246,6 +249,7 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
     next_action = _next_action(payload, health)
     plan = refresh_plan(payload, health)
     task_card = _operator_task_card(health, payload, next_action=next_action, refresh_plan=plan, base_url=base_url)
+    limit_up = _limit_up_report(health.get("limit_up_operational_summary") or payload.get("limit_up_operational_summary"))
     lines = [
         "Operator runbook" if _is_runbook_payload(payload) else "Operational health",
         f"[{mark}] {health.get('summary') or '-'}",
@@ -275,6 +279,32 @@ def render_report(payload: dict[str, Any], *, base_url: str = DEFAULT_BASE_URL) 
         )
         if front_report.get("no_signal_reason"):
             lines.append(f"front_no_signal_reason: {front_report.get('no_signal_reason')}")
+    if limit_up:
+        lines.append("limit_up_operational_summary:")
+        lines.append(
+            "- "
+            f"near_limit_up={limit_up.get('near_limit_up_count', 0)} "
+            f"entered_ai={limit_up.get('entered_ai_count', 0)} "
+            f"high_risk={limit_up.get('high_risk_count', 0)} "
+            f"wait_confirm={limit_up.get('wait_confirm_count', 0)} "
+            f"avoid={limit_up.get('avoid_count', 0)} "
+            f"data_missing={limit_up.get('data_missing_count', 0)}"
+        )
+        if limit_up.get("summary"):
+            lines.append(f"- summary: {limit_up.get('summary')}")
+        if limit_up.get("action"):
+            lines.append(f"- action: {limit_up.get('action')}")
+        if limit_up.get("risk_gate"):
+            lines.append(f"- risk_gate: {limit_up.get('risk_gate')}")
+        watchlist = limit_up.get("top_watchlist") if isinstance(limit_up.get("top_watchlist"), list) else []
+        if watchlist:
+            lines.append("limit_up_watchlist:")
+            for item in watchlist[:5]:
+                title = f"{item.get('symbol') or '-'}｜{item.get('name') or ''}".strip("｜")
+                lines.append(
+                    f"- {title}: status={item.get('entry_status') or '-'} "
+                    f"action={item.get('action') or '-'} avoid={item.get('avoid') or '-'}"
+                )
     if payload.get("_health_source"):
         lines.append(f"source: {payload.get('_health_source')}")
     preflight = health.get("opening_preflight") if isinstance(health.get("opening_preflight"), dict) else {}
@@ -356,6 +386,45 @@ def _front_category_report(summary: dict[str, Any]) -> dict[str, Any]:
         "bearish": _safe_int(summary.get("bearish_count", counts.get("看空", 0))),
         "data_missing": _safe_int(summary.get("data_missing_count", counts.get("資料不足", 0))),
         "no_signal_reason": str(summary.get("no_signal_reason") or ""),
+    }
+
+
+def _limit_up_report(summary: Any) -> dict[str, Any]:
+    if not isinstance(summary, dict) or not summary:
+        return {}
+    counts = {
+        "near_limit_up_count": _safe_int(summary.get("near_limit_up_count")),
+        "entered_ai_count": _safe_int(summary.get("entered_ai_count")),
+        "high_risk_count": _safe_int(summary.get("high_risk_count")),
+        "wait_confirm_count": _safe_int(summary.get("wait_confirm_count")),
+        "avoid_count": _safe_int(summary.get("avoid_count")),
+        "data_missing_count": _safe_int(summary.get("data_missing_count")),
+    }
+    has_context = any(counts.values()) or bool(summary.get("summary")) or bool(summary.get("action"))
+    if not has_context:
+        return {}
+    top_watchlist = summary.get("top_watchlist") if isinstance(summary.get("top_watchlist"), list) else []
+    cleaned_watchlist: list[dict[str, Any]] = []
+    for item in top_watchlist[:5]:
+        if not isinstance(item, dict):
+            continue
+        cleaned_watchlist.append(
+            {
+                "symbol": str(item.get("symbol") or ""),
+                "name": str(item.get("name") or ""),
+                "grade": str(item.get("grade") or ""),
+                "entry_status": str(item.get("entry_status") or ""),
+                "action": str(item.get("action") or ""),
+                "avoid": str(item.get("avoid") or ""),
+            }
+        )
+    return {
+        **counts,
+        "summary": str(summary.get("summary") or ""),
+        "action": str(summary.get("action") or ""),
+        "risk_gate": str(summary.get("risk_gate") or ""),
+        "top_symbols": [str(item) for item in (summary.get("top_symbols") or []) if str(item)],
+        "top_watchlist": cleaned_watchlist,
     }
 
 

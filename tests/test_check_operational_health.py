@@ -6,6 +6,30 @@ import scripts.check_operational_health as script
 
 
 class CheckOperationalHealthScriptTests(unittest.TestCase):
+    def _limit_up_summary(self):
+        return {
+            "near_limit_up_count": 2,
+            "entered_ai_count": 2,
+            "high_risk_count": 1,
+            "wait_confirm_count": 1,
+            "avoid_count": 0,
+            "data_missing_count": 0,
+            "summary": "1 檔追價風險高；1 檔等待確認。",
+            "action": "先看漲停強勢速讀與急拉作戰卡。",
+            "risk_gate": "接近漲停不可直接升級買多。",
+            "top_symbols": ["8150.TW｜南茂", "6919.TW｜康霈"],
+            "top_watchlist": [
+                {
+                    "symbol": "8150.TW",
+                    "name": "南茂",
+                    "grade": "C",
+                    "entry_status": "high_risk",
+                    "action": "放進追價風險觀察。",
+                    "avoid": "不要把 high_risk 當成買多。",
+                }
+            ],
+        }
+
     def test_render_report_returns_zero_for_ok(self):
         exit_code, report = script.render_report(
             {
@@ -99,6 +123,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                     "bearish_count": 2,
                     "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
                 },
+                "limit_up_operational_summary": self._limit_up_summary(),
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -113,6 +138,13 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertIn("1. 先看強烈買多候選", report)
         self.assertIn("front_category_summary: strong_buy=0 buy=1 watch=7 bearish=2", report)
         self.assertIn("front_no_signal_reason: 目前沒有強烈買多，先看買多清單的下一步觸發條件。", report)
+        self.assertIn("limit_up_operational_summary:", report)
+        self.assertIn("near_limit_up=2", report)
+        self.assertIn("action: 先看漲停強勢速讀與急拉作戰卡。", report)
+        self.assertIn("risk_gate: 接近漲停不可直接升級買多。", report)
+        self.assertIn("limit_up_watchlist:", report)
+        self.assertIn("8150.TW｜南茂: status=high_risk", report)
+        self.assertIn("不要把 high_risk 當成買多", report)
         self.assertIn("refresh_plan: /refresh_watchlist", report)
         self.assertIn("/api/operator/runbook", report)
         self.assertIn("operator_page: https://stock.letslepai.com/operator", report)
@@ -144,6 +176,7 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
                     "bearish_count": 2,
                     "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
                 },
+                "limit_up_operational_summary": self._limit_up_summary(),
                 "_health_source": "/api/operator/runbook",
             },
             base_url="https://stock.letslepai.com",
@@ -163,6 +196,9 @@ class CheckOperationalHealthScriptTests(unittest.TestCase):
         self.assertEqual(report["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(report["front_category_summary"]["buy"], 1)
         self.assertEqual(report["front_category_summary"]["watch"], 7)
+        self.assertEqual(report["limit_up_operational_summary"]["near_limit_up_count"], 2)
+        self.assertEqual(report["limit_up_operational_summary"]["top_watchlist"][0]["symbol"], "8150.TW")
+        self.assertIn("不可直接升級買多", report["limit_up_operational_summary"]["risk_gate"])
         self.assertEqual(
             report["front_category_summary"]["no_signal_reason"],
             "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
