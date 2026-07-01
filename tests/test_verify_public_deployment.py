@@ -939,6 +939,36 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
 
         self.assertTrue(all(item.ok for item in checks), checks)
 
+    def test_dashboard_html_requires_limit_up_context_when_limit_up_count_present(self):
+        html = """
+        今日決策摘要 今日資料可信度 最接近強烈買多 等待確認池
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
+        <div class="metric"><span>接近漲停 / 漲停</span><strong>6</strong></div>
+        """
+
+        checks = validate_dashboard_html(html)
+
+        failed = [item.name for item in checks if not item.ok]
+        self.assertIn("dashboard explains limit-up waves when present", failed)
+
+    def test_dashboard_html_accepts_limit_up_context_when_limit_up_count_present(self):
+        html = """
+        今日決策摘要 今日資料可信度 最接近強烈買多 等待確認池
+        進場雷達成績單 資料健康度 台股全市場異動掃描池
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
+        <div class="metric"><span>接近漲停 / 漲停</span><strong>6</strong></div>
+        漲停強勢速讀 不會把追價高風險股票升級成買多
+        """
+
+        checks = validate_dashboard_html(html)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
     def test_dashboard_html_accepts_review_mode_decision_section_titles(self):
         html = """
         今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單

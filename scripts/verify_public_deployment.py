@@ -768,6 +768,14 @@ def validate_dashboard_html(html: str) -> list[Check]:
             "僅供復盤",
         ]
     )
+    limit_up_count = _html_first_number_after(html, "接近漲停 / 漲停") or 0
+    limit_up_has_context = limit_up_count <= 0 or all(
+        marker in html
+        for marker in [
+            "漲停強勢速讀",
+            "不會把追價高風險股票升級成買多",
+        ]
+    )
     selection_counts_consistent = True
     selection_detail = "selection explainer not present"
     if selection_html:
@@ -813,6 +821,11 @@ def validate_dashboard_html(html: str) -> list[Check]:
                 f"non_intraday={non_intraday_mode} strong={strong_count} buy={buy_count} "
                 f"watch={watch_count} bearish={bearish_count}"
             ),
+        ),
+        Check(
+            "dashboard explains limit-up waves when present",
+            limit_up_has_context,
+            f"near_limit_up={limit_up_count}",
         ),
     ]
     return checks
