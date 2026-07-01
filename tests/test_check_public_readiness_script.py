@@ -34,6 +34,10 @@ class CheckPublicReadinessScriptTests(unittest.TestCase):
         self.assertIn("push_reason", script)
         self.assertIn("github_desktop_repo_hint", script)
         self.assertIn("${BASE_URL%/}/operator", script)
+        self.assertIn("post_deploy_validation_commands", script)
+        self.assertIn("post_deploy_must_have", script)
+        self.assertIn("do_not_trust_public_until", script)
+        self.assertIn('post_deploy.get("must_have")', script)
 
 
 class OperationalRunbookDocsTests(unittest.TestCase):

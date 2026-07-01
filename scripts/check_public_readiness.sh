@@ -62,6 +62,22 @@ if steps:
     print("release_steps:")
     for index, item in enumerate(steps, start=1):
         print(f"{index}. {item}")
+post_deploy = payload.get("post_deploy_validation") or {}
+commands = post_deploy.get("commands") or []
+if commands:
+    print("post_deploy_validation_commands:")
+    for index, item in enumerate(commands, start=1):
+        print(f"{index}. {item}")
+must_have = post_deploy.get("must_have") or []
+if must_have:
+    print("post_deploy_must_have:")
+    for item in must_have:
+        print(f"- {item}")
+do_not_trust = post_deploy.get("do_not_trust_public_until") or []
+if do_not_trust:
+    print("do_not_trust_public_until:")
+    for item in do_not_trust:
+        print(f"- {item}")
 PY
     exit 1
   fi
