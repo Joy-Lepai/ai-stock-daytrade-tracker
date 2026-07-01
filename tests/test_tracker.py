@@ -1281,6 +1281,53 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("拉回 VWAP", html)
         self.assertIn("不要在漲停附近直接追價", html)
 
+    def test_decision_overview_infers_limit_up_brief_from_momentum_scan(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            momentum_scan={
+                "items": [
+                    {
+                        "symbol": "2434.TW",
+                        "name": "統懋",
+                        "change_pct": 9.8,
+                        "entry_status": "high_risk",
+                        "not_selected_reason": "前日爆量漲停，追價風險高",
+                    },
+                    {
+                        "symbol": "3026.TW",
+                        "name": "禾伸堂",
+                        "change_pct": 6.7,
+                        "entry_status": "wait_breakout",
+                        "source_reasons": ["爆量漲停後續強觀察"],
+                        "ai_grade": "B+",
+                    },
+                ]
+            },
+            diagnostics={
+                "data_health": {
+                    "status": "正常",
+                    "data_date": "2026-06-30",
+                    "latest_intraday_at": "2026-06-30T10:00:00+08:00",
+                }
+            },
+        )
+
+        html = _decision_overview(summary, datetime(2026, 6, 30, 14, 30))
+
+        self.assertIn("漲停強勢速讀", html)
+        self.assertIn("接近漲停 / 漲停", html)
+        self.assertIn("2</strong>", html)
+        self.assertIn("今日/上一交易日有 2 檔接近漲停或急拉", html)
+        self.assertIn("這不是即時買多", html)
+        self.assertIn("不會把追價高風險股票升級成買多", html)
+
     def test_limit_up_strength_panel_shows_action_split_and_next_step(self):
         summary = LongModelSummary(
             candidates=[],

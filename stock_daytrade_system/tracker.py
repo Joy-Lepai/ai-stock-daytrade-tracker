@@ -1085,7 +1085,7 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
     )
     front_counts = front["counts"]
     strong_funnel = (diagnostics or {}).get("strong_long_funnel") or {}
-    limit_up = (diagnostics or {}).get("limit_up_strength_analysis") or {}
+    limit_up = _limit_up_context_from_summary(summary, diagnostics)
     limit_brief = _limit_up_brief(limit_up)
     strong_long_count = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈買多", 0)) or 0)
     executable_count = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
@@ -1108,6 +1108,11 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         reminder = "資料不完整或過期，僅供觀察，不建議交易。"
     elif mode.get("mode") == "intraday" and limit_brief["count"] > 0:
         reminder += " " + limit_brief["reminder"]
+    elif mode.get("mode") in {"post_close_review", "closed_review", "pre_open_prepare"} and limit_brief["count"] > 0:
+        reminder += (
+            f" 今日/上一交易日有 {int(limit_brief['count'])} 檔接近漲停或急拉，"
+            "已放進漲停強勢速讀與下個交易日觀察；這不是即時買多，明天仍要等 VWAP、量比、突破與進場雷達重新確認。"
+        )
     reminder += _non_intraday_bearish_guard_copy(front_counts, str(mode.get("mode") or ""))
     closest_title, observation_title, closest_empty, observation_empty = _decision_overview_section_copy(str(mode.get("mode") or ""))
     closest_items = _top_decision_items(summary, front_context, categories={"強烈買多", "買多"}, limit=5)
@@ -1219,13 +1224,141 @@ def _limit_up_brief(data: dict) -> dict:
     }
 
 
+def _limit_up_context_from_summary(summary: Optional[LongModelSummary], diagnostics: Optional[dict]) -> dict:
+    explicit = ((diagnostics or {}).get("limit_up_strength_analysis") if diagnostics else None) or {}
+    if int(explicit.get("near_limit_up_count", 0) or 0) > 0:
+        return explicit
+    inferred = _infer_limit_up_context(summary)
+    if int(inferred.get("near_limit_up_count", 0) or 0) > 0:
+        return inferred
+    return explicit
+
+
+def _infer_limit_up_context(summary: Optional[LongModelSummary]) -> dict:
+    items: list[dict] = []
+    if summary and isinstance(summary.momentum_scan, dict):
+        raw_items = summary.momentum_scan.get("items")
+        if isinstance(raw_items, list):
+            items.extend(item for item in raw_items if isinstance(item, dict))
+    if summary:
+        for candidate in summary.candidates or []:
+            if isinstance(candidate, dict):
+                items.append(candidate)
+            elif hasattr(candidate, "__dict__"):
+                items.append(dict(candidate.__dict__))
+
+    seen: dict[str, dict] = {}
+    for item in items:
+        symbol = str(item.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        if not _is_limit_up_like_item(item):
+            continue
+        seen.setdefault(symbol, item)
+
+    rows = list(seen.values())
+    if not rows:
+        return {}
+
+    entered = 0
+    high_risk = 0
+    wait_confirm = 0
+    avoid = 0
+    data_missing = 0
+    locked = 0
+    top_watchlist: list[dict] = []
+    for item in rows:
+        entry = str(item.get("entry_status") or "")
+        grade = str(item.get("ai_grade") or item.get("grade") or "")
+        reason_text = " ".join(
+            str(value)
+            for value in (
+                item.get("not_selected_reason"),
+                item.get("risk_reason"),
+                item.get("risk_reasons"),
+                item.get("source_reasons"),
+                item.get("limit_up_status"),
+            )
+        )
+        if grade in {"A", "B+", "B"}:
+            entered += 1
+        if entry == "high_risk" or "追價" in reason_text or "風險高" in reason_text:
+            high_risk += 1
+        if entry in {"wait_volume", "wait_vwap", "wait_breakout", "wait_pullback"}:
+            wait_confirm += 1
+        if entry == "avoid":
+            avoid += 1
+        if item.get("data_error") or item.get("data_missing"):
+            data_missing += 1
+        if item.get("is_limit_up_locked") or "鎖漲停" in reason_text:
+            locked += 1
+        top_watchlist.append(
+            {
+                "symbol": str(item.get("symbol") or ""),
+                "name": str(item.get("name") or item.get("name_zh") or ""),
+                "change_pct": float(item.get("change_pct") or 0),
+                "entry_status": entry or "-",
+                "action": "放進追價風險觀察，等拉回 VWAP、停損距離縮小或進場雷達轉強。"
+                if entry == "high_risk"
+                else "列入下個交易日觀察，明天重新確認 VWAP、量比與突破。",
+            }
+        )
+
+    action_parts = []
+    if high_risk:
+        action_parts.append(f"{high_risk} 檔追價風險高")
+    if wait_confirm:
+        action_parts.append(f"{wait_confirm} 檔等待確認")
+    if entered:
+        action_parts.append(f"{entered} 檔進入 A/B+/B 觀察層")
+    if data_missing:
+        action_parts.append(f"{data_missing} 檔資料不足")
+
+    return {
+        "definition": "此區由全市場異動池與候選清單推估接近漲停 / 急拉股；不會把追價高風險股票升級成買多。",
+        "near_limit_up_count": len(rows),
+        "seen_count": len(rows),
+        "entered_ai_count": entered,
+        "high_risk_count": high_risk,
+        "chase_risk_count": high_risk,
+        "wait_confirm_count": wait_confirm,
+        "avoid_count": avoid,
+        "data_missing_count": data_missing,
+        "locked_count": locked,
+        "missed_by_pool_count": 0,
+        "action_summary": "；".join(action_parts) + "。" if action_parts else f"{len(rows)} 檔急拉 / 漲停觀察。",
+        "top_watchlist": top_watchlist[:10],
+        "source": "inferred_from_momentum_scan",
+    }
+
+
+def _is_limit_up_like_item(item: dict) -> bool:
+    if item.get("near_limit_up") or item.get("limit_up") or item.get("is_limit_up_locked"):
+        return True
+    change_pct = float(item.get("change_pct") or 0)
+    if change_pct >= 9.0:
+        return True
+    text = " ".join(
+        str(value)
+        for value in (
+            item.get("source_reasons"),
+            item.get("not_selected_reason"),
+            item.get("risk_reason"),
+            item.get("risk_reasons"),
+            item.get("limit_up_status"),
+            item.get("entry_radar_summary"),
+        )
+    )
+    return any(token in text for token in ("漲停", "接近漲停", "急拉", "爆量漲停"))
+
+
 def _limit_up_brief_notice(brief: dict) -> str:
     if int(brief.get("count", 0) or 0) <= 0:
         return ""
     return (
         '<section class="notice">'
         f'<strong>漲停強勢速讀</strong><br>{escape(str(brief.get("headline") or ""))}'
-        '<br><span class="muted">接近漲停代表動能強，但也可能是追價高風險；請往下看「漲停強勢股診斷」確認是有看到、等待確認、資料不足，還是真漏抓。</span>'
+        '<br><span class="muted">接近漲停代表動能強，但也可能是追價高風險；請往下看「漲停強勢股診斷」確認是有看到、等待確認、資料不足，還是真漏抓。不會把追價高風險股票升級成買多。</span>'
         '<div class="decision-grid">'
         f'<div class="decision-panel"><strong>現在先做</strong><p class="muted">{escape(str(brief.get("action") or ""))}</p></div>'
         f'<div class="decision-panel"><strong>等到什麼</strong><p class="muted">{escape(str(brief.get("wait_for") or ""))}</p></div>'
