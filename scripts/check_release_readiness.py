@@ -380,6 +380,7 @@ def post_deploy_validation(state: ReleaseState) -> dict[str, Any]:
             "public runtime commit matches expected commit",
             "dashboard shows 今日決策摘要 and 資料健康度",
             "dashboard shows Fugle 5檔即時追蹤池 and 追蹤池健康",
+            "dashboard explains 接近漲停 / 漲停 with 漲停強勢速讀 and safety copy",
             "operator runbook shows 急拉 / 漲停盤提醒",
             "operational health has next action, do-not-do, and decision checklist",
         ],

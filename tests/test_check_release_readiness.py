@@ -301,6 +301,7 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn("scripts/verify_public_deployment.py", " ".join(validation["commands"]))
         self.assertIn("scripts/check_operational_health.py", " ".join(validation["commands"]))
         self.assertIn("Fugle 5檔即時追蹤池", " ".join(validation["must_have"]))
+        self.assertIn("漲停強勢速讀", " ".join(validation["must_have"]))
         self.assertIn("急拉 / 漲停盤提醒", " ".join(validation["must_have"]))
         self.assertIn("tracker HTML commit equals runtime commit", " ".join(validation["do_not_trust_public_until"]))
 
