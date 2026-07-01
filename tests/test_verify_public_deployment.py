@@ -50,6 +50,28 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "no_signal_reason": "目前沒有強烈買多，先看買多清單的下一步觸發條件。",
         }
 
+    def _limit_up_summary(self):
+        return {
+            "near_limit_up_count": 1,
+            "entered_ai_count": 1,
+            "high_risk_count": 1,
+            "wait_confirm_count": 0,
+            "avoid_count": 0,
+            "data_missing_count": 0,
+            "summary": "1 檔追價風險高。",
+            "action": "先看漲停強勢速讀與急拉作戰卡。",
+            "risk_gate": "接近漲停不可直接升級買多。",
+            "top_watchlist": [
+                {
+                    "symbol": "8150.TW",
+                    "name": "南茂",
+                    "entry_status": "high_risk",
+                    "action": "放進追價風險觀察。",
+                    "avoid": "不要把 high_risk 當成買多。",
+                }
+            ],
+        }
+
     def _health_payload(self, **overrides):
         payload = {
             "api_status": "ok",
@@ -281,6 +303,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "limit_up_operational_summary": self._limit_up_summary(),
             "operator_task_card": {
                 "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
                 "first_step": "先看買多清單的下一步觸發條件，不提前追",
@@ -306,6 +329,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "limit_up_operational_summary": self._limit_up_summary(),
             "operator_task_card": {
                 "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
                 "first_step": "先看買多清單的下一步觸發條件，不提前追",
@@ -331,6 +355,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "limit_up_operational_summary": self._limit_up_summary(),
             "operator_task_card": {
                 "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
                 "first_step": "先看買多清單的下一步觸發條件，不提前追",
@@ -357,6 +382,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "do_not_do": ["不要追 high_risk"],
             "data_quality_status": "正常",
             "front_category_summary": self._front_category_summary(),
+            "limit_up_operational_summary": self._limit_up_summary(),
         }
 
         checks = validate_operator_runbook_payload(payload)
@@ -382,6 +408,32 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
 
         self.assertIn("operator runbook includes front category summary", failed)
+
+    def test_operator_runbook_payload_requires_limit_up_context(self):
+        payload = {
+            "api_status": "ok",
+            "mode": "盤中作戰模式",
+            "headline": "可以進入盤中追蹤",
+            "decision": "可盯盤",
+            "first_action": "先看強烈買多，再確認進場雷達",
+            "now_steps": ["先看強烈買多候選"],
+            "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
+            "checklist": ["是否站上 VWAP？"],
+            "do_not_do": ["不要追 high_risk"],
+            "data_quality_status": "正常",
+            "front_category_summary": self._front_category_summary(),
+            "operator_task_card": {
+                "status_label": "等待觸發：買多 1 檔、觀察 4 檔",
+                "first_step": "先看買多清單的下一步觸發條件，不提前追",
+                "do_not": "不要追 high_risk",
+                "refresh": "不需手動刷新",
+            },
+        }
+
+        checks = validate_operator_runbook_payload(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operator runbook includes limit-up context", failed)
 
     def test_operator_page_html_requires_user_action_sections(self):
         html = """
@@ -409,6 +461,10 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         operator-refresh-status
         operator-deployment-warnings
         /api/operator/runbook
+        急拉 / 漲停盤提醒
+        operator-limit-up-context
+        operator-limit-up-watchlist
+        接近漲停不可直接升級買多
         本系統僅供資料整理
         """
 
@@ -442,6 +498,10 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         operator-refresh-status
         operator-deployment-warnings
         /api/operator/runbook
+        急拉 / 漲停盤提醒
+        operator-limit-up-context
+        operator-limit-up-watchlist
+        接近漲停不可直接升級買多
         本系統僅供資料整理
         做多確認
         """

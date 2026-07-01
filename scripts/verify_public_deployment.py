@@ -443,6 +443,7 @@ def _operator_decision_detail(value: Any) -> str:
 def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
     front = payload.get("front_category_summary") or {}
     task_card = payload.get("operator_task_card") or {}
+    limit_up = payload.get("limit_up_operational_summary")
     return [
         Check("operator runbook API ok", payload.get("api_status") == "ok", f"api_status={payload.get('api_status')}"),
         Check("operator runbook has decision", bool(payload.get("decision")), f"decision={payload.get('decision') or '-'}"),
@@ -480,6 +481,11 @@ def validate_operator_runbook_payload(payload: dict[str, Any]) -> list[Check]:
             _operator_task_card_valid(task_card),
             _operator_task_card_detail(task_card),
         ),
+        Check(
+            "operator runbook includes limit-up context",
+            _limit_up_summary_valid(limit_up),
+            _limit_up_summary_detail(limit_up),
+        ),
     ]
 
 
@@ -509,6 +515,10 @@ def validate_operator_page_html(html: str) -> list[Check]:
         "operator-refresh-status",
         "operator-deployment-warnings",
         "/api/operator/runbook",
+        "急拉 / 漲停盤提醒",
+        "operator-limit-up-context",
+        "operator-limit-up-watchlist",
+        "接近漲停不可直接升級買多",
         "本系統僅供資料整理",
     ]
     missing_markers = [marker for marker in required_markers if marker not in html]
@@ -542,6 +552,39 @@ def _operator_task_card_detail(value: Any) -> str:
         f"first_step={value.get('first_step') or '-'} "
         f"do_not={value.get('do_not') or '-'} "
         f"refresh={value.get('refresh') or '-'}"
+    )
+
+
+def _limit_up_summary_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required_counts = (
+        "near_limit_up_count",
+        "entered_ai_count",
+        "high_risk_count",
+        "wait_confirm_count",
+        "avoid_count",
+        "data_missing_count",
+    )
+    if not all(key in value for key in required_counts):
+        return False
+    if not bool(value.get("summary")) or not bool(value.get("action")) or not bool(value.get("risk_gate")):
+        return False
+    if "top_watchlist" in value and not isinstance(value.get("top_watchlist"), list):
+        return False
+    return True
+
+
+def _limit_up_summary_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "limit_up_operational_summary=-"
+    top_watchlist = value.get("top_watchlist")
+    top_count = len(top_watchlist) if isinstance(top_watchlist, list) else "-"
+    return (
+        f"near_limit_up={value.get('near_limit_up_count', '-')} "
+        f"high_risk={value.get('high_risk_count', '-')} "
+        f"wait_confirm={value.get('wait_confirm_count', '-')} "
+        f"top_watchlist={top_count}"
     )
 
 
