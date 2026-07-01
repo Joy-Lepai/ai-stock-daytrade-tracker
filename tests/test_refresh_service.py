@@ -193,6 +193,10 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertIn("追價風險高", summary["summary"])
         self.assertIn("急拉作戰卡", summary["action"])
         self.assertIn("8150.TW", " ".join(summary["top_symbols"]))
+        self.assertEqual(summary["top_watchlist"][0]["symbol"], "8150.TW")
+        self.assertEqual(summary["top_watchlist"][0]["entry_status"], "high_risk")
+        self.assertIn("追價風險觀察", summary["top_watchlist"][0]["action"])
+        self.assertIn("不要把 high_risk 當成買多", summary["top_watchlist"][0]["avoid"])
 
     def test_manual_full_refresh_marks_dependent_layers_success(self):
         with tempfile.TemporaryDirectory() as directory:

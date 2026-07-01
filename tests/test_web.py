@@ -209,6 +209,17 @@ class WebTests(unittest.TestCase):
                     "avoid_count": 1,
                     "data_missing_count": 0,
                     "top_symbols": ["8150.TW", "6919.TW"],
+                    "top_watchlist": [
+                        {
+                            "symbol": "8150.TW",
+                            "name": "南茂",
+                            "change_pct": 9.8,
+                            "grade": "C",
+                            "entry_status": "high_risk",
+                            "action": "放進追價風險觀察，等拉回 VWAP 附近、停損距離縮小或進場雷達轉強。",
+                            "avoid": "不要把 high_risk 當成買多或強烈買多。",
+                        }
+                    ],
                     "summary": "今天有 6 檔接近漲停或急拉股，先分辨鎖漲停、追價風險與等待確認。",
                     "action": "先看漲停強勢速讀與急拉作戰卡。",
                     "risk_gate": "接近漲停不可直接升級買多。",
@@ -420,6 +431,17 @@ class WebTests(unittest.TestCase):
                     "avoid_count": 1,
                     "data_missing_count": 0,
                     "top_symbols": ["8150.TW", "6919.TW"],
+                    "top_watchlist": [
+                        {
+                            "symbol": "8150.TW",
+                            "name": "南茂",
+                            "change_pct": 9.8,
+                            "grade": "C",
+                            "entry_status": "high_risk",
+                            "action": "放進追價風險觀察，等拉回 VWAP 附近、停損距離縮小或進場雷達轉強。",
+                            "avoid": "不要把 high_risk 當成買多或強烈買多。",
+                        }
+                    ],
                     "summary": "今天有 6 檔接近漲停或急拉股，先分辨鎖漲停、追價風險與等待確認。",
                     "action": "先看漲停強勢速讀與急拉作戰卡。",
                     "risk_gate": "接近漲停不可直接升級買多。",
@@ -459,6 +481,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("今天有 6 檔接近漲停或急拉股", html)
         self.assertIn("接近漲停不可直接升級買多", html)
         self.assertIn("8150.TW、6919.TW", html)
+        self.assertIn("8150.TW｜南茂", html)
+        self.assertIn("放進追價風險觀察", html)
+        self.assertIn("不要把 high_risk 當成買多", html)
         self.assertIn("現在照這樣做", html)
         self.assertIn("四分類摘要", html)
         self.assertIn("operator-front-strong", html)

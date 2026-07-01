@@ -816,11 +816,29 @@ def _limit_up_operational_summary(conn) -> dict:
     avoid = 0
     data_missing = 0
     top_symbols: list[str] = []
+    top_watchlist: list[dict] = []
     for row in rows:
         status = str(row["entry_status"] or "")
         reason_code = str(row["reason_code"] or "")
+        symbol = str(row["symbol"] or "")
+        name = str(row["name"] or "")
+        if len(top_watchlist) < 5:
+            top_watchlist.append(
+                {
+                    "symbol": symbol,
+                    "name": name,
+                    "change_pct": row["change_pct"],
+                    "turnover": row["turnover"],
+                    "grade": row["ai_grade"] or "-",
+                    "entry_status": status or "-",
+                    "reason_code": reason_code or "-",
+                    "not_selected_reason": row["not_selected_reason"] or "",
+                    "action": _limit_up_operator_action(status, reason_code),
+                    "avoid": _limit_up_operator_avoid(status, reason_code),
+                }
+            )
         if len(top_symbols) < 5:
-            top_symbols.append(f"{row['symbol']}｜{row['name'] or ''}".strip("｜"))
+            top_symbols.append(f"{symbol}｜{name}".strip("｜"))
         entered += 1 if row["entered_ai_candidates"] else 0
         high_risk += 1 if status == "high_risk" else 0
         wait_confirm += 1 if status.startswith("wait_") else 0
@@ -854,11 +872,42 @@ def _limit_up_operational_summary(conn) -> dict:
         "avoid_count": avoid,
         "data_missing_count": data_missing,
         "top_symbols": top_symbols,
+        "top_watchlist": top_watchlist,
         "summary": summary,
         "action": action,
         "risk_gate": "接近漲停代表動能強，也代表追價風險高；不可直接升級買多。",
         "source": "tw_full_market_snapshots",
     }
+
+
+def _limit_up_operator_action(entry_status: str, reason_code: str) -> str:
+    status = str(entry_status or "")
+    reason = str(reason_code or "")
+    if reason in {"data_missing", "data_insufficient", "yahoo_intraday_failed"}:
+        return "先確認資料是否恢復 live，缺資料前只做觀察。"
+    if status == "high_risk":
+        return "放進追價風險觀察，等拉回 VWAP 附近、停損距離縮小或進場雷達轉強。"
+    if status.startswith("wait_"):
+        return "等待缺口條件補齊，再進個股作戰卡確認下一步。"
+    if status in {"avoid", "data_missing"}:
+        return "暫不做多，只看是否重新站回多方結構。"
+    if status in {"executable", "practice_long"}:
+        return "優先看五檔、逐筆、大單與停損距離，不用市價追。"
+    return "先看 VWAP、停損距離與追價風險，不因漲幅直接進場。"
+
+
+def _limit_up_operator_avoid(entry_status: str, reason_code: str) -> str:
+    status = str(entry_status or "")
+    reason = str(reason_code or "")
+    if reason in {"data_missing", "data_insufficient", "yahoo_intraday_failed"}:
+        return "不要用資料不足的急拉股做即時判斷。"
+    if status == "high_risk":
+        return "不要把 high_risk 當成買多或強烈買多。"
+    if status.startswith("wait_"):
+        return "不要在 VWAP、量能或突破尚未確認前追第一波。"
+    if status == "avoid":
+        return "不要用漲幅掩蓋多方結構失效。"
+    return "不要只因接近漲停就追價。"
 
 
 def _price_status_from_freshness(state: str, fallback_used: bool = False) -> str:

@@ -1020,6 +1020,7 @@ def _operator_limit_up_context_panel(payload: dict[str, Any]) -> str:
         return ""
     top_symbols = [str(item) for item in (summary.get("top_symbols") or []) if str(item)]
     top_symbols_text = "、".join(top_symbols[:8]) if top_symbols else "尚未取得代表股票"
+    top_rows = _operator_limit_up_watch_rows(summary.get("top_watchlist"))
     return f"""
     <section class="decision-center operator-limit-up-context" id="operator-limit-up-context">
       <h2>急拉 / 漲停盤提醒</h2>
@@ -1035,8 +1036,39 @@ def _operator_limit_up_context_panel(payload: dict[str, Any]) -> str:
       <p><strong>現在先做：</strong><span id="operator-limit-up-action">{_escape(str(summary.get('action') or '先看漲停強勢速讀與急拉作戰卡，不直接追價。'))}</span></p>
       <p><strong>風控閘門：</strong><span id="operator-limit-up-risk-gate">{_escape(str(summary.get('risk_gate') or '接近漲停不可直接升級買多，仍需 VWAP、停損距離與進場雷達確認。'))}</span></p>
       <p class="limit-up-symbols"><strong>代表股票：</strong><span id="operator-limit-up-symbols">{_escape(top_symbols_text)}</span></p>
+      <div id="operator-limit-up-watchlist">{top_rows}</div>
     </section>
     """
+
+
+def _operator_limit_up_watch_rows(rows: Any) -> str:
+    if not isinstance(rows, list) or not rows:
+        return '<p class="muted">尚未取得急拉代表股票明細。</p>'
+    cards = []
+    for row in rows[:5]:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol") or "")
+        name = str(row.get("name") or "")
+        title = f"{symbol}｜{name}".strip("｜")
+        cards.append(
+            "<article class=\"decision-panel\">"
+            f"<strong>{_escape(title or '-')}</strong>"
+            f"<p>漲幅：{_escape(_format_pct_value(row.get('change_pct')))}｜AI：{_escape(str(row.get('grade') or '-'))}｜狀態：{_escape(str(row.get('entry_status') or '-'))}</p>"
+            f"<p><strong>先看：</strong>{_escape(str(row.get('action') or '先看 VWAP、停損距離與追價風險。'))}</p>"
+            f"<p class=\"muted\"><strong>避免：</strong>{_escape(str(row.get('avoid') or '不要只因接近漲停就追價。'))}</p>"
+            "</article>"
+        )
+    if not cards:
+        return '<p class="muted">尚未取得急拉代表股票明細。</p>'
+    return '<div class="decision-grid operator-limit-up-watchlist-grid">' + "".join(cards) + "</div>"
+
+
+def _format_pct_value(value: Any) -> str:
+    try:
+        return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return "-"
 
 
 def _operator_task_card_panel(payload: dict[str, Any]) -> str:
@@ -1202,6 +1234,50 @@ def operator_runbook_script() -> str:
         item.appendChild(strong);
         return item;
       };
+      const pct = (value) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? `${num.toFixed(2)}%` : "-";
+      };
+      const renderLimitUpWatchlist = (rows) => {
+        const wrapper = document.createElement("div");
+        wrapper.id = "operator-limit-up-watchlist";
+        const list = Array.isArray(rows) ? rows.slice(0, 5).filter((row) => row && typeof row === "object") : [];
+        if (!list.length) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "尚未取得急拉代表股票明細。";
+          wrapper.appendChild(p);
+          return wrapper;
+        }
+        const grid = document.createElement("div");
+        grid.className = "decision-grid operator-limit-up-watchlist-grid";
+        list.forEach((row) => {
+          const article = document.createElement("article");
+          article.className = "decision-panel";
+          const title = document.createElement("strong");
+          title.textContent = `${row.symbol || ""}｜${row.name || ""}`.replace(/｜$/, "") || "-";
+          const meta = document.createElement("p");
+          meta.textContent = `漲幅：${pct(row.change_pct)}｜AI：${row.grade || "-"}｜狀態：${row.entry_status || "-"}`;
+          const action = document.createElement("p");
+          const actionStrong = document.createElement("strong");
+          actionStrong.textContent = "先看：";
+          action.appendChild(actionStrong);
+          action.appendChild(document.createTextNode(row.action || "先看 VWAP、停損距離與追價風險。"));
+          const avoid = document.createElement("p");
+          avoid.className = "muted";
+          const avoidStrong = document.createElement("strong");
+          avoidStrong.textContent = "避免：";
+          avoid.appendChild(avoidStrong);
+          avoid.appendChild(document.createTextNode(row.avoid || "不要只因接近漲停就追價。"));
+          article.appendChild(title);
+          article.appendChild(meta);
+          article.appendChild(action);
+          article.appendChild(avoid);
+          grid.appendChild(article);
+        });
+        wrapper.appendChild(grid);
+        return wrapper;
+      };
       const renderLimitUpContext = (summary) => {
         const existing = $("operator-limit-up-context");
         const count = Number(summary?.near_limit_up_count || 0);
@@ -1247,6 +1323,7 @@ def operator_runbook_script() -> str:
         panel.appendChild(action);
         panel.appendChild(riskGate);
         panel.appendChild(symbolLine);
+        panel.appendChild(renderLimitUpWatchlist(summary.top_watchlist));
         text("operator-limit-up-action", summary.action || "先看漲停強勢速讀與急拉作戰卡，不直接追價。");
         text("operator-limit-up-risk-gate", summary.risk_gate || "接近漲停不可直接升級買多，仍需 VWAP、停損距離與進場雷達確認。");
         text("operator-limit-up-symbols", symbols);
