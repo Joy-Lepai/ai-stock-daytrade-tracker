@@ -1134,6 +1134,7 @@ def _decision_overview(summary: Optional[LongModelSummary], report_time: datetim
         f'{_metric("觀察", int(front_counts.get("觀察", 0)))}'
         f'{_metric("看空", int(front_counts.get("看空", 0)))}'
         f'{_metric("接近漲停 / 漲停", int(limit_brief["count"]))}'
+        f'{_metric_text("漲停盤面", str(limit_brief["phase_label"]))}'
         f'{_metric("漲停高風險觀察", int(limit_brief["high_risk"]))}'
         f'{_metric("漲停真漏抓", int(limit_brief["missed"]))}'
         f'{_metric_text("今日強勢族群", sector_summary)}'
@@ -1159,6 +1160,16 @@ def _limit_up_brief(data: dict) -> dict:
     locked = int(data.get("locked_count", 0) or 0)
     wait_confirm = int(data.get("wait_confirm_count", 0) or 0)
     action_summary = str(data.get("action_summary") or "")
+    phase = _limit_up_phase_from_counts(
+        data,
+        count=count,
+        high_risk=high_risk,
+        entered=entered,
+        missed=missed,
+        data_missing=data_missing,
+        locked=locked,
+        wait_confirm=wait_confirm,
+    )
     if count <= 0:
         headline = "目前沒有接近漲停或漲停鎖住的掃描標的。"
         reminder = ""
@@ -1216,11 +1227,105 @@ def _limit_up_brief(data: dict) -> dict:
         "locked": locked,
         "wait_confirm": wait_confirm,
         "action_summary": action_summary,
+        "phase": phase["market_phase"],
+        "phase_label": phase["market_phase_label"],
+        "phase_summary": phase["market_phase_summary"],
+        "operator_priority": phase["operator_priority"],
         "headline": headline,
         "reminder": reminder,
         "action": action,
         "wait_for": wait_for,
         "avoid": avoid,
+    }
+
+
+def _limit_up_phase_from_counts(
+    data: dict,
+    *,
+    count: int,
+    high_risk: int,
+    entered: int,
+    missed: int,
+    data_missing: int,
+    locked: int,
+    wait_confirm: int,
+) -> dict[str, str]:
+    existing = {
+        "market_phase": str(data.get("market_phase") or ""),
+        "market_phase_label": str(data.get("market_phase_label") or ""),
+        "market_phase_summary": str(data.get("market_phase_summary") or ""),
+        "operator_priority": str(data.get("operator_priority") or ""),
+    }
+    if all(existing.values()):
+        return existing
+    if count <= 0:
+        return {
+            "market_phase": "no_limit_wave",
+            "market_phase_label": "無明顯漲停潮",
+            "market_phase_summary": "目前沒有接近漲停或漲停鎖住標的，回到一般強烈買多漏斗與進場雷達。",
+            "operator_priority": "不用追逐漲停新聞，先看 VWAP、量比、突破與風控是否完整。",
+        }
+    if missed > 0:
+        return {
+            "market_phase": "limit_wave_data_gap",
+            "market_phase_label": "漲停潮資料缺口",
+            "market_phase_summary": f"有 {count} 檔接近漲停 / 漲停，其中 {missed} 檔是真漏抓；優先檢查資料源、候選池與掃描門檻。",
+            "operator_priority": "先修資料與候選池，不要手動把漏抓股升級成買多。",
+        }
+    if data_missing >= max(2, count // 3):
+        return {
+            "market_phase": "limit_wave_data_unreliable",
+            "market_phase_label": "漲停潮資料不足",
+            "market_phase_summary": f"有 {count} 檔接近漲停 / 漲停，但資料不足比例偏高；不可用來做即時進場判斷。",
+            "operator_priority": "等待 price_status 回到 live，且 VWAP、量比、停損價完整後再評估。",
+        }
+    if count >= 10:
+        if high_risk >= max(3, count // 2):
+            return {
+                "market_phase": "broad_limit_wave_chase_risk",
+                "market_phase_label": "漲停潮但追價風險主導",
+                "market_phase_summary": f"今天有 {count} 檔接近漲停 / 漲停，且多數被列為追價高風險；盤面很熱，但不代表適合直接追。",
+                "operator_priority": "先挑已看到但 high_risk 的股票，等拉回 VWAP 附近不破、停損距離縮小，再重新評估。",
+            }
+        return {
+            "market_phase": "broad_limit_wave",
+            "market_phase_label": "漲停潮",
+            "market_phase_summary": f"今天有 {count} 檔接近漲停 / 漲停，盤面動能明顯；重點是分辨真強續攻與追價陷阱。",
+            "operator_priority": "先看鎖漲停與已進 A/B+/B 的標的，其他急拉股等回測 VWAP 或進場雷達轉強。",
+        }
+    if locked > 0:
+        return {
+            "market_phase": "locked_limit_watch",
+            "market_phase_label": "鎖漲停觀察盤",
+            "market_phase_summary": f"目前有 {locked} 檔鎖漲停或買盤堆積；鎖住代表強，但不是追價理由。",
+            "operator_priority": "只記錄與觀察，等打開後看 VWAP 是否守住、買盤是否延續。",
+        }
+    if high_risk > 0:
+        return {
+            "market_phase": "selective_chase_risk",
+            "market_phase_label": "零星急拉追價風險",
+            "market_phase_summary": f"目前有 {count} 檔急拉 / 接近漲停，其中 {high_risk} 檔追價風險偏高。",
+            "operator_priority": "不要追第一波；等拉回不破、停損距離合理或雷達轉強。",
+        }
+    if wait_confirm > 0:
+        return {
+            "market_phase": "selective_wait_confirm",
+            "market_phase_label": "零星急拉等待確認",
+            "market_phase_summary": f"目前有 {count} 檔急拉 / 接近漲停，但多數仍等待 VWAP、量能或突破確認。",
+            "operator_priority": "逐檔看下一步條件，不提前追價。",
+        }
+    if entered > 0:
+        return {
+            "market_phase": "model_watch_limit_wave",
+            "market_phase_label": "急拉股進入模型觀察",
+            "market_phase_summary": f"有 {entered} 檔接近漲停股進入 A/B+/B 觀察層，但仍需進場雷達與風控確認。",
+            "operator_priority": "只盯已進模型層標的，逐檔檢查停損距離與 VWAP 守穩。",
+        }
+    return {
+        "market_phase": "selective_limit_watch",
+        "market_phase_label": "零星急拉觀察",
+        "market_phase_summary": f"目前有 {count} 檔急拉 / 接近漲停，先列入觀察，不直接升級買多。",
+        "operator_priority": "等待回測不破、量能延續或進場雷達轉強。",
     }
 
 
@@ -1357,10 +1462,12 @@ def _limit_up_brief_notice(brief: dict) -> str:
         return ""
     return (
         '<section class="notice">'
-        f'<strong>漲停強勢速讀</strong><br>{escape(str(brief.get("headline") or ""))}'
+        f'<strong>漲停強勢速讀｜{escape(str(brief.get("phase_label") or ""))}</strong><br>{escape(str(brief.get("headline") or ""))}'
+        f'<br><span class="muted">{escape(str(brief.get("phase_summary") or ""))}</span>'
         '<br><span class="muted">接近漲停代表動能強，但也可能是追價高風險；請往下看「漲停強勢股診斷」確認是有看到、等待確認、資料不足，還是真漏抓。不會把追價高風險股票升級成買多。</span>'
         '<div class="decision-grid">'
         f'<div class="decision-panel"><strong>現在先做</strong><p class="muted">{escape(str(brief.get("action") or ""))}</p></div>'
+        f'<div class="decision-panel"><strong>操作優先順序</strong><p class="muted">{escape(str(brief.get("operator_priority") or ""))}</p></div>'
         f'<div class="decision-panel"><strong>等到什麼</strong><p class="muted">{escape(str(brief.get("wait_for") or ""))}</p></div>'
         f'<div class="decision-panel"><strong>不要做</strong><p class="muted">{escape(str(brief.get("avoid") or ""))}</p></div>'
         '</div>'
@@ -3190,8 +3297,19 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
     rows = list(data.get("rows") or [])
     if not rows:
         rows = _limit_up_rows_from_watchlist(data)
+    brief_phase = _limit_up_phase_from_counts(
+        data,
+        count=int(data.get("near_limit_up_count", 0) or 0),
+        high_risk=int(data.get("high_risk_count", 0) or 0),
+        entered=int(data.get("entered_ai_count", 0) or 0),
+        missed=int(data.get("missed_by_pool_count", 0) or 0),
+        data_missing=int(data.get("data_missing_count", 0) or 0),
+        locked=int(data.get("locked_count", 0) or 0),
+        wait_confirm=int(data.get("wait_confirm_count", 0) or 0),
+    )
     metrics = (
         '<div class="summary">'
+        f'{_metric_text("漲停盤面", str(brief_phase["market_phase_label"]))}'
         f'{_metric("接近漲停 / 漲停", int(data.get("near_limit_up_count", 0)))}'
         f'{_metric("系統有看到", int(data.get("seen_count", 0)))}'
         f'{_metric("進入 A/B+/B", int(data.get("entered_ai_count", 0)))}'
@@ -3227,6 +3345,9 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
         '<section class="data-status">'
         f'<strong>{escape(str(data.get("definition", "")))}</strong><br>'
         f'<span class="muted">{escape(str(data.get("not_buy_reason", "")))}</span>'
+        f'<br><strong>盤面型態：</strong>{escape(str(brief_phase.get("market_phase_label", "")))}'
+        f'<br><span class="muted">{escape(str(brief_phase.get("market_phase_summary", "")))}</span>'
+        f'<br><span class="muted">操作優先順序：{escape(str(brief_phase.get("operator_priority", "")))}</span>'
         '</section>'
         f'{metrics}'
         '<div class="table-wrap"><table class="sortable"><thead><tr>'

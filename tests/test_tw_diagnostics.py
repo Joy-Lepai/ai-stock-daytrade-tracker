@@ -195,11 +195,57 @@ class TWDiagnosticsTests(unittest.TestCase):
         self.assertEqual(limit_up["missed_by_pool_count"], 0)
         self.assertEqual(limit_up["chase_risk_count"], 1)
         self.assertIn("追價風險高", limit_up["action_summary"])
+        self.assertEqual(limit_up["market_phase"], "selective_chase_risk")
+        self.assertEqual(limit_up["market_phase_label"], "零星急拉追價風險")
+        self.assertIn("不要追第一波", limit_up["operator_priority"])
         self.assertEqual(limit_up["rows"][0]["limit_up_decision"], "有看到，但追價風險高")
         self.assertIn("不列入今日做多", limit_up["rows"][0]["limit_up_explanation"])
         self.assertEqual(limit_up["rows"][0]["limit_up_action_type"], "chase_risk")
         self.assertIn("不直接追漲停", limit_up["rows"][0]["limit_up_now_action"])
         self.assertIn("拉回 VWAP", limit_up["rows"][0]["limit_up_wait_for"])
+
+    def test_limit_up_strength_analysis_labels_broad_chase_risk_wave(self):
+        now = datetime(2026, 6, 30, 9, 35, tzinfo=ZoneInfo("Asia/Taipei"))
+        items = [
+            {
+                "symbol": f"81{i:02d}.TW",
+                "name": f"急拉{i}",
+                "change_pct": 9.2 + i / 100,
+                "latest_price": 50 + i,
+                "volume_ratio": 3.0,
+                "above_vwap": True,
+                "break_prev_high": True,
+                "ai_grade": "C",
+                "entry_status": "high_risk",
+                "not_selected_reason": "強勢但追價風險高，不列入今日做多。",
+            }
+            for i in range(10)
+        ]
+        payload = build_tw_diagnostics(
+            DiagnosticInputs(
+                now=now,
+                all_symbols=[WatchSymbol(item["symbol"], item["name"], "momentum") for item in items],
+                intraday_symbols=[item["symbol"] for item in items],
+                daily_data={},
+                intraday_data={},
+                daily_errors={},
+                intraday_errors={},
+                taifex_errors={},
+                cmoney_errors={},
+                market_session="regular",
+                market_status="偏多",
+                momentum_scan={"items": items},
+                candidates=[],
+            )
+        )
+
+        limit_up = payload["limit_up_strength_analysis"]
+
+        self.assertEqual(limit_up["near_limit_up_count"], 10)
+        self.assertEqual(limit_up["market_phase"], "broad_limit_wave_chase_risk")
+        self.assertEqual(limit_up["market_phase_label"], "漲停潮但追價風險主導")
+        self.assertIn("盤面很熱", limit_up["market_phase_summary"])
+        self.assertIn("拉回 VWAP", limit_up["operator_priority"])
 
 
 if __name__ == "__main__":

@@ -1263,6 +1263,10 @@ class TrackerStatusTests(unittest.TestCase):
                     "high_risk_count": 9,
                     "missed_by_pool_count": 0,
                     "data_missing_count": 0,
+                    "market_phase": "broad_limit_wave_chase_risk",
+                    "market_phase_label": "漲停潮但追價風險主導",
+                    "market_phase_summary": "今天有 12 檔接近漲停 / 漲停，且多數被列為追價高風險；盤面很熱，但不代表適合直接追。",
+                    "operator_priority": "先挑已看到但 high_risk 的股票，等拉回 VWAP 附近不破、停損距離縮小，再重新評估。",
                 },
             },
         )
@@ -1270,6 +1274,8 @@ class TrackerStatusTests(unittest.TestCase):
         html = _decision_overview(summary, datetime(2026, 6, 30, 10, 0))
 
         self.assertIn("漲停強勢速讀", html)
+        self.assertIn("漲停潮但追價風險主導", html)
+        self.assertIn("操作優先順序", html)
         self.assertIn("接近漲停 / 漲停", html)
         self.assertIn("漲停高風險觀察", html)
         self.assertIn("漲停真漏抓", html)
@@ -1353,6 +1359,10 @@ class TrackerStatusTests(unittest.TestCase):
                     "missed_by_pool_count": 0,
                     "not_buy_reason": "接近漲停不直接顯示買多。",
                     "action_summary": "1 檔鎖漲停先觀察；1 檔追價風險高。",
+                    "market_phase": "locked_limit_watch",
+                    "market_phase_label": "鎖漲停觀察盤",
+                    "market_phase_summary": "目前有 1 檔鎖漲停或買盤堆積；鎖住代表強，但不是追價理由。",
+                    "operator_priority": "只記錄與觀察，等打開後看 VWAP 是否守住、買盤是否延續。",
                     "rows": [
                         {
                             "symbol": "8150.TW",
@@ -1379,6 +1389,9 @@ class TrackerStatusTests(unittest.TestCase):
 
         html = _limit_up_strength_panel(summary)
 
+        self.assertIn("漲停盤面", html)
+        self.assertIn("鎖漲停觀察盤", html)
+        self.assertIn("操作優先順序", html)
         self.assertIn("鎖漲停觀察", html)
         self.assertIn("追價風險", html)
         self.assertIn("下一步", html)
