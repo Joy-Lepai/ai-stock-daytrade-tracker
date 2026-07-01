@@ -729,6 +729,9 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "data_quality_status": health.get("data_quality_status") or (refresh_payload.get("price_status_summary") or {}).get("status") or "",
         "price_status_summary": refresh_payload.get("price_status_summary") or {},
         "front_category_summary": health.get("front_category_summary") or refresh_payload.get("front_category_summary") or {},
+        "limit_up_operational_summary": health.get("limit_up_operational_summary")
+        or refresh_payload.get("limit_up_operational_summary")
+        or {},
         "required_stale_layers": refresh_payload.get("required_stale_layers") or [],
         "stale_layers": refresh_payload.get("stale_layers") or [],
         "refresh_guidance": refresh_payload.get("refresh_guidance") or {},
@@ -779,6 +782,9 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
     steps = list(health.get("operator_steps") or [])
     can_trade_now = bool(decision.get("can_trade_now"))
     no_signal_triage = _operator_no_signal_triage(health)
+    limit_up_summary = health.get("limit_up_operational_summary")
+    if not isinstance(limit_up_summary, dict):
+        limit_up_summary = {}
     payload = {
         "api_status": "ok",
         "generated_at": health.get("generated_at") or "",
@@ -798,6 +804,7 @@ def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_paylo
         "now_steps": _compact_operator_steps(do_now, steps),
         "no_signal_triage": no_signal_triage,
         "front_category_summary": health.get("front_category_summary") or {},
+        "limit_up_operational_summary": limit_up_summary,
         "checklist": checklist[:5],
         "do_not_do": _compact_text_list(do_not_do or decision.get("blocked_actions") or []),
         "refresh_actions": _compact_text_list(refresh_plan or ([next_action.get("endpoint")] if next_action.get("endpoint") else [])),
@@ -866,6 +873,7 @@ def render_operator_page(payload: dict[str, Any], show_logout: bool = False) -> 
       </div>
     </header>
         {_operator_task_card_panel(payload)}
+        {_operator_limit_up_context_panel(payload)}
         {_operator_fugle_tracking_panel(payload)}
         <section class="operator-grid">
       {_operator_metric('模式', payload.get('mode') or payload.get('market_mode_label') or payload.get('market_mode') or '-', 'operator-mode')}
@@ -941,6 +949,9 @@ def operator_page_css() -> str:
     .operator-task-card { display:grid; grid-template-columns:minmax(170px,.9fr) minmax(260px,1.4fr) minmax(220px,1fr) minmax(140px,.7fr); gap:12px; margin:14px 0; padding:14px; border:1px solid var(--line); border-radius:8px; background:#fff; }
     .operator-task-card strong { display:block; margin-top:4px; font-size:20px; line-height:1.25; }
     .operator-task-card p { margin:4px 0 0; color:#344054; }
+    .operator-limit-up-context { border-color:#fed7aa; background:#fff7ed; }
+    .operator-limit-up-context h2 { margin-bottom:8px; }
+    .operator-limit-up-context .limit-up-symbols { margin-top:8px; color:#344054; font-weight:750; }
     .operator-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin:14px 0; }
     .operator-two-col { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin:14px 0; }
     .operator-list { margin:8px 0 0; padding-left:20px; color:#344054; }
@@ -1003,10 +1014,35 @@ def _operator_task_card(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _operator_limit_up_context_panel(payload: dict[str, Any]) -> str:
+    summary = payload.get("limit_up_operational_summary")
+    if not isinstance(summary, dict) or _safe_int(summary.get("near_limit_up_count")) <= 0:
+        return ""
+    top_symbols = [str(item) for item in (summary.get("top_symbols") or []) if str(item)]
+    top_symbols_text = "、".join(top_symbols[:8]) if top_symbols else "尚未取得代表股票"
+    return f"""
+    <section class="decision-center operator-limit-up-context" id="operator-limit-up-context">
+      <h2>急拉 / 漲停盤提醒</h2>
+      <p id="operator-limit-up-summary">{_escape(str(summary.get('summary') or '今天有接近漲停或急拉股票，先分辨鎖漲停、追價風險與等待確認。'))}</p>
+      <div class="operator-grid">
+        {_operator_metric('接近漲停 / 急拉', summary.get('near_limit_up_count', 0), 'operator-limit-up-count')}
+        {_operator_metric('已進模型層', summary.get('entered_ai_count', 0), 'operator-limit-up-entered')}
+        {_operator_metric('追價風險', summary.get('high_risk_count', 0), 'operator-limit-up-risk')}
+        {_operator_metric('等待確認', summary.get('wait_confirm_count', 0), 'operator-limit-up-wait')}
+        {_operator_metric('避開 / 看空', summary.get('avoid_count', 0), 'operator-limit-up-avoid')}
+        {_operator_metric('資料不足', summary.get('data_missing_count', 0), 'operator-limit-up-missing')}
+      </div>
+      <p><strong>現在先做：</strong><span id="operator-limit-up-action">{_escape(str(summary.get('action') or '先看漲停強勢速讀與急拉作戰卡，不直接追價。'))}</span></p>
+      <p><strong>風控閘門：</strong><span id="operator-limit-up-risk-gate">{_escape(str(summary.get('risk_gate') or '接近漲停不可直接升級買多，仍需 VWAP、停損距離與進場雷達確認。'))}</span></p>
+      <p class="limit-up-symbols"><strong>代表股票：</strong><span id="operator-limit-up-symbols">{_escape(top_symbols_text)}</span></p>
+    </section>
+    """
+
+
 def _operator_task_card_panel(payload: dict[str, Any]) -> str:
     card = payload.get("operator_task_card") if isinstance(payload.get("operator_task_card"), dict) else _operator_task_card(payload)
     return f"""
-    <section class="operator-task-card">
+    <section class="operator-task-card" id="operator-task-card-panel">
       <div>
         <span class="muted">開盤任務卡</span>
         <strong id="operator-task-status">{_escape(str(card.get('status_label') or '-'))}</strong>
@@ -1153,6 +1189,68 @@ def operator_runbook_script() -> str:
           panel.appendChild(form);
         });
       };
+      const metric = (label, value, id) => {
+        const item = document.createElement("div");
+        item.className = "metric";
+        const span = document.createElement("span");
+        span.className = "muted";
+        span.textContent = label;
+        const strong = document.createElement("strong");
+        strong.id = id;
+        strong.textContent = String(value ?? 0);
+        item.appendChild(span);
+        item.appendChild(strong);
+        return item;
+      };
+      const renderLimitUpContext = (summary) => {
+        const existing = $("operator-limit-up-context");
+        const count = Number(summary?.near_limit_up_count || 0);
+        if (!count) {
+          if (existing) existing.remove();
+          return;
+        }
+        let panel = existing;
+        if (!panel) {
+          panel = document.createElement("section");
+          panel.className = "decision-center operator-limit-up-context";
+          panel.id = "operator-limit-up-context";
+          const taskPanel = $("operator-task-card-panel");
+          taskPanel?.insertAdjacentElement("afterend", panel);
+        }
+        const symbols = Array.isArray(summary.top_symbols) && summary.top_symbols.length ? summary.top_symbols.slice(0, 8).join("、") : "尚未取得代表股票";
+        panel.innerHTML = "";
+        const title = document.createElement("h2");
+        title.textContent = "急拉 / 漲停盤提醒";
+        const summaryText = document.createElement("p");
+        summaryText.id = "operator-limit-up-summary";
+        summaryText.textContent = summary.summary || "今天有接近漲停或急拉股票，先分辨鎖漲停、追價風險與等待確認。";
+        const grid = document.createElement("div");
+        grid.className = "operator-grid";
+        [
+          ["接近漲停 / 急拉", summary.near_limit_up_count, "operator-limit-up-count"],
+          ["已進模型層", summary.entered_ai_count, "operator-limit-up-entered"],
+          ["追價風險", summary.high_risk_count, "operator-limit-up-risk"],
+          ["等待確認", summary.wait_confirm_count, "operator-limit-up-wait"],
+          ["避開 / 看空", summary.avoid_count, "operator-limit-up-avoid"],
+          ["資料不足", summary.data_missing_count, "operator-limit-up-missing"],
+        ].forEach(([label, value, id]) => grid.appendChild(metric(label, value, id)));
+        const action = document.createElement("p");
+        action.innerHTML = "<strong>現在先做：</strong><span id=\"operator-limit-up-action\"></span>";
+        const riskGate = document.createElement("p");
+        riskGate.innerHTML = "<strong>風控閘門：</strong><span id=\"operator-limit-up-risk-gate\"></span>";
+        const symbolLine = document.createElement("p");
+        symbolLine.className = "limit-up-symbols";
+        symbolLine.innerHTML = "<strong>代表股票：</strong><span id=\"operator-limit-up-symbols\"></span>";
+        panel.appendChild(title);
+        panel.appendChild(summaryText);
+        panel.appendChild(grid);
+        panel.appendChild(action);
+        panel.appendChild(riskGate);
+        panel.appendChild(symbolLine);
+        text("operator-limit-up-action", summary.action || "先看漲停強勢速讀與急拉作戰卡，不直接追價。");
+        text("operator-limit-up-risk-gate", summary.risk_gate || "接近漲停不可直接升級買多，仍需 VWAP、停損距離與進場雷達確認。");
+        text("operator-limit-up-symbols", symbols);
+      };
       const render = (payload) => {
         const hero = $("operator-hero");
         if (hero) {
@@ -1171,6 +1269,7 @@ def operator_runbook_script() -> str:
         text("operator-task-first", task.first_step || "-");
         text("operator-task-do-not", task.do_not || "-");
         text("operator-task-refresh", task.refresh || "-");
+        renderLimitUpContext(payload.limit_up_operational_summary || {});
         const fugle = payload.fugle_tracking || {};
         const fugleSymbols = Array.isArray(fugle.symbols) && fugle.symbols.length ? fugle.symbols.join("、") : "未指定";
         text("operator-fugle-count", fugle.count ?? (Array.isArray(fugle.symbols) ? fugle.symbols.length : 0));

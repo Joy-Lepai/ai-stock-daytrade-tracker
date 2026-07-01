@@ -201,6 +201,18 @@ class WebTests(unittest.TestCase):
                     "bearish_count": 4,
                     "no_signal_reason": "",
                 },
+                "limit_up_operational_summary": {
+                    "near_limit_up_count": 6,
+                    "entered_ai_count": 5,
+                    "high_risk_count": 3,
+                    "wait_confirm_count": 2,
+                    "avoid_count": 1,
+                    "data_missing_count": 0,
+                    "top_symbols": ["8150.TW", "6919.TW"],
+                    "summary": "今天有 6 檔接近漲停或急拉股，先分辨鎖漲停、追價風險與等待確認。",
+                    "action": "先看漲停強勢速讀與急拉作戰卡。",
+                    "risk_gate": "接近漲停不可直接升級買多。",
+                },
                 "do_now": ["先看強烈買多候選", "確認進場雷達", "檢查停損距離"],
                 "do_not_do": ["不要追 high_risk"],
                 "decision_checklist": ["是否站上 VWAP？", "量比是否足夠？"],
@@ -236,6 +248,8 @@ class WebTests(unittest.TestCase):
         self.assertTrue(payload["no_signal_triage"])
         self.assertIn("強烈買多漏斗", " ".join(payload["no_signal_triage"]))
         self.assertEqual(payload["front_category_summary"]["strong_buy_count"], 1)
+        self.assertEqual(payload["limit_up_operational_summary"]["near_limit_up_count"], 6)
+        self.assertIn("接近漲停不可直接升級買多", payload["limit_up_operational_summary"]["risk_gate"])
         self.assertEqual(payload["checklist"], ["是否站上 VWAP？", "量比是否足夠？"])
         self.assertEqual(payload["do_not_do"], ["不要追 high_risk"])
         self.assertEqual(payload["refresh_actions"], ["/refresh_watchlist"])
@@ -398,6 +412,18 @@ class WebTests(unittest.TestCase):
                     "bearish_count": 4,
                     "no_signal_reason": "目前有強烈買多候選，仍需確認進場雷達。",
                 },
+                "limit_up_operational_summary": {
+                    "near_limit_up_count": 6,
+                    "entered_ai_count": 5,
+                    "high_risk_count": 3,
+                    "wait_confirm_count": 2,
+                    "avoid_count": 1,
+                    "data_missing_count": 0,
+                    "top_symbols": ["8150.TW", "6919.TW"],
+                    "summary": "今天有 6 檔接近漲停或急拉股，先分辨鎖漲停、追價風險與等待確認。",
+                    "action": "先看漲停強勢速讀與急拉作戰卡。",
+                    "risk_gate": "接近漲停不可直接升級買多。",
+                },
                 "now_steps": ["先看強烈買多候選", "確認進場雷達"],
                 "no_signal_triage": ["若沒有強烈買多，先看強烈買多漏斗。"],
                 "checklist": ["是否站上 VWAP？", "量比是否足夠？"],
@@ -428,6 +454,11 @@ class WebTests(unittest.TestCase):
         self.assertIn("operator-task-refresh", html)
         self.assertIn("可盯盤：強烈買多 1 檔", html)
         self.assertIn("先看強烈買多，再逐檔確認進場雷達與停損距離", html)
+        self.assertIn("急拉 / 漲停盤提醒", html)
+        self.assertIn("operator-limit-up-context", html)
+        self.assertIn("今天有 6 檔接近漲停或急拉股", html)
+        self.assertIn("接近漲停不可直接升級買多", html)
+        self.assertIn("8150.TW、6919.TW", html)
         self.assertIn("現在照這樣做", html)
         self.assertIn("四分類摘要", html)
         self.assertIn("operator-front-strong", html)
