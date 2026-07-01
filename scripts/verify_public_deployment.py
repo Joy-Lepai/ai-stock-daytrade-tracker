@@ -875,6 +875,8 @@ def validate_tw_advisor_html(html: str) -> list[Check]:
         "本系統僅供資料整理",
         "確認品質",
         "不代表建議放空",
+        "漲停 / 急拉作戰卡",
+        "不要把接近漲停直接當成買多",
     ]
     forbidden_terms = LEGACY_MISLEADING_TERMS
     missing_markers = [marker for marker in required_markers if marker not in html]
