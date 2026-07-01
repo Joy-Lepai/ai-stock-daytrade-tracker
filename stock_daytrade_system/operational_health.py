@@ -17,6 +17,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     front_category = _as_dict(status_payload.get("front_category_summary"))
     refresh_guidance = _as_dict(status_payload.get("refresh_guidance"))
     refresh_summary = _as_dict(status_payload.get("refresh_operation_summary"))
+    limit_up_summary = _as_dict(status_payload.get("limit_up_operational_summary"))
     required_stale_layers = _list(status_payload.get("required_stale_layers"))
     stale_layers = _list(status_payload.get("stale_layers"))
     blockers: list[str] = []
@@ -96,6 +97,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         warnings=warnings,
         refresh_plan=refresh_plan,
     )
+    operator_mode = _apply_limit_up_context(operator_mode, limit_up_summary, status=status, market_mode=market_mode)
     briefing = _operator_briefing(
         status=status,
         market_mode=market_mode,
@@ -151,6 +153,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "market_mode_label": status_payload.get("market_mode_label") or "",
         "data_quality_status": price_label or "未知",
         "front_category_summary": front_category,
+        "limit_up_operational_summary": limit_up_summary,
         "live_count": live_count,
         "delayed_count": delayed_count,
         "cached_count": cached_count,
@@ -322,6 +325,15 @@ def _operator_briefing(
         posture = "等待確認"
         next_check = "等待量能、VWAP、突破或進場雷達轉強。"
         risk_gate = "沒有訊號就空手，不為了交易而交易。"
+    limit_context = _as_dict(operator_mode.get("limit_up_context"))
+    if (
+        market_mode == "intraday"
+        and status != "blocked"
+        and _int(limit_context.get("near_limit_up_count")) > 0
+    ):
+        headline = "急拉 / 漲停盤：先看追價風險與進場雷達"
+        next_check = str(limit_context.get("summary") or next_check)
+        risk_gate = str(limit_context.get("risk_gate") or "接近漲停不可直接升級買多。")
 
     return {
         "headline": headline,
@@ -535,6 +547,32 @@ def _operator_mode(
         "do_not_do": ["不要在模式不明時進場。"],
         "decision_checklist": ["市場模式是否明確？", "資料品質是否正常？"],
     }
+
+
+def _apply_limit_up_context(operator_mode: dict[str, Any], limit_up_summary: dict[str, Any], *, status: str, market_mode: str) -> dict[str, Any]:
+    if status == "blocked" or market_mode != "intraday":
+        return operator_mode
+    if _int(limit_up_summary.get("near_limit_up_count")) <= 0:
+        return operator_mode
+    updated = dict(operator_mode)
+    do_now = list(updated.get("do_now") or [])
+    do_not_do = list(updated.get("do_not_do") or [])
+    checklist = list(updated.get("decision_checklist") or [])
+    action = str(limit_up_summary.get("action") or "先看漲停強勢速讀與急拉作戰卡。")
+    risk_gate = str(limit_up_summary.get("risk_gate") or "接近漲停不可直接升級買多。")
+    updated["primary_focus"] = str(limit_up_summary.get("summary") or updated.get("primary_focus") or "")
+    updated["do_now"] = _dedupe([action] + do_now)
+    updated["do_not_do"] = _dedupe([risk_gate] + do_not_do)
+    updated["decision_checklist"] = _dedupe(
+        [
+            "急拉股是否仍站上 VWAP？",
+            "停損距離是否合理？",
+            "進場雷達是否轉強？",
+        ]
+        + checklist
+    )
+    updated["limit_up_context"] = limit_up_summary
+    return updated
 
 
 def _summary(status: str, market_mode: str, blockers: list[str], warnings: list[str]) -> str:

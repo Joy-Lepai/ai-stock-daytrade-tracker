@@ -161,6 +161,39 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertIn("這不是做空建議", summary["no_signal_reason"])
         self.assertIn("這不是做空建議", " ".join(payload["operational_health"]["warnings"]))
 
+    def test_status_payload_includes_limit_up_operational_summary(self):
+        now = datetime(2026, 6, 25, 9, 35, tzinfo=ZoneInfo("Asia/Taipei"))
+        captured = "2026-06-25T09:34:00+08:00"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, price, change_pct, volume,
+                      turnover, volume_ratio, vwap, above_vwap, break_prev_high,
+                      break_5d_high, entered_candidate_pool, entered_ai_candidates,
+                      ai_grade, entry_status, trade_bias, not_selected_reason,
+                      reason_code, data_status, created_at
+                    ) VALUES (?, '2026-06-25', '8150.TW', '南茂', 58.5, 9.8, 1000,
+                      100000, 4.2, 56, 1, 1, 1, 1, 0,
+                      'C', 'high_risk', 'watch', '強勢但追價風險高',
+                      'high_chase_risk', 'ok', ?)
+                    """,
+                    (captured, captured),
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        summary = payload["limit_up_operational_summary"]
+        self.assertEqual(summary["near_limit_up_count"], 1)
+        self.assertEqual(summary["high_risk_count"], 1)
+        self.assertIn("追價風險高", summary["summary"])
+        self.assertIn("急拉作戰卡", summary["action"])
+        self.assertIn("8150.TW", " ".join(summary["top_symbols"]))
+
     def test_manual_full_refresh_marks_dependent_layers_success(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

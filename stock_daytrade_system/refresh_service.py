@@ -126,6 +126,7 @@ class RefreshCoordinator:
             inferred_layers = _latest_layer_data_meta(conn)
             price_status = _price_status_summary(conn, now=now)
             front_category_items = _latest_front_category_items(conn)
+            limit_up_summary = _limit_up_operational_summary(conn)
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
             layer = row["layer"]
@@ -212,6 +213,7 @@ class RefreshCoordinator:
             "signal_guard_version": SIGNAL_GUARD_VERSION,
             "price_status_summary": price_status,
             "front_category_summary": front_category_summary,
+            "limit_up_operational_summary": limit_up_summary,
             "live_count": price_status["live_count"],
             "delayed_count": price_status["delayed_count"],
             "cached_count": price_status["cached_count"],
@@ -776,6 +778,86 @@ def _front_category_summary(
         "data_missing_count": data_missing,
         "bearish_ratio": bearish_ratio,
         "no_signal_reason": no_signal_reason,
+    }
+
+
+def _limit_up_operational_summary(conn) -> dict:
+    captured_row = conn.execute("SELECT MAX(captured_at) AS captured_at FROM tw_full_market_snapshots").fetchone()
+    captured_at = captured_row["captured_at"] if captured_row else None
+    if not captured_at:
+        return {
+            "near_limit_up_count": 0,
+            "entered_ai_count": 0,
+            "high_risk_count": 0,
+            "wait_confirm_count": 0,
+            "avoid_count": 0,
+            "data_missing_count": 0,
+            "summary": "目前沒有接近漲停 / 急拉快照。",
+            "action": "回到強烈買多漏斗與進場雷達。",
+            "risk_gate": "不要因沒有摘要就臨時放寬模型。",
+            "source": "tw_full_market_snapshots",
+        }
+    rows = conn.execute(
+        """
+        SELECT symbol, name, change_pct, turnover, entered_ai_candidates, entry_status,
+               ai_grade, reason_code, not_selected_reason
+        FROM tw_full_market_snapshots
+        WHERE captured_at = ?
+          AND COALESCE(change_pct, 0) >= 9
+        ORDER BY change_pct DESC, turnover DESC
+        LIMIT 80
+        """,
+        (captured_at,),
+    ).fetchall()
+    near_limit_count = len(rows)
+    entered = 0
+    high_risk = 0
+    wait_confirm = 0
+    avoid = 0
+    data_missing = 0
+    top_symbols: list[str] = []
+    for row in rows:
+        status = str(row["entry_status"] or "")
+        reason_code = str(row["reason_code"] or "")
+        if len(top_symbols) < 5:
+            top_symbols.append(f"{row['symbol']}｜{row['name'] or ''}".strip("｜"))
+        entered += 1 if row["entered_ai_candidates"] else 0
+        high_risk += 1 if status == "high_risk" else 0
+        wait_confirm += 1 if status.startswith("wait_") else 0
+        avoid += 1 if status == "avoid" else 0
+        data_missing += 1 if reason_code in {"data_missing", "data_insufficient", "yahoo_intraday_failed"} else 0
+    parts = []
+    if high_risk:
+        parts.append(f"{high_risk} 檔追價風險高")
+    if wait_confirm:
+        parts.append(f"{wait_confirm} 檔等待確認")
+    if entered:
+        parts.append(f"{entered} 檔已進模型層")
+    if avoid:
+        parts.append(f"{avoid} 檔多方失效")
+    if data_missing:
+        parts.append(f"{data_missing} 檔資料不足")
+    if near_limit_count and not parts:
+        parts.append(f"{near_limit_count} 檔急拉觀察")
+    summary = "；".join(parts) + "。" if parts else "目前沒有接近漲停 / 急拉快照。"
+    action = (
+        "先看漲停強勢速讀與 /tw/advisor 急拉作戰卡，逐檔確認 VWAP、停損距離與進場雷達。"
+        if near_limit_count
+        else "回到強烈買多漏斗與進場雷達。"
+    )
+    return {
+        "captured_at": captured_at,
+        "near_limit_up_count": near_limit_count,
+        "entered_ai_count": entered,
+        "high_risk_count": high_risk,
+        "wait_confirm_count": wait_confirm,
+        "avoid_count": avoid,
+        "data_missing_count": data_missing,
+        "top_symbols": top_symbols,
+        "summary": summary,
+        "action": action,
+        "risk_gate": "接近漲停代表動能強，也代表追價風險高；不可直接升級買多。",
+        "source": "tw_full_market_snapshots",
     }
 
 

@@ -83,6 +83,53 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertFalse(health["operator_decision"]["can_trust_strong_buy"])
         self.assertIn("四分類摘要", " ".join(health["warnings"]))
 
+    def test_limit_up_context_changes_operator_focus_without_blocking(self):
+        payload = {
+            "market_mode": "intraday",
+            "market_mode_label": "盤中",
+            "allow_intraday_signal": True,
+            "allow_strong_long": True,
+            "can_show_any_strong_long": True,
+            "price_status_summary": {
+                "status": "正常",
+                "live_count": 40,
+                "delayed_count": 0,
+                "cached_count": 0,
+                "missing_count": 0,
+                "missing_ratio": 0,
+            },
+            "front_category_summary": {
+                "counts": {"強烈買多": 1, "買多": 2, "觀察": 3, "看空": 4},
+                "strong_buy_count": 1,
+                "buy_count": 2,
+                "watch_count": 3,
+                "bearish_count": 4,
+                "no_signal_reason": "已有強烈買多候選，仍需逐檔確認進場雷達。",
+            },
+            "limit_up_operational_summary": {
+                "near_limit_up_count": 6,
+                "high_risk_count": 4,
+                "summary": "4 檔追價風險高；2 檔等待確認。",
+                "action": "先看漲停強勢速讀與 /tw/advisor 急拉作戰卡。",
+                "risk_gate": "接近漲停不可直接升級買多。",
+            },
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "refresh_guidance": {"severity": "ok"},
+            "refresh_operation_summary": {"severity": "ok"},
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["status"], "ok")
+        self.assertTrue(health["can_show_strong_long"])
+        self.assertEqual(health["limit_up_operational_summary"]["near_limit_up_count"], 6)
+        self.assertIn("追價風險高", health["primary_focus"])
+        self.assertIn("急拉作戰卡", health["do_now"][0])
+        self.assertIn("接近漲停不可直接升級買多", health["do_not_do"][0])
+        self.assertIn("急拉股是否仍站上 VWAP？", health["decision_checklist"])
+        self.assertIn("急拉 / 漲停盤", health["operator_briefing"]["headline"])
+
     def test_stale_required_layer_blocks_dashboard(self):
         payload = {
             "market_mode": "intraday",
