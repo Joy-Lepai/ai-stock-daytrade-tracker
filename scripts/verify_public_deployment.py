@@ -223,6 +223,22 @@ def validate_refresh_status(payload: dict[str, Any]) -> list[Check]:
             _operator_decision_detail(health.get("operator_decision") if isinstance(health, dict) else None),
         ),
     ]
+    limit_up = health.get("limit_up_operational_summary") if isinstance(health, dict) else None
+    if _limit_up_summary_has_context(limit_up):
+        checks.extend(
+            [
+                Check(
+                    "operational health includes limit-up context",
+                    _limit_up_summary_valid(limit_up),
+                    _limit_up_summary_detail(limit_up),
+                ),
+                Check(
+                    "operational health surfaces limit-up action guidance",
+                    _health_surfaces_limit_up_guidance(health),
+                    _health_limit_up_guidance_detail(health),
+                ),
+            ]
+        )
     if health_status == "blocked":
         checks.append(
             Check(
@@ -575,6 +591,22 @@ def _limit_up_summary_valid(value: Any) -> bool:
     return True
 
 
+def _limit_up_summary_has_context(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    count_keys = (
+        "near_limit_up_count",
+        "entered_ai_count",
+        "high_risk_count",
+        "wait_confirm_count",
+        "avoid_count",
+        "data_missing_count",
+    )
+    return any(_to_int(value.get(key)) > 0 for key in count_keys) or any(
+        bool(value.get(key)) for key in ("summary", "action", "risk_gate", "top_watchlist")
+    )
+
+
 def _limit_up_summary_detail(value: Any) -> str:
     if not isinstance(value, dict):
         return "limit_up_operational_summary=-"
@@ -586,6 +618,49 @@ def _limit_up_summary_detail(value: Any) -> str:
         f"wait_confirm={value.get('wait_confirm_count', '-')} "
         f"top_watchlist={top_count}"
     )
+
+
+def _health_surfaces_limit_up_guidance(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    do_now = _strings(value.get("do_now"))
+    do_not = _strings(value.get("do_not_do"))
+    checklist = _strings(value.get("decision_checklist"))
+    briefing = value.get("operator_briefing") if isinstance(value.get("operator_briefing"), dict) else {}
+    briefing_text = " ".join(str(briefing.get(key) or "") for key in ("headline", "posture", "risk_gate", "next_check"))
+    has_action = _contains_any(do_now + [briefing_text], ("急拉", "漲停"))
+    has_risk_gate = _contains_any(do_not + [briefing_text], ("追價", "不可直接升級買多", "high_risk"))
+    has_check = _contains_any(checklist + [briefing_text], ("VWAP", "量比", "急拉", "漲停"))
+    return has_action and has_risk_gate and has_check
+
+
+def _health_limit_up_guidance_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "operational_health=-"
+    do_now = " | ".join(_strings(value.get("do_now"))) or "-"
+    do_not = " | ".join(_strings(value.get("do_not_do"))) or "-"
+    checklist = " | ".join(_strings(value.get("decision_checklist"))) or "-"
+    return f"do_now={do_now} do_not={do_not} checklist={checklist}"
+
+
+def _strings(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _contains_any(values: list[str], needles: tuple[str, ...]) -> bool:
+    joined = " ".join(values)
+    return any(needle in joined for needle in needles)
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def validate_liveness_payload(http_status: int, payload: dict[str, Any]) -> list[Check]:

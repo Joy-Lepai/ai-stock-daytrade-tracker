@@ -265,6 +265,70 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         failed = [item.name for item in checks if not item.ok]
         self.assertIn("stale market mode blocks operation summary", failed)
 
+    def test_refresh_status_validates_limit_up_guidance_when_present(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["full_market", "watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": True,
+            "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "ok",
+                "summary": "盤中資料正常",
+                "next_action": {"label": "查看急拉盤提醒"},
+                "watch_readiness": "可以盤中追蹤",
+                "refresh_plan": [],
+                "opening_preflight": self._opening_preflight("green", "盤中追蹤"),
+                "operator_decision": self._operator_decision("可盯盤", can_trade_now=True),
+                "operator_briefing": {
+                    "headline": "急拉 / 漲停盤：先分辨強勢延續與追價陷阱",
+                    "risk_gate": "接近漲停不可直接升級買多。",
+                    "next_check": "急拉股是否仍站上 VWAP？量比是否維持？",
+                },
+                "do_now": ["先看漲停強勢速讀與急拉作戰卡。"],
+                "do_not_do": ["不要在接近漲停時直接追價。"],
+                "decision_checklist": ["急拉股是否仍站上 VWAP？", "量比是否維持？"],
+                "limit_up_operational_summary": self._limit_up_summary(),
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+
+        self.assertTrue(all(item.ok for item in checks), checks)
+
+    def test_refresh_status_fails_when_limit_up_context_has_no_action_guidance(self):
+        payload = {
+            "api_status": "ok",
+            "market_mode": "intraday",
+            "required_refresh_layers": ["full_market", "watchlist", "positions"],
+            "required_stale_layers": [],
+            "allow_strong_long": True,
+            "price_status_summary": {"status": "正常"},
+            "front_category_summary": self._front_category_summary(),
+            "refresh_operation_summary": {"severity": "ok", "message": "必要資料層正常。"},
+            "operational_health": {
+                "status": "ok",
+                "summary": "盤中資料正常",
+                "next_action": {"label": "查看盤中追蹤"},
+                "watch_readiness": "可以盤中追蹤",
+                "refresh_plan": [],
+                "opening_preflight": self._opening_preflight("green", "盤中追蹤"),
+                "operator_decision": self._operator_decision("可盯盤", can_trade_now=True),
+                "do_now": ["先看強烈買多候選。"],
+                "do_not_do": ["不要追 high_risk。"],
+                "decision_checklist": ["是否站上 VWAP？"],
+                "limit_up_operational_summary": self._limit_up_summary(),
+            },
+        }
+
+        checks = validate_refresh_status(payload)
+        failed = [item.name for item in checks if not item.ok]
+
+        self.assertIn("operational health surfaces limit-up action guidance", failed)
+
     def test_health_payload_requires_core_monitoring_fields(self):
         payload = self._health_payload()
 
