@@ -908,6 +908,17 @@ class TrackerStatusTests(unittest.TestCase):
                     "excluded_count": 3,
                     "actual_api_calls": 6,
                     "api_budget_message": "Fugle 雷達本次 6 次 API 呼叫；若每 5 分鐘刷新，估計 1.2/min，基本限制 60/min，狀態：安全。",
+                    "entry_radar_health": {
+                        "operator_status": "ready",
+                        "success_count": 2,
+                        "failed_count": 0,
+                        "skipped_count": 0,
+                        "tracking_limit": 5,
+                        "estimated_calls_per_minute": 1.2,
+                        "api_budget_status": "safe",
+                        "can_use_for_entry_confirmation": True,
+                        "next_action": "逐檔確認五檔、逐筆、大單、價格墊高與 VWAP 後再行動。",
+                    },
                     "capability_summary": {
                         "plan": "basic",
                         "websocket_subscription_limit": 5,
@@ -1005,6 +1016,12 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("實際 API 呼叫", html)
         self.assertIn("API 預算", html)
         self.assertIn("估計 1.2/min", html)
+        self.assertIn("追蹤池健康", html)
+        self.assertIn("可用於進場前確認", html)
+        self.assertIn("可做完整確認", html)
+        self.assertIn("API 預算安全", html)
+        self.assertIn("追蹤 2 / 5 檔", html)
+        self.assertIn("逐檔確認五檔", html)
         self.assertIn("為什麼選這些", html)
         self.assertIn("依進場接近度", html)
         self.assertIn("下一候補：2330.TW", html)
@@ -1051,6 +1068,17 @@ class TrackerStatusTests(unittest.TestCase):
                     "enabled": False,
                     "configured": False,
                     "entry_radar_status": "waiting",
+                    "entry_radar_health": {
+                        "operator_status": "not_ready",
+                        "success_count": 0,
+                        "failed_count": 1,
+                        "skipped_count": 0,
+                        "tracking_limit": 5,
+                        "estimated_calls_per_minute": 0,
+                        "api_budget_status": "safe",
+                        "can_use_for_entry_confirmation": False,
+                        "next_action": "先完成 Fugle 設定；設定前只看原模型與資料可信度。",
+                    },
                     "max_symbols": 5,
                     "selected_count": 1,
                     "selected": [
@@ -1077,6 +1105,10 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("Fugle 尚未完整啟用或 API Key 未設定", html)
         self.assertIn("尚未取得即時五檔 / 逐筆成交確認", html)
         self.assertIn("不可當成進場依據", html)
+        self.assertIn("追蹤池健康", html)
+        self.assertIn("尚未可用", html)
+        self.assertIn("不可直接作進場確認", html)
+        self.assertIn("先完成 Fugle 設定", html)
 
     def test_data_status_block_explains_success_and_exclusion(self):
         html = _data_status_block(["盤中行情成功 20/21；失敗標的不納入 VWAP、量比與盤中回測。"])

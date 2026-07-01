@@ -1493,6 +1493,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
     capability = pool.get("capability_summary") or {}
     capability_text = str(capability.get("summary") or "Fugle 能力狀態尚未整理。")
     capability_note = str(capability.get("trading_note") or "Fugle 只作行情確認，不作自動下單。")
+    health_html = _fugle_entry_radar_health_panel(pool.get("entry_radar_health") or {})
     service_warning = ""
     if not pool.get("enabled") or not pool.get("configured"):
         service_warning = (
@@ -1520,6 +1521,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
             f'<section class="notice"><strong>名額配置：</strong>{escape(allocation_text)}</section>'
             f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
             f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
+            f'{health_html}'
             f'<section class="notice"><strong>為什麼選這些：</strong>{escape(selection_explanation)}{next_candidate_note}</section>'
             f'{service_warning}'
             f'<p class="muted">{escape(str(pool.get("message") or "目前沒有需要使用 Fugle 即時追蹤的重點標的。"))}</p>'
@@ -1568,6 +1570,7 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         f'{allocation_warning_html}</section>'
         f'<section class="notice"><strong>方案能力：</strong>{escape(capability_text)}<br><span class="muted">{escape(capability_note)}</span></section>'
         f'<section class="notice"><strong>API 預算：</strong>{escape(api_budget_text)}</section>'
+        f'{health_html}'
         f'<section class="notice"><strong>為什麼選這些：</strong>{escape(selection_explanation)}{next_candidate_note}</section>'
         f'{service_warning}'
         f'<p class="muted">{escape(str(pool.get("entry_radar_message") or pool.get("message") or ""))}</p>'
@@ -1579,6 +1582,37 @@ def _fugle_priority_pool_panel(summary: Optional[LongModelSummary]) -> str:
         '</tr></thead><tbody>'
         f'{body}'
         '</tbody></table></div>'
+        '</section>'
+    )
+
+
+def _fugle_entry_radar_health_panel(health: dict) -> str:
+    if not isinstance(health, dict) or not health:
+        return (
+            '<section class="notice">'
+            '<strong>追蹤池健康：</strong>尚未取得 Fugle 進場雷達健康摘要；請先刷新重點觀察。'
+            '</section>'
+        )
+    operator_status = str(health.get("operator_status") or "unknown")
+    status_label = {
+        "ready": "可用於進場前確認",
+        "limited": "名額受限，僅前 5 檔可確認",
+        "degraded": "部分失敗，只能局部確認",
+        "not_ready": "尚未可用",
+        "empty": "目前沒有追蹤標的",
+    }.get(operator_status, "狀態待確認")
+    budget_label = "API 預算安全" if str(health.get("api_budget_status") or "") == "safe" else "API 接近上限"
+    can_entry = "可做完整確認" if health.get("can_use_for_entry_confirmation") else "不可直接作進場確認"
+    return (
+        '<section class="notice">'
+        f'<strong>追蹤池健康：</strong>{escape(status_label)}｜{escape(can_entry)}｜{escape(budget_label)}<br>'
+        '<span class="muted">'
+        f'追蹤 {int(health.get("success_count", 0) or 0)} / {int(health.get("tracking_limit", 5) or 5)} 檔，'
+        f'失敗 {int(health.get("failed_count", 0) or 0)} 檔，'
+        f'跳過 {int(health.get("skipped_count", 0) or 0)} 檔，'
+        f'估計 {float(health.get("estimated_calls_per_minute", 0) or 0):.2f}/min。'
+        '</span><br>'
+        f'<span class="muted">下一步：{escape(str(health.get("next_action") or "等待下一次重點追蹤刷新。"))}</span>'
         '</section>'
     )
 
