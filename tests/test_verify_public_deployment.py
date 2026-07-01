@@ -879,7 +879,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         required_html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 等待確認池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼 系統狀態與資料來源 看盤狀態 刷新順序
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
         """
 
         for legacy_word in ["做多確認", "建議買多", "今日做多推薦"]:
@@ -902,7 +904,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 等待確認池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼 系統狀態與資料來源 看盤狀態 刷新順序
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>0</strong></div>
@@ -920,7 +924,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 最接近強烈買多 等待確認池
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼 系統狀態與資料來源 看盤狀態 刷新順序
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>
@@ -937,7 +943,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼 系統狀態與資料來源 看盤狀態 刷新順序
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
         TWSE 上市掃描：成功，普通股池 692 檔；TPEX 上櫃掃描：成功，普通股池 389 檔；今日異動候選 40 檔。
         <details><summary>候選股怎麼選出來？</summary>
         <div class="metric"><span>完整普通股池</span><strong>1081</strong></div>
@@ -976,7 +984,9 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         html = """
         今日決策摘要 今日資料可信度 上一交易日復盤重點 下個交易日觀察清單
         進場雷達成績單 資料健康度 台股全市場異動掃描池
-        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼 系統狀態與資料來源 看盤狀態 刷新順序
+        漏抓股票診斷 強烈買多漏斗 卡關處理順序 等到什麼
+        Fugle 5檔即時追蹤池 追蹤池健康 不會改 A / B+ / B 條件
+        系統狀態與資料來源 看盤狀態 刷新順序
         開盤前準備模式。看空偏多這不是做空建議，僅供復盤，等開盤後再確認。
         <div class="metric"><span>強烈買多</span><strong>0</strong></div>
         <div class="metric"><span>買多</span><strong>0</strong></div>
