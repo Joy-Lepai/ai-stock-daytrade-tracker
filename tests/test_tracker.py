@@ -1385,6 +1385,38 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("不直接追漲停", html)
         self.assertIn("等待拉回 VWAP", html)
 
+    def test_limit_up_strength_panel_falls_back_to_momentum_scan(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            decision_center={"counts": {}, "confidence_summary": {}},
+            momentum_scan={
+                "items": [
+                    {
+                        "symbol": "2434.TW",
+                        "name": "統懋",
+                        "change_pct": 9.8,
+                        "entry_status": "high_risk",
+                        "not_selected_reason": "前日爆量漲停，追價風險高",
+                    }
+                ]
+            },
+            diagnostics={},
+        )
+
+        html = _limit_up_strength_panel(summary)
+
+        self.assertIn("接近漲停 / 漲停", html)
+        self.assertIn("2434.TW", html)
+        self.assertIn("有看到，但追價風險高", html)
+        self.assertIn("強勢但追價風險高，不列入今日做多", html)
+        self.assertNotIn("目前沒有漲停強勢股診斷資料", html)
+
     def test_front_category_diagnostics_warns_when_bearish_ratio_is_abnormally_high(self):
         bearish_items = [
             long_candidate(

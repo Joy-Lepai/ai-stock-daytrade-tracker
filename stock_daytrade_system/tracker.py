@@ -3184,10 +3184,12 @@ def _missed_stock_diagnostic_table(summary: Optional[LongModelSummary]) -> str:
 
 
 def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
-    data = ((summary.diagnostics or {}).get("limit_up_strength_analysis") if summary else None) or {}
+    data = _limit_up_context_from_summary(summary, summary.diagnostics if summary else None)
     if not data:
         return '<section class="notice">目前沒有漲停強勢股診斷資料。</section>'
     rows = list(data.get("rows") or [])
+    if not rows:
+        rows = _limit_up_rows_from_watchlist(data)
     metrics = (
         '<div class="summary">'
         f'{_metric("接近漲停 / 漲停", int(data.get("near_limit_up_count", 0)))}'
@@ -3236,6 +3238,37 @@ def _limit_up_strength_panel(summary: Optional[LongModelSummary]) -> str:
         + ("".join(body) or '<tr><td colspan="12">目前沒有接近漲停或漲停鎖住的掃描標的。</td></tr>')
         + '</tbody></table></div>'
     )
+
+
+def _limit_up_rows_from_watchlist(data: dict) -> list[dict]:
+    rows = []
+    for item in list(data.get("top_watchlist") or [])[:30]:
+        if not isinstance(item, dict):
+            continue
+        entry = str(item.get("entry_status") or "-")
+        action = str(item.get("action") or "列入觀察，等待明天盤中重新確認。")
+        high_risk = entry == "high_risk" or "追價" in action or "風險" in action
+        rows.append(
+            {
+                "symbol": str(item.get("symbol") or ""),
+                "name": str(item.get("name") or ""),
+                "latest_at": str(item.get("latest_at") or ""),
+                "limit_up_status": "接近漲停 / 急拉",
+                "change_pct": item.get("change_pct"),
+                "latest_price": item.get("latest_price"),
+                "volume_ratio": item.get("volume_ratio"),
+                "above_vwap": item.get("above_vwap"),
+                "break_prev_high": item.get("break_prev_high"),
+                "ai_grade": item.get("ai_grade") or "-",
+                "entry_status": entry,
+                "limit_up_decision": "有看到，但追價風險高" if high_risk else "有看到，列入續強觀察",
+                "limit_up_explanation": "強勢但追價風險高，不列入今日做多。" if high_risk else "急拉或接近漲停已被系統看到；盤後僅列入下個交易日觀察。",
+                "limit_up_now_action": action,
+                "limit_up_wait_for": "明天重新確認 VWAP、量比、突破、停損距離與進場雷達。",
+                "reason_code": item.get("reason_code") or ("high_risk" if high_risk else "limit_up_inferred"),
+            }
+        )
+    return rows
 
 
 def _diagnostic_bucket_label(bucket: str) -> str:
