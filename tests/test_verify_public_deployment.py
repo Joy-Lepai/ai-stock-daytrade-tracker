@@ -72,6 +72,20 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             ],
         }
 
+    def _advisor_limit_up_playbook(self, **overrides):
+        payload = {
+            "visible": False,
+            "status": "not_near_limit",
+            "label": "未接近漲停",
+            "summary": "目前不是接近漲停型態，回到 VWAP、量比、突破與風控判斷。",
+            "now_action": "回到一般進場雷達與風控檢查。",
+            "wait_for": "等待 VWAP、量比、突破與停損距離條件完整。",
+            "avoid": "不要因為個股頁沒有漲停警示就忽略一般風控。",
+            "does_not_change_model": True,
+        }
+        payload.update(overrides)
+        return payload
+
     def _health_payload(self, **overrides):
         payload = {
             "api_status": "ok",
@@ -1085,6 +1099,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
             "entry_confirmation": {"confirmation_quality": "blocked"},
+            "limit_up_playbook": self._advisor_limit_up_playbook(),
             "data_health": {"price_status": "live"},
             "market_mode": {"mode": "intraday"},
         }
@@ -1104,6 +1119,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             },
             "entry_radar_summary": {"blocker_summary": "追價風險高", "next_trigger": "等待拉回 VWAP"},
             "entry_confirmation": {"confirmation_quality": "blocked"},
+            "limit_up_playbook": self._advisor_limit_up_playbook(),
             "candidate": {"entry_status": "high_risk", "above_vwap": True},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -1119,6 +1135,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             "front_trade": {"category": "買多推薦"},
             "decision_card": {},
             "entry_radar_summary": {},
+            "limit_up_playbook": {},
             "data_health": {},
             "market_mode": {},
         }
@@ -1133,6 +1150,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
         self.assertIn("advisor scan has invalid condition", failed)
         self.assertIn("advisor scan has entry radar summary", failed)
         self.assertIn("advisor scan has confirmation quality", failed)
+        self.assertIn("advisor scan has limit-up playbook", failed)
         self.assertIn("advisor scan has no legacy misleading category", failed)
 
     def test_tw_advisor_scan_blocks_non_intraday_strong_buy(self):
@@ -1146,6 +1164,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             },
             "entry_radar_summary": {"blocker_summary": "非盤中", "next_trigger": "等開盤"},
             "entry_confirmation": {"confirmation_quality": "blocked"},
+            "limit_up_playbook": self._advisor_limit_up_playbook(),
             "data_health": {"price_status": "delayed"},
             "market_mode": {"mode": "pre_open_prepare"},
         }
@@ -1210,6 +1229,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             },
             "entry_radar_summary": {"blocker_summary": "等待突破", "next_trigger": "突破昨高"},
             "entry_confirmation": {"confirmation_quality": "standard"},
+            "limit_up_playbook": self._advisor_limit_up_playbook(),
             "candidate": {"entry_status": "wait_breakout", "above_vwap": True, "stop_loss": 101.5},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},
             "market_mode": {"mode": "intraday"},
@@ -1251,6 +1271,7 @@ class VerifyPublicDeploymentTests(unittest.TestCase):
             },
             "entry_radar_summary": {"blocker_summary": "接近觸發", "next_trigger": "等待進場雷達確認"},
             "entry_confirmation": {"confirmation_quality": "standard"},
+            "limit_up_playbook": self._advisor_limit_up_playbook(),
             "candidate": {"entry_status": "executable", "above_vwap": True},
             "key_metrics": {"stop_loss": 598.0},
             "data_health": {"price_status": "live", "can_use_for_intraday_signal": True},

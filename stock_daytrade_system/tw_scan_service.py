@@ -1161,6 +1161,10 @@ def _limit_up_playbook_payload(
             "status": "not_near_limit",
             "label": "未接近漲停",
             "summary": "目前不是接近漲停型態，回到 VWAP、量比、突破與風控判斷。",
+            "now_action": "回到一般進場雷達與風控檢查。",
+            "wait_for": "等待 VWAP、量比、突破與停損距離條件完整。",
+            "avoid": "不要因為個股頁沒有漲停警示就忽略一般風控。",
+            "does_not_change_model": True,
         }
 
     current_price = _num(key_metrics.get("current_price"), candidate.get("last_price"), scan.get("latest_price"))

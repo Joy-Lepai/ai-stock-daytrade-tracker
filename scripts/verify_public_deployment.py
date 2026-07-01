@@ -936,6 +936,7 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
     entry_confirmation = payload.get("entry_confirmation") or {}
     health = payload.get("data_health") or {}
     market_mode = payload.get("market_mode") or {}
+    limit_up_playbook = payload.get("limit_up_playbook") or {}
     forbidden_categories = set(LEGACY_MISLEADING_TERMS)
     category = str(front_trade.get("category") or decision_card.get("final_decision") or "")
     checks = [
@@ -982,6 +983,11 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
             f"confirmation_quality={entry_confirmation.get('confirmation_quality', '-') if isinstance(entry_confirmation, dict) else '-'}",
         ),
         Check(
+            "advisor scan has limit-up playbook",
+            _advisor_limit_up_playbook_valid(limit_up_playbook),
+            _advisor_limit_up_playbook_detail(limit_up_playbook),
+        ),
+        Check(
             "advisor scan has no legacy misleading category",
             category not in forbidden_categories,
             f"category={category or '-'}",
@@ -998,6 +1004,27 @@ def validate_tw_advisor_scan(payload: dict[str, Any], expected_symbol: str = "")
         )
     checks.extend(_advisor_scan_front_category_safety_checks(payload, category))
     return checks
+
+
+def _advisor_limit_up_playbook_valid(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if "visible" not in value or not value.get("status") or not value.get("label") or not value.get("summary"):
+        return False
+    if value.get("does_not_change_model") is not True:
+        return False
+    if bool(value.get("visible")):
+        return bool(value.get("now_action")) and bool(value.get("wait_for")) and bool(value.get("avoid"))
+    return True
+
+
+def _advisor_limit_up_playbook_detail(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "limit_up_playbook=-"
+    return (
+        f"visible={value.get('visible', '-')} status={value.get('status', '-')} "
+        f"does_not_change_model={value.get('does_not_change_model', '-')}"
+    )
 
 
 def _advisor_scan_front_category_safety_checks(payload: dict[str, Any], category: str) -> list[Check]:
