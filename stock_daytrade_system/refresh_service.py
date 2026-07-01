@@ -24,6 +24,7 @@ from stock_daytrade_system.db import (
 )
 from stock_daytrade_system.frontend_language import front_trade_counts
 from stock_daytrade_system.intraday import analyze_opening_confirmation
+from stock_daytrade_system.limit_up_phase import build_limit_up_market_phase
 from stock_daytrade_system.long_model import build_long_candidates
 from stock_daytrade_system.market_data_provider import get_market_data_provider_manager
 from stock_daytrade_system.market_mode import evaluate_tw_market_mode
@@ -795,13 +796,15 @@ def _limit_up_operational_summary(conn) -> dict:
             "summary": "目前沒有接近漲停 / 急拉快照。",
             "action": "回到強烈買多漏斗與進場雷達。",
             "risk_gate": "不要因沒有摘要就臨時放寬模型。",
-            **_limit_up_market_phase(
+            **build_limit_up_market_phase(
                 total=0,
-                high_risk=0,
+                chase_risk=0,
                 wait_confirm=0,
                 avoid=0,
                 data_missing=0,
                 entered=0,
+                subject="接近漲停 / 急拉",
+                empty_target="快照",
             ),
             "source": "tw_full_market_snapshots",
         }
@@ -871,13 +874,15 @@ def _limit_up_operational_summary(conn) -> dict:
         if near_limit_count
         else "回到強烈買多漏斗與進場雷達。"
     )
-    phase = _limit_up_market_phase(
+    phase = build_limit_up_market_phase(
         total=near_limit_count,
-        high_risk=high_risk,
+        chase_risk=high_risk,
         wait_confirm=wait_confirm,
         avoid=avoid,
         data_missing=data_missing,
         entered=entered,
+        subject="接近漲停 / 急拉",
+        empty_target="快照",
     )
     return {
         "captured_at": captured_at,
@@ -894,79 +899,6 @@ def _limit_up_operational_summary(conn) -> dict:
         "risk_gate": "接近漲停代表動能強，也代表追價風險高；不可直接升級買多。",
         **phase,
         "source": "tw_full_market_snapshots",
-    }
-
-
-def _limit_up_market_phase(
-    *,
-    total: int,
-    high_risk: int,
-    wait_confirm: int,
-    avoid: int,
-    data_missing: int,
-    entered: int,
-) -> dict[str, str]:
-    if total <= 0:
-        return {
-            "market_phase": "no_limit_wave",
-            "market_phase_label": "無明顯漲停潮",
-            "market_phase_summary": "目前沒有接近漲停或急拉快照，回到一般強烈買多漏斗與進場雷達。",
-            "operator_priority": "不用追逐漲停新聞，先看 VWAP、量比、突破與風控是否完整。",
-        }
-    if data_missing >= max(2, total // 3):
-        return {
-            "market_phase": "limit_wave_data_unreliable",
-            "market_phase_label": "漲停潮資料不足",
-            "market_phase_summary": f"有 {total} 檔接近漲停 / 急拉，但資料不足比例偏高；不可用來做即時進場判斷。",
-            "operator_priority": "等待 price_status 回到 live，且 VWAP、量比、停損價完整後再評估。",
-        }
-    if total >= 10:
-        if high_risk >= max(3, total // 2):
-            return {
-                "market_phase": "broad_limit_wave_chase_risk",
-                "market_phase_label": "漲停潮但追價風險主導",
-                "market_phase_summary": f"今天有 {total} 檔接近漲停 / 急拉，且多數被列為追價高風險；盤面很熱，但不代表適合直接追。",
-                "operator_priority": "先挑已看到但 high_risk 的股票，等拉回 VWAP 附近不破、停損距離縮小，再重新評估。",
-            }
-        return {
-            "market_phase": "broad_limit_wave",
-            "market_phase_label": "漲停潮",
-            "market_phase_summary": f"今天有 {total} 檔接近漲停 / 急拉，盤面動能明顯；重點是分辨真強續攻與追價陷阱。",
-            "operator_priority": "先看已進 A/B+/B 的標的，其他急拉股等回測 VWAP 或進場雷達轉強。",
-        }
-    if high_risk > 0:
-        return {
-            "market_phase": "selective_chase_risk",
-            "market_phase_label": "零星急拉追價風險",
-            "market_phase_summary": f"目前有 {total} 檔急拉 / 接近漲停，其中 {high_risk} 檔追價風險偏高。",
-            "operator_priority": "不要追第一波；等拉回不破、停損距離合理或雷達轉強。",
-        }
-    if wait_confirm > 0:
-        return {
-            "market_phase": "selective_wait_confirm",
-            "market_phase_label": "零星急拉等待確認",
-            "market_phase_summary": f"目前有 {total} 檔急拉 / 接近漲停，但多數仍等待 VWAP、量能或突破確認。",
-            "operator_priority": "逐檔看下一步條件，不提前追價。",
-        }
-    if entered > 0:
-        return {
-            "market_phase": "model_watch_limit_wave",
-            "market_phase_label": "急拉股進入模型觀察",
-            "market_phase_summary": f"有 {entered} 檔急拉股進入 A/B+/B 觀察層，但仍需進場雷達與風控確認。",
-            "operator_priority": "只盯已進模型層標的，逐檔檢查停損距離與 VWAP 守穩。",
-        }
-    if avoid > 0:
-        return {
-            "market_phase": "selective_limit_avoid",
-            "market_phase_label": "急拉但多方失效",
-            "market_phase_summary": f"目前有 {total} 檔急拉 / 接近漲停，其中 {avoid} 檔已被判定多方結構不足或失效。",
-            "operator_priority": "只做復盤，不用漲幅掩蓋 VWAP、突破或風險缺口。",
-        }
-    return {
-        "market_phase": "selective_limit_watch",
-        "market_phase_label": "零星急拉觀察",
-        "market_phase_summary": f"目前有 {total} 檔急拉 / 接近漲停，先列入觀察，不直接升級買多。",
-        "operator_priority": "等待回測不破、量能延續或進場雷達轉強。",
     }
 
 
