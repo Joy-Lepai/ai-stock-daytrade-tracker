@@ -358,9 +358,38 @@ def release_report_payload(state: ReleaseState, checks: list[ReleaseCheck]) -> d
         "next_action": recommended_next_action(state),
         "github_desktop_repo_hint": f"GitHub Desktop 應開啟：{state.repo_path}" if state.repo_path else "GitHub Desktop 應開啟本專案 repo",
         "release_steps": release_steps(state),
+        "post_deploy_validation": post_deploy_validation(state),
         "can_push": (not state.dirty) and (state.head != state.origin or state.ahead_count > 0),
         "can_deploy_render": (not state.dirty) and state.head == state.origin and state.ahead_count in {0, -1},
         "can_trust_public": not failures,
+    }
+
+
+def post_deploy_validation(state: ReleaseState) -> dict[str, Any]:
+    base_url = DEFAULT_BASE_URL
+    expected = short(state.head) if state.head else "<commit>"
+    return {
+        "base_url": base_url,
+        "expected_commit": state.head,
+        "commands": [
+            f"python3 scripts/check_release_readiness.py --base-url {base_url} --timeout 20 --json",
+            f"python3 scripts/verify_public_deployment.py --base-url {base_url} --expected-commit {expected} --timeout 20",
+            f"python3 scripts/check_operational_health.py --base-url {base_url} --timeout 20",
+        ],
+        "must_have": [
+            "public runtime commit matches expected commit",
+            "dashboard shows 今日決策摘要 and 資料健康度",
+            "dashboard shows Fugle 5檔即時追蹤池 and 追蹤池健康",
+            "operator runbook shows 急拉 / 漲停盤提醒",
+            "operational health has next action, do-not-do, and decision checklist",
+        ],
+        "do_not_trust_public_until": [
+            "origin/main equals local HEAD",
+            "Render runtime commit equals expected commit",
+            "tracker HTML commit equals runtime commit",
+            "public dashboard passes verify_public_deployment",
+            "operational health does not block data or refresh layers",
+        ],
     }
 
 
@@ -418,6 +447,9 @@ def print_release_report(state: ReleaseState, checks: list[ReleaseCheck]) -> int
     print(f"- can_trust_public: {'yes' if payload['can_trust_public'] else 'no'}")
     print("Release steps:")
     for index, item in enumerate(release_steps(state), start=1):
+        print(f"{index}. {item}")
+    print("Post-deploy validation:")
+    for index, item in enumerate(payload["post_deploy_validation"]["commands"], start=1):
         print(f"{index}. {item}")
     return failures
 

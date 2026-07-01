@@ -296,6 +296,13 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertFalse(payload["can_trust_public"])
         self.assertIn("local pushed to origin/main", payload["failed_checks"])
         self.assertIn("Repository → Push", payload["next_action"])
+        self.assertIn("post_deploy_validation", payload)
+        validation = payload["post_deploy_validation"]
+        self.assertIn("scripts/verify_public_deployment.py", " ".join(validation["commands"]))
+        self.assertIn("scripts/check_operational_health.py", " ".join(validation["commands"]))
+        self.assertIn("Fugle 5檔即時追蹤池", " ".join(validation["must_have"]))
+        self.assertIn("急拉 / 漲停盤提醒", " ".join(validation["must_have"]))
+        self.assertIn("tracker HTML commit equals runtime commit", " ".join(validation["do_not_trust_public_until"]))
 
     def test_release_report_payload_marks_unknown_ahead_but_different_origin(self):
         state = ReleaseState(
@@ -448,6 +455,8 @@ class CheckReleaseReadinessTests(unittest.TestCase):
         self.assertIn('"status": "ok"', stream.getvalue())
         self.assertIn('"can_deploy_render": true', stream.getvalue())
         self.assertIn('"can_trust_public": true', stream.getvalue())
+        self.assertIn('"post_deploy_validation"', stream.getvalue())
+        self.assertIn('Fugle 5檔即時追蹤池', stream.getvalue())
 
     def test_main_json_outputs_machine_readable_failure(self):
         import scripts.check_release_readiness as module
