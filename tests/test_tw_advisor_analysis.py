@@ -33,15 +33,40 @@ class TWAdvisorAnalysisTests(unittest.TestCase):
             market_status="偏多",
         )
 
-        self.assertEqual(analysis.action_label, "可執行")
+        self.assertEqual(analysis.action_label, "強烈買多")
         self.assertGreaterEqual(analysis.technical_score, 75)
         self.assertGreaterEqual(analysis.volume_score, 65)
         self.assertLessEqual(analysis.chase_risk_score, 55)
         self.assertIn("可列入進場雷達重點檢查", analysis.action_summary)
-        self.assertEqual(analysis.action_plan["state"], "可執行")
+        self.assertIn("不等於保證可買", analysis.action_summary)
+        self.assertEqual(analysis.action_plan["state"], "強烈買多")
         self.assertEqual(analysis.action_plan["stop_loss"], 102)
         self.assertEqual(analysis.action_plan["target_price"], 108)
         self.assertGreaterEqual(len(analysis.key_levels), 5)
+
+    def test_internal_practice_long_is_frontend_watch(self):
+        analysis = build_tw_advisor_analysis(
+            scan={
+                "latest_price": 52,
+                "vwap": 51.5,
+                "above_vwap": True,
+                "break_prev_high": True,
+                "volume_ratio": 0.9,
+                "change_pct": 2.1,
+            },
+            candidate={
+                "bullish_score": 70,
+                "risk_score": 45,
+                "confidence_score": 58,
+                "trade_bias_label": "練習買多",
+                "upper_shadow_pct": 0.4,
+            },
+            display={"current_price": 52, "change_pct": 2.1},
+            market_status="偏多",
+        )
+
+        self.assertEqual(analysis.action_label, "觀察")
+        self.assertIn("量能尚未確認", analysis.action_plan["no_chase_reason"])
 
     def test_overextended_low_volume_stock_stays_watch(self):
         analysis = build_tw_advisor_analysis(

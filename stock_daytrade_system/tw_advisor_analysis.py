@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Optional
 
 
-TW_ADVISOR_ANALYSIS_VERSION = "tw_advisor_analysis_v1_technical_volume_risk_2026-06-18"
+TW_ADVISOR_ANALYSIS_VERSION = "tw_advisor_analysis_v2_front_four_categories_2026-07-01"
 
 
 @dataclass(frozen=True)
@@ -244,8 +244,14 @@ def _action_label(
         return "看空"
     if candidate_label == "賣" + "空":
         return "看空"
-    if candidate_label in {"可執行", "練習買多", "看空"}:
-        return candidate_label
+    if candidate_label == "看空":
+        return "看空"
+    if candidate_label == "可執行":
+        return "強烈買多" if above_vwap and chase_risk_score <= 55 else "觀察"
+    if candidate_label == "練習買多":
+        return "觀察"
+    if candidate_label == "買多":
+        return "買多" if above_vwap and chase_risk_score <= 60 else "觀察"
     if (
         technical_score >= 75
         and volume_score >= 65
@@ -254,7 +260,15 @@ def _action_label(
         and above_vwap
         and break_prev_high
     ):
-        return "可執行"
+        return "強烈買多"
+    if (
+        technical_score >= 65
+        and volume_score >= 55
+        and chase_risk_score <= 60
+        and confidence_score >= 50
+        and above_vwap
+    ):
+        return "買多"
     if not above_vwap and change_pct <= -1 and volume_ratio >= 1.0:
         return "看空"
     return "觀察"
@@ -308,10 +322,10 @@ def _risk_summary(chase_risk_score: float, vwap_distance: Optional[float], chang
 
 
 def _action_summary(action_label: str, technical_score: float, volume_score: float, chase_risk_score: float, confidence_score: float) -> str:
-    if action_label == "可執行":
-        return "技術結構、量能與風險條件相對配合，可列入進場雷達重點檢查。"
-    if action_label == "練習買多":
-        return "條件接近，但尚未等同正式可執行，可用虛擬交易練習觀察。"
+    if action_label == "強烈買多":
+        return "技術結構、量能與風險條件相對配合，可列入進場雷達重點檢查；仍不等於保證可買。"
+    if action_label == "買多":
+        return "方向偏多，但仍需等待量能、突破或進場雷達確認。"
     if action_label == "看空":
         return "價格結構偏弱且量能配合，多方條件失效，暫不做多。"
     if technical_score >= 65 and volume_score < 55:
@@ -319,15 +333,15 @@ def _action_summary(action_label: str, technical_score: float, volume_score: flo
     if chase_risk_score >= 65:
         return "股價雖有動能，但追價風險偏高，暫時觀察。"
     if confidence_score < 50:
-        return "資料或結構信心不足，不列為可執行。"
+        return "資料或結構信心不足，不列入買多。"
     return "目前買多條件尚未完整，維持觀察。"
 
 
 def _next_step(action_label: str, above_vwap: bool, volume_ratio: float, has_breakout: bool, chase_risk_score: float) -> str:
-    if action_label == "可執行":
-        return "先確認停損距離、VWAP 是否守住，再用虛擬交易練習。"
-    if action_label == "練習買多":
-        return "先等待觸發條件成立，僅以虛擬交易練習累積樣本。"
+    if action_label == "強烈買多":
+        return "先確認停損距離、VWAP 是否守住，再用進場雷達與虛擬交易練習。"
+    if action_label == "買多":
+        return "等待突破、量能延續與進場雷達確認，不提前追價。"
     if action_label == "看空":
         return "多方結構失效，暫不做多；不代表建議放空。"
     if not above_vwap:
@@ -360,7 +374,7 @@ def _action_plan(
     long_trigger = _max_price(trigger_price, previous_high, opening_range_high, current_price if break_prev_high or break_orb else None)
     short_trigger = _min_price(opening_range_low, vwap)
     entry_reference = current_price
-    if action_label in {"可執行", "練習買多"}:
+    if action_label in {"強烈買多", "買多"}:
         plan_stop = stop_loss or _pct(current_price, -1.0) or _pct(vwap, -0.3)
         plan_target = _valid_long_target(target_price, entry_reference) or _pct(current_price, 2.0)
         return _plan_dict(
@@ -396,7 +410,7 @@ def _action_plan(
         no_chase_reason = "尚未完成突破，不急著進場。"
     else:
         wait_condition = "等待下一根 K 棒延續，或回測 VWAP 不破。"
-        no_chase_reason = "目前訊號尚未達可執行標準。"
+        no_chase_reason = "目前訊號尚未達進場雷達標準。"
     observation_stop = _pct(entry_reference, -1.0) if chase_risk_score >= 65 else _valid_long_stop(stop_loss, entry_reference) or _pct(entry_reference, -1.0)
     observation_target = (
         _max_price(current_price, _pct(entry_reference, 2.0))
@@ -405,7 +419,7 @@ def _action_plan(
     )
     return _plan_dict(
         action_label=action_label,
-        trigger_condition="尚未達成可執行觸發條件。",
+        trigger_condition="尚未達成進場雷達觸發條件。",
         entry_reference=entry_reference,
         stop_loss=observation_stop,
         target_price=observation_target,
