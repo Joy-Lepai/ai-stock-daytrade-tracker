@@ -269,6 +269,58 @@ class WebTests(unittest.TestCase):
         self.assertIn("不會改模型", payload["fugle_tracking"]["message"])
         self.assertNotIn("price_status_summary", payload)
 
+    def test_operator_task_card_uses_specific_pre_open_copy(self):
+        refresh_payload = {
+            "generated_at": "2026-06-26T08:50:00+08:00",
+            "market_mode": "pre_open_prepare",
+            "market_mode_label": "開盤前準備模式",
+            "allow_intraday_signal": False,
+            "required_stale_layers": [],
+            "stale_layers": [],
+            "price_status_summary": {"status": "開盤前準備"},
+            "refresh_guidance": {"severity": "ok"},
+            "front_category_summary": {
+                "counts": {"強烈買多": 0, "買多": 0, "觀察": 6, "看空": 2},
+                "no_signal_reason": "開盤前只整理觀察清單。",
+            },
+            "operational_health": {
+                "status": "ok",
+                "summary": "開盤前準備模式",
+                "opening_preflight": {
+                    "light": "yellow",
+                    "label": "開盤前觀察",
+                    "can_trust_strong_buy": False,
+                },
+                "operator_decision": {
+                    "decision": "等待開盤",
+                    "headline": "開盤前準備模式",
+                    "reason": "尚未有今日 VWAP。",
+                    "first_action": "先看觀察清單",
+                    "can_trade_now": False,
+                },
+                "operator_mode": "開盤前準備模式",
+                "primary_focus": "先整理觀察清單",
+                "do_now": ["08:55 先確認 /dashboard 開盤檢查與資料可信度。"],
+                "do_not_do": ["不要把昨日資料當成即時買多。"],
+                "decision_checklist": ["股票是否站上 VWAP？"],
+                "watch_readiness": "僅供復盤或開盤前觀察",
+                "watch_readiness_message": "目前不是盤中即時模式。",
+                "operator_steps": ["09:00 後先等 5 到 10 分鐘。"],
+                "refresh_plan": [],
+                "next_action": {"label": "查看復盤與下個交易日觀察"},
+                "can_use_dashboard": True,
+                "can_show_strong_long": False,
+                "data_quality_status": "開盤前準備",
+            },
+        }
+
+        payload = build_operator_runbook_payload(refresh_payload, {})
+
+        self.assertEqual(payload["operator_task_card"]["status_label"], "開盤前：只挑清單，不提前進場")
+        self.assertIn("09:00 後等 5 到 10 分鐘", payload["operator_task_card"]["first_step"])
+        self.assertFalse(payload["can_trust_strong_buy"])
+        self.assertIn("不要把昨日資料當成即時買多", payload["operator_task_card"]["do_not"])
+
     def test_operator_runbook_includes_front_category_no_signal_triage(self):
         refresh_payload = {
             "generated_at": "2026-06-26T09:05:00+08:00",

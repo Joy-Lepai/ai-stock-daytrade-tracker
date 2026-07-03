@@ -990,6 +990,9 @@ def _operator_task_card(payload: dict[str, Any]) -> dict[str, str]:
     if blockers:
         status_label = "暫停：先修資料或刷新層"
         first_step = blockers[0]
+    elif mode == "pre_open_prepare":
+        status_label = "開盤前：只挑清單，不提前進場"
+        first_step = "先看資料可信度與開盤前重點盯盤，09:00 後等 5 到 10 分鐘再判斷"
     elif mode != "intraday":
         status_label = "非盤中：只做復盤與觀察"
         first_step = "看上一交易日復盤與下個交易日觀察清單"
