@@ -560,6 +560,7 @@ def render_tracker_html(
   <main>
     {_market_mode_panel(long_summary, report_time)}
     {_today_playbook_panel(long_summary, report_time)}
+    {_review_mode_sections(long_summary, report_time)}
     {_candidate_selection_explainer(long_summary)}
     {_decision_overview(long_summary, report_time)}
     {_precision_gap_overview(long_summary, report_time)}
@@ -568,7 +569,6 @@ def render_tracker_html(
     {_fugle_priority_pool_panel(long_summary)}
     {_trend_continuation_panel(long_summary, report_time)}
     {_position_command_center(long_summary)}
-    {_review_mode_sections(long_summary, report_time)}
     <h2>本週模型觀察</h2>
     {_model_observation_panel(long_summary)}
     <h2>進場雷達成績單</h2>
@@ -2599,10 +2599,32 @@ def _review_mode_sections(summary: Optional[LongModelSummary], report_time: date
     )["counts"]
     verification_text = f"{int(verification.get('verified', 0) or 0)}/{int(verification.get('rows', 0) or 0)}"
     true_missed_rate = float(missed.get("missed_by_pool_rate", missed.get("missed_rate", 0)) or 0)
+    mode_name = str(mode.get("mode") or "")
+    if mode_name == "intraday":
+        review_notice = (
+            "盤中仍可用此區對照上一輪掃描結果，但進場判斷請以即時 VWAP、量比、突破與進場雷達為準。"
+        )
+    elif mode_name == "pre_open_prepare":
+        review_notice = (
+            "現在還沒開盤，請先看上一交易日復盤與下個交易日觀察清單；09:00 後等 VWAP、量比、突破與進場雷達重新確認。"
+        )
+    elif mode_name == "closed_review":
+        review_notice = (
+            "今天沒有盤中即時資料，這裡不是買進推薦；它的用途是找出上一交易日有動能、明天值得優先盯盤的股票。"
+        )
+    elif mode_name == "post_close_review":
+        review_notice = (
+            "收盤後請用這裡驗證今天訊號是否有效，並整理下個交易日要優先盯的股票。"
+        )
+    else:
+        review_notice = (
+            "資料模式不完整時，此區只可做復盤與觀察；不要把它當成即時進場依據。"
+        )
     overview = (
         '<section class="decision-center">'
         '<h2>上一交易日復盤</h2>'
         f'<p class="muted">{escape(str(mode.get("review_mode_message", "")))}</p>'
+        f'<section class="notice"><strong>沒開盤時怎麼用？</strong><br>{escape(review_notice)}</section>'
         '<div class="summary">'
         f'{_metric_text("資料日期", str(mode.get("data_date", "-")))}'
         f'{_metric("上一交易日強烈買多", int(front.get("強烈買多", 0)))}'

@@ -22,6 +22,7 @@ from stock_daytrade_system.tracker import (
     _limit_up_strength_panel,
     _market_mode_panel,
     _recommendation_checklist_table,
+    _review_mode_sections,
     _signal_center,
     _strong_long_funnel_panel,
     _today_playbook_panel,
@@ -1562,6 +1563,30 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("開盤前作戰：先挑清單，不提前進場", html)
         self.assertIn("09:00 後先等 5 到 10 分鐘", html)
         self.assertIn("資料沒有 live 前，不做強烈買多判斷", html)
+
+    def test_review_mode_sections_explain_how_to_use_before_open(self):
+        summary = LongModelSummary(
+            candidates=[],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-06-24",
+                    "latest_intraday_at": "2026-06-24T13:30:00+08:00",
+                }
+            },
+        )
+
+        html = _review_mode_sections(summary, datetime(2026, 6, 25, 8, 50))
+
+        self.assertIn("沒開盤時怎麼用？", html)
+        self.assertIn("上一交易日復盤與下個交易日觀察清單", html)
+        self.assertIn("09:00 後等 VWAP、量比、突破與進場雷達重新確認", html)
 
     def test_today_playbook_opening_observation_warns_not_to_chase_first_move(self):
         summary = LongModelSummary(
