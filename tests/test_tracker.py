@@ -21,6 +21,7 @@ from stock_daytrade_system.tracker import (
     _grade_label,
     _limit_up_strength_panel,
     _market_mode_panel,
+    _next_session_unified_watch_panel,
     _recommendation_checklist_table,
     _review_mode_sections,
     _signal_center,
@@ -1587,6 +1588,78 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("沒開盤時怎麼用？", html)
         self.assertIn("上一交易日復盤與下個交易日觀察清單", html)
         self.assertIn("09:00 後等 VWAP、量比、突破與進場雷達重新確認", html)
+
+    def test_next_session_unified_watch_panel_splits_two_watchlists(self):
+        summary = LongModelSummary(
+            candidates=[
+                long_candidate(
+                    symbol="1304.TW",
+                    name="台聚",
+                    grade="C",
+                    entry_status="high_risk",
+                    bullish_score=80,
+                    risk_score=70,
+                    confidence_score=60,
+                    risk_reasons=["追價風險高"],
+                )
+            ],
+            alerts=[],
+            sector_heat=[],
+            market_state="偏多",
+            market_notes=[],
+            backtest={},
+            recommendation_checklist={},
+            momentum_scan={
+                "items": [
+                    {
+                        "symbol": "3017.TW",
+                        "name": "奇鋐",
+                        "ai_grade": "D",
+                        "entry_status": "wait_volume",
+                        "trade_bias": "watch",
+                        "change_pct": 0.73,
+                        "turnover": 10_306_000_000,
+                        "volume_ratio": 0.94,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": True,
+                    },
+                    {
+                        "symbol": "5314.TWO",
+                        "name": "世紀*",
+                        "ai_grade": "D",
+                        "entry_status": "high_risk",
+                        "trade_bias": "long",
+                        "change_pct": 10,
+                        "turnover": 2_015_000_000,
+                        "volume_ratio": 4.75,
+                        "above_vwap": True,
+                        "break_prev_high": True,
+                        "break_5d_high": True,
+                        "not_selected_reason": "強勢但追價風險高",
+                    },
+                ]
+            },
+            diagnostics={
+                "data_health": {
+                    "status": "部分缺漏",
+                    "data_date": "2026-07-03",
+                    "latest_intraday_at": "2026-07-03T13:30:00+08:00",
+                }
+            },
+        )
+
+        html = _next_session_unified_watch_panel(summary, datetime(2026, 7, 4, 22, 30))
+
+        self.assertIn("下個交易日怎麼看", html)
+        self.assertIn("A 組｜爆量 / 漲停續強觀察", html)
+        self.assertIn("B 組｜大成交等待確認", html)
+        self.assertIn("C 組｜強勢但高風險", html)
+        self.assertIn("1304.TW", html)
+        self.assertIn("3017.TW", html)
+        self.assertIn("5314.TWO", html)
+        self.assertIn("週一升級條件", html)
+        self.assertIn("兩組都不是買進名單", html)
 
     def test_today_playbook_opening_observation_warns_not_to_chase_first_move(self):
         summary = LongModelSummary(

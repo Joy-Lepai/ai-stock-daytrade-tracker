@@ -560,6 +560,7 @@ def render_tracker_html(
   <main>
     {_market_mode_panel(long_summary, report_time)}
     {_today_playbook_panel(long_summary, report_time)}
+    {_next_session_unified_watch_panel(long_summary, report_time)}
     {_review_mode_sections(long_summary, report_time)}
     {_candidate_selection_explainer(long_summary)}
     {_decision_overview(long_summary, report_time)}
@@ -1029,6 +1030,93 @@ def _candidate_selection_explainer(summary: Optional[LongModelSummary]) -> str:
         '</div>'
         '</div>'
         '</details>'
+    )
+
+
+def _next_session_unified_watch_panel(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    mode = _dashboard_market_mode(summary, report_time)
+    mode_name = str(mode.get("mode") or "")
+    if mode_name == "intraday":
+        return ""
+    front_context = _front_context(summary, mode)
+    continuation_cards = _top_decision_items(summary, front_context, categories={"觀察"}, limit=5)
+    momentum_items = ((summary.momentum_scan or {}).get("items", []) if summary else []) or []
+    pool_items = _tomorrow_pool_items(momentum_items, limit=50)
+    waiting_items = [item for item in pool_items if _tomorrow_pool_status(item)[0] == "盤中等待確認"][:5]
+    high_risk_items = [item for item in pool_items if _tomorrow_pool_status(item)[0] == "強勢但高風險"][:5]
+
+    def card_list(items: list[LongCandidate]) -> str:
+        if not items:
+            return '<li class="muted">目前沒有這類卡片。</li>'
+        rows = []
+        for item in items:
+            decision = front_decision_card(
+                item,
+                front_view=front_trade_view(item, **front_context),
+                entry_radar=_dashboard_entry_radar(item, front_context),
+                **front_context,
+            )
+            rows.append(
+                f'<li><a href="{_advisor_link(item.symbol)}"><strong>{escape(item.symbol)}｜{escape(item.name)}</strong></a>'
+                f'｜{escape(decision.observation_type)}<br><span class="muted">等：{escape(decision.next_trigger)}</span></li>'
+            )
+        return "".join(rows)
+
+    def scan_list(items: list[dict]) -> str:
+        if not items:
+            return '<li class="muted">目前沒有這類表格標的。</li>'
+        rows = []
+        for item in items:
+            symbol = str(item.get("symbol") or "")
+            name = str(item.get("name") or "")
+            _, next_step = _tomorrow_pool_status(item)
+            rows.append(
+                f'<li><a href="{_advisor_link(symbol)}"><strong>{escape(symbol)}｜{escape(name)}</strong></a>'
+                f'｜漲幅 {_fmt(item.get("change_pct"))}%｜成交 {_money(float(item.get("turnover") or 0)) if item.get("turnover") is not None else "-"}｜量比 {_fmt(item.get("volume_ratio"))}x'
+                f'<br><span class="muted">等：{escape(next_step)}</span></li>'
+            )
+        return "".join(rows)
+
+    if mode_name == "pre_open_prepare":
+        headline = "開盤前先看這裡：只挑盯盤清單，不提前進場"
+        timing = "09:00 後等 5 到 10 分鐘，再用 VWAP、量比、開盤區間與進場雷達確認。"
+    elif mode_name in {"closed_review", "post_close_review"}:
+        headline = "下個交易日怎麼看：先分清楚兩種觀察股"
+        timing = "下個交易日開盤後重新確認 VWAP、量比、突破與停損距離；現在不是即時買進判斷。"
+    else:
+        headline = "資料不完整時怎麼看：只做復盤，不做進場"
+        timing = "等資料恢復 live 後，再看盤中四分類與進場雷達。"
+
+    return (
+        '<section class="decision-center next-session-guide">'
+        f'<h2>{escape(headline)}</h2>'
+        '<section class="notice">'
+        '<strong>先看順序：</strong>先看 A 組是否有續強機會，再看 B 組是否量能補上；'
+        '兩組都不是買進名單，週一必須重新確認盤中條件。'
+        f'<br><span class="muted">{escape(timing)}</span>'
+        '</section>'
+        '<div class="decision-grid">'
+        '<div class="decision-panel">'
+        '<strong>A 組｜爆量 / 漲停續強觀察</strong>'
+        '<p class="muted">這組通常很強，但追價風險也高；只等拉回 VWAP 不破、風險降溫或重新突破。</p>'
+        f'<ul class="decision-list">{card_list(continuation_cards)}</ul>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>B 組｜大成交等待確認</strong>'
+        '<p class="muted">這組成交金額較大，通常是等量比、VWAP 或突破補上；比漲停股更適合盤中慢慢確認。</p>'
+        f'<ul class="decision-list">{scan_list(waiting_items)}</ul>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>C 組｜強勢但高風險</strong>'
+        '<p class="muted">有看到，不是漏抓；目前不列入買多，等回測或盤口轉強。</p>'
+        f'<ul class="decision-list">{scan_list(high_risk_items)}</ul>'
+        '</div>'
+        '</div>'
+        '<section class="notice">'
+        '<strong>週一升級條件：</strong>站上 VWAP、量比接近或高於 1.0、突破前高或開盤區間高點、停損距離合理。'
+        '<br><strong>週一失效條件：</strong>開高走低、跌破 VWAP、量能退潮、爆量但價格無法再墊高。'
+        '</section>'
+        '</section>'
     )
 
 
