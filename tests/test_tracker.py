@@ -1655,11 +1655,18 @@ class TrackerStatusTests(unittest.TestCase):
         self.assertIn("A 組｜爆量 / 漲停續強觀察", html)
         self.assertIn("B 組｜大成交等待確認", html)
         self.assertIn("C 組｜強勢但高風險", html)
+        self.assertIn("現在結論", html)
+        self.assertIn("目前沒有即時強烈買多或買多訊號", html)
+        self.assertIn("開盤後先盯", html)
+        self.assertIn("現在不能直接買的原因", html)
+        self.assertIn("開盤後轉買多條件", html)
+        self.assertIn("使用方式", html)
         self.assertIn("1304.TW", html)
         self.assertIn("3017.TW", html)
         self.assertIn("5314.TWO", html)
         self.assertIn("週一升級條件", html)
         self.assertIn("兩組都不是買進名單", html)
+        self.assertIn("把下方股票當成開盤後檢查清單", html)
 
     def test_today_playbook_opening_observation_warns_not_to_chase_first_move(self):
         summary = LongModelSummary(

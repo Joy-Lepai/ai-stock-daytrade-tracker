@@ -1045,6 +1045,40 @@ def _next_session_unified_watch_panel(summary: Optional[LongModelSummary], repor
     waiting_items = [item for item in pool_items if _tomorrow_pool_status(item)[0] == "盤中等待確認"][:5]
     high_risk_items = [item for item in pool_items if _tomorrow_pool_status(item)[0] == "強勢但高風險"][:5]
 
+    def short_names_from_candidates(items: list[LongCandidate], limit: int = 5) -> list[str]:
+        names: list[str] = []
+        for item in items:
+            label = f"{item.symbol}｜{item.name}".strip("｜")
+            if label and label not in names:
+                names.append(label)
+            if len(names) >= limit:
+                break
+        return names
+
+    def short_names_from_scan(items: list[dict], limit: int = 5) -> list[str]:
+        names: list[str] = []
+        for item in items:
+            symbol = str(item.get("symbol") or "").strip()
+            name = str(item.get("name") or "").strip()
+            label = f"{symbol}｜{name}".strip("｜")
+            if label and label not in names:
+                names.append(label)
+            if len(names) >= limit:
+                break
+        return names
+
+    watch_names = (
+        short_names_from_candidates(continuation_cards, limit=3)
+        + short_names_from_scan(waiting_items, limit=5)
+    )
+    dedup_watch_names: list[str] = []
+    for name in watch_names:
+        if name not in dedup_watch_names:
+            dedup_watch_names.append(name)
+        if len(dedup_watch_names) >= 5:
+            break
+    watch_line = "、".join(dedup_watch_names) if dedup_watch_names else "目前沒有明確優先盯盤股"
+
     def card_list(items: list[LongCandidate]) -> str:
         if not items:
             return '<li class="muted">目前沒有這類卡片。</li>'
@@ -1091,10 +1125,31 @@ def _next_session_unified_watch_panel(summary: Optional[LongModelSummary], repor
         '<section class="decision-center next-session-guide">'
         f'<h2>{escape(headline)}</h2>'
         '<section class="notice">'
-        '<strong>先看順序：</strong>先看 A 組是否有續強機會，再看 B 組是否量能補上；'
-        '兩組都不是買進名單，週一必須重新確認盤中條件。'
+        '<strong>現在結論：</strong>目前沒有即時強烈買多或買多訊號；這不是程式失效，而是盤前 / 休市安全規則。'
+        '<br><strong>開盤後先盯：</strong>'
+        f'{escape(watch_line)}。'
+        '<br><strong>先看順序：</strong>先看 A 組是否有續強機會，再看 B 組是否量能補上；'
+        '兩組都不是買進名單，開盤後必須重新確認盤中條件。'
         f'<br><span class="muted">{escape(timing)}</span>'
         '</section>'
+        '<div class="decision-grid">'
+        '<div class="decision-panel">'
+        '<strong>現在不能直接買的原因</strong>'
+        '<p class="muted">盤前 / 休市沒有今日即時 VWAP、量比、開盤區間與盤口確認；所以不能顯示即時買多。</p>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>開盤後轉買多條件</strong>'
+        '<p class="muted">資料 live、股價站上 VWAP、量比接近或高於 1.0、突破前高或開盤區間高點，且停損距離合理。</p>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>先不要追的情況</strong>'
+        '<p class="muted">開高走低、跌破 VWAP、量能退潮、爆量但價格不再墊高、接近漲停且停損距離過大。</p>'
+        '</div>'
+        '<div class="decision-panel">'
+        '<strong>使用方式</strong>'
+        '<p class="muted">把下方股票當成開盤後檢查清單；若沒有通過盤中確認，就維持觀察，不把它當推薦。</p>'
+        '</div>'
+        '</div>'
         '<div class="decision-grid">'
         '<div class="decision-panel">'
         '<strong>A 組｜爆量 / 漲停續強觀察</strong>'
