@@ -3711,6 +3711,51 @@ def tw_advisor_script() -> str:
           </article>
         `;
       };
+      const renderAdvisorPreOpenPlanCard = ({ symbol, name, marketMode, dataHealth, decisionCard, entryRadarSummary, frontTrade }) => {
+        marketMode = marketMode || {};
+        dataHealth = dataHealth || {};
+        decisionCard = decisionCard || {};
+        entryRadarSummary = entryRadarSummary || {};
+        frontTrade = frontTrade || {};
+        const mode = marketMode.mode || dataHealth.market_mode || "";
+        const allowIntraday = Boolean(marketMode.allow_intraday_signal ?? dataHealth.allow_intraday_signal);
+        const allowStrong = Boolean(marketMode.allow_strong_long ?? dataHealth.can_show_strong_long);
+        if (mode === "intraday" && allowIntraday && allowStrong) return "";
+        const title = mode === "pre_open_prepare"
+          ? "開盤前單檔檢查卡"
+          : mode === "closed_review" || mode === "post_close_review"
+          ? "非盤中單檔復盤卡"
+          : "資料受限單檔檢查卡";
+        const state = decisionCard.final_decision || frontTrade.category || entryRadarSummary.entry_state || "觀察";
+        const blocker = decisionCard.top_reason || entryRadarSummary.blocker_summary || frontTrade.reason || "等待今日 VWAP、量比、突破與進場雷達確認。";
+        const nextStep = decisionCard.next_trigger || entryRadarSummary.next_trigger || frontTrade.next_step || "開盤後重新確認是否站上 VWAP、量比是否補上、是否突破關鍵價。";
+        const invalidation = decisionCard.invalid_condition || "開高走低、跌破 VWAP、量能退潮或資料轉為延遲時失效。";
+        const stockLabel = [symbol, name].filter(Boolean).join("｜") || "這檔股票";
+        return `
+          <article class="advisor-card pre-open-plan-card">
+            <h3>${escapeHtml(title)}</h3>
+            <div class="advisor-decision">
+              <strong>${escapeHtml(stockLabel)}：現在不是即時買進判斷</strong>
+              <span>目前只能判斷「開盤後是否值得優先盯」，不能在沒有盤中 live 確認前顯示買多。</span>
+            </div>
+            <div class="advisor-sections">
+              <section class="advisor-panel">
+                <h3>目前怎麼看</h3>
+                <p>${escapeHtml(state)}｜${escapeHtml(blocker)}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>開盤後等什麼</h3>
+                <p>${escapeHtml(nextStep)}</p>
+              </section>
+              <section class="advisor-panel">
+                <h3>什麼情況放棄</h3>
+                <p>${escapeHtml(invalidation)}</p>
+              </section>
+            </div>
+            <p class="warn-inline">安全規則：非盤中、資料非 live、缺 VWAP 或缺量比時，只能列入觀察，不顯示即時買多。</p>
+          </article>
+        `;
+      };
       const renderLimitUpPlaybookCard = (playbook) => {
         playbook = playbook || {};
         if (!playbook.visible) return "";
@@ -4338,6 +4383,7 @@ def tw_advisor_script() -> str:
         result.className = "advisor-result";
         result.innerHTML = `
           ${renderAdvisorQuickReadCard({ decisionCard, entryRadarSummary, dataHealth, safety, frontTrade })}
+          ${renderAdvisorPreOpenPlanCard({ symbol, name, marketMode, dataHealth, decisionCard, entryRadarSummary, frontTrade })}
           ${renderAdvisorTimeBucketCard(marketMode)}
           ${renderLimitUpPlaybookCard(limitUpPlaybook)}
           <article class="advisor-card conclusion-card ${conclusionClass(conclusionState)}">
