@@ -22,6 +22,7 @@ from stock_daytrade_system.web import (
     _truthy_query_value,
     latest_tracker_file,
     render_accuracy_page,
+    render_missing_dashboard_page,
     render_operator_page,
     render_paper_dashboard_page,
     render_shell,
@@ -636,6 +637,30 @@ class WebTests(unittest.TestCase):
         """
 
         self.assertFalse(_tracker_html_needs_refresh(html))
+
+    def test_missing_dashboard_page_gives_actionable_refresh_plan(self):
+        html = render_missing_dashboard_page(
+            {
+                "status": "blocked",
+                "market_mode_label": "盤後復盤模式",
+                "data_quality_status": "資料不足",
+                "summary": "必要刷新層過期",
+                "refresh_plan": ["/refresh_full_market", "/refresh_watchlist"],
+                "do_now": ["依刷新計畫執行：/refresh_full_market → /refresh_watchlist"],
+                "do_not_do": ["不要把候選股當成即時買多。"],
+                "blockers": ["尚未產生 tracker HTML。"],
+                "deployment": {"runtime_commit": "abc123"},
+                "db": {"data_date": "", "latest_data_at": ""},
+            }
+        )
+
+        self.assertIn("Dashboard 尚未產生追蹤器資料", html)
+        self.assertIn("網站本身已啟動", html)
+        self.assertIn("更新全市場", html)
+        self.assertIn("/refresh_full_market", html)
+        self.assertIn("更新重點觀察", html)
+        self.assertIn("尚未產生 tracker HTML", html)
+        self.assertIn("不顯示強烈買多", html)
 
     def test_paper_dashboard_page_has_required_sections(self):
         html = render_paper_dashboard_page()

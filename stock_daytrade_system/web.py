@@ -489,8 +489,11 @@ class StockWebHandler(BaseHTTPRequestHandler):
             refresh_error = result.error if result.status == "failed" else ""
             latest = latest_tracker_file(self.web_app.report_dir)
         if latest is None:
+            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
+            health_payload = build_health_payload(refresh_payload, system_payload)
             return render_shell(
-                "<p class=\"empty\">尚未產生追蹤器資料。</p>",
+                render_missing_dashboard_page(health_payload),
                 active_file=None,
                 show_logout=self.web_app.require_auth,
             )
@@ -772,6 +775,74 @@ def build_operator_decision_payload(refresh_payload: dict[str, Any], system_payl
         "warnings": health.get("warnings") or [],
         "deployment": health.get("deployment") or {},
     }
+
+
+def render_missing_dashboard_page(health: dict[str, Any]) -> str:
+    next_action = health.get("next_action") if isinstance(health.get("next_action"), dict) else {}
+    refresh_plan = [str(item) for item in (health.get("refresh_plan") or []) if str(item).startswith("/refresh")]
+    if not refresh_plan and next_action.get("endpoint"):
+        refresh_plan = [str(next_action.get("endpoint"))]
+    if not refresh_plan:
+        refresh_plan = ["/refresh_full_market", "/refresh_watchlist"]
+    blockers = [str(item) for item in (health.get("blockers") or []) if str(item)]
+    do_now = [str(item) for item in (health.get("do_now") or health.get("operator_steps") or []) if str(item)]
+    do_not = [str(item) for item in (health.get("do_not_do") or []) if str(item)]
+    deployment = health.get("deployment") if isinstance(health.get("deployment"), dict) else {}
+    db = health.get("db") if isinstance(health.get("db"), dict) else {}
+    forms = "".join(
+        f'<form method="post" action="{_escape(endpoint)}"><button type="submit">{_escape(_operator_refresh_label(endpoint))}</button></form>'
+        for endpoint in refresh_plan[:3]
+    )
+    return f"""
+    <main class="dashboard-empty-state">
+      <section class="decision-center">
+        <h1>台股做多當沖追蹤器</h1>
+        <section class="warn">
+          <strong>Dashboard 尚未產生追蹤器資料</strong><br>
+          這通常發生在 Render 剛部署、資料庫尚未刷新、或報表檔尚未建立。網站本身已啟動，請先依下方順序刷新資料。
+        </section>
+        <div class="summary">
+          {_shell_metric('狀態', health.get('status') or 'unknown')}
+          {_shell_metric('目前模式', health.get('market_mode_label') or health.get('market_mode') or '-')}
+          {_shell_metric('資料品質', health.get('data_quality_status') or '-')}
+          {_shell_metric('Runtime commit', deployment.get('runtime_commit') or '-')}
+          {_shell_metric('資料日期', db.get('data_date') or '-')}
+          {_shell_metric('最新資料時間', db.get('latest_data_at') or '-')}
+        </div>
+        <div class="decision-grid">
+          <section class="decision-panel">
+            <h3>現在先做</h3>
+            {_shell_list(do_now or ['先執行刷新計畫，產生第一份 dashboard。'])}
+          </section>
+          <section class="decision-panel">
+            <h3>刷新順序</h3>
+            <div class="manual-refresh-panel-inline">{forms}</div>
+            <p class="muted">若是盤中，先更新全市場，再更新重點觀察；如果只是持倉控風險，優先更新持倉/觸發。</p>
+          </section>
+          <section class="decision-panel">
+            <h3>目前阻擋原因</h3>
+            {_shell_list(blockers or [health.get('summary') or '尚未有 tracker HTML 或 DB 快照。'])}
+          </section>
+          <section class="decision-panel">
+            <h3>不要做</h3>
+            {_shell_list(do_not or ['資料修復前不要把候選股當成即時買多。'])}
+          </section>
+        </div>
+        <section class="notice">
+          <strong>安全提醒：</strong>沒有 tracker HTML 時，不顯示強烈買多、買多或即時進場判斷；請先完成資料刷新。
+        </section>
+      </section>
+    </main>
+    """
+
+
+def _shell_metric(label: str, value: Any) -> str:
+    return f'<div class="metric"><span>{_escape(label)}</span><strong>{_escape(str(value))}</strong></div>'
+
+
+def _shell_list(items: list[Any]) -> str:
+    rows = "".join(f"<li>{_escape(str(item))}</li>" for item in items if str(item))
+    return f"<ul>{rows or '<li>目前沒有明確訊息。</li>'}</ul>"
 
 
 def build_operator_runbook_payload(refresh_payload: dict[str, Any], system_payload: dict[str, Any]) -> dict[str, Any]:
