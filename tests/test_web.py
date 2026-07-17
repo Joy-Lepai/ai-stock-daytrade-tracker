@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
@@ -31,6 +32,20 @@ from http import HTTPStatus
 
 
 class WebTests(unittest.TestCase):
+    def test_start_web_does_not_block_on_tracker_by_default(self):
+        script = Path("scripts/start_web.sh").read_text(encoding="utf-8")
+
+        self.assertIn("STOCK_BOOTSTRAP_TRACKER_ON_STARTUP:-0", script)
+        self.assertIn('== "1"', script)
+        self.assertIn("python3 -m stock_daytrade_system.cli web", script)
+
+    def test_render_config_delays_scheduler_after_startup(self):
+        config = Path("render.yaml").read_text(encoding="utf-8")
+
+        self.assertIn("STOCK_WEB_SCHEDULER_STARTUP_DELAY_SECONDS", config)
+        self.assertIn("STOCK_BOOTSTRAP_TRACKER_ON_STARTUP", config)
+        self.assertIn('value: "0"', config)
+
     def test_extracts_body_from_html(self):
         self.assertEqual(_extract_body("<html><body><main>ok</main></body></html>"), "<main>ok</main>")
 

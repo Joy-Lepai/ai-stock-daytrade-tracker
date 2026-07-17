@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! compgen -G "reports/*-tracker.html" > /dev/null; then
+if [[ "${STOCK_BOOTSTRAP_TRACKER_ON_STARTUP:-0}" == "1" ]] && ! compgen -G "reports/*-tracker.html" > /dev/null; then
   python3 -m stock_daytrade_system.cli tracker
 fi
 

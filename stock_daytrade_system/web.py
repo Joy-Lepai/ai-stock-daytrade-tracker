@@ -54,6 +54,7 @@ TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS",
 TW_WATCHLIST_REFRESH_SECONDS = int(os.getenv("STOCK_TW_WATCHLIST_REFRESH_SECONDS", "300"))
 TW_POSITIONS_REFRESH_SECONDS = int(os.getenv("STOCK_TW_POSITIONS_REFRESH_SECONDS", "300"))
 TW_AFTER_CLOSE_REFRESH_SECONDS = int(os.getenv("STOCK_TW_AFTER_CLOSE_REFRESH_SECONDS", "900"))
+WEB_SCHEDULER_STARTUP_DELAY_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_STARTUP_DELAY_SECONDS", "45"))
 
 
 class WebApp:
@@ -97,6 +98,9 @@ class WebApp:
         self.scheduler_thread.start()
 
     def _scheduler_loop(self) -> None:
+        startup_delay = max(WEB_SCHEDULER_STARTUP_DELAY_SECONDS, 0)
+        if startup_delay:
+            time_module.sleep(startup_delay)
         while True:
             now = datetime.now(ZoneInfo("Asia/Taipei"))
             self._run_scheduled_refresh_once(now)
