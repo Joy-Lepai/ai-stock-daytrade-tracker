@@ -23,6 +23,8 @@ from stock_daytrade_system.db import (
     upsert_refresh_state,
 )
 from stock_daytrade_system.frontend_language import front_trade_counts
+from stock_daytrade_system.fugle_market_data import FugleMarketDataConfig
+from stock_daytrade_system.fugle_priority_pool import build_fugle_priority_pool
 from stock_daytrade_system.intraday import analyze_opening_confirmation
 from stock_daytrade_system.limit_up_phase import build_limit_up_market_phase
 from stock_daytrade_system.long_model import build_long_candidates
@@ -128,6 +130,12 @@ class RefreshCoordinator:
             price_status = _price_status_summary(conn, now=now)
             front_category_items = _latest_front_category_items(conn)
             limit_up_summary = _limit_up_operational_summary(conn)
+            fugle_priority_pool = _fugle_priority_pool_status(
+                conn,
+                front_category_items,
+                config_path=self.config_path,
+                now=now,
+            )
         by_layer = {layer: _empty_layer_status(layer, now) for layer in REFRESH_LAYER_STALE_SECONDS}
         for row in rows:
             layer = row["layer"]
@@ -215,6 +223,7 @@ class RefreshCoordinator:
             "price_status_summary": price_status,
             "front_category_summary": front_category_summary,
             "limit_up_operational_summary": limit_up_summary,
+            "fugle_priority_pool": fugle_priority_pool,
             "live_count": price_status["live_count"],
             "delayed_count": price_status["delayed_count"],
             "cached_count": price_status["cached_count"],
@@ -727,6 +736,83 @@ def _latest_front_category_items(conn) -> list[dict]:
         (captured_at,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _fugle_priority_pool_status(
+    conn,
+    items: list[dict],
+    *,
+    config_path: Path,
+    now: datetime,
+) -> dict:
+    pinned_symbols: list[str] = []
+    try:
+        if config_path.exists():
+            pinned_symbols = list(load_config(config_path).fugle_priority_symbols)
+    except Exception:
+        pinned_symbols = []
+    fugle_config = FugleMarketDataConfig.from_env()
+    b_plus_triggers = build_b_plus_trigger_tracker(
+        conn,
+        market="TW",
+        date_text=now.strftime("%Y-%m-%d"),
+    )
+    pool = build_fugle_priority_pool(
+        items,
+        b_plus_triggers=b_plus_triggers,
+        pinned_symbols=pinned_symbols,
+        enabled=fugle_config.enabled,
+        configured=fugle_config.configured,
+    )
+    selected = [dict(item) for item in (pool.get("selected") or [])]
+    confirmable = sum(1 for item in selected if item.get("can_use_for_entry_confirmation"))
+    high_risk = sum(1 for item in selected if item.get("entry_status") == "high_risk")
+    pool.update(
+        {
+            "source": "latest_long_scores",
+            "generated_at": now.isoformat(timespec="seconds"),
+            "operator_summary": _fugle_priority_operator_summary(pool, confirmable=confirmable, high_risk=high_risk),
+            "operator_next_action": _fugle_priority_next_action(pool, confirmable=confirmable),
+            "strong_buy_safety": "Fugle 追蹤池只作五檔、逐筆、大單與最新價確認；不會直接產生強烈買多，也不會改 A / B+ / B 條件。",
+            "selected_symbols": [str(item.get("symbol") or "") for item in selected if str(item.get("symbol") or "")],
+            "confirmable_count": confirmable,
+            "high_risk_observation_count": high_risk,
+        }
+    )
+    return pool
+
+
+def _fugle_priority_operator_summary(pool: dict, *, confirmable: int, high_risk: int) -> str:
+    selected_count = int(pool.get("selected_count") or 0)
+    configured = bool(pool.get("configured"))
+    enabled = bool(pool.get("enabled"))
+    if not selected_count:
+        return "目前沒有接近進場、等待觸發或指定追蹤的股票需要佔用 Fugle 5 檔名額。"
+    if not configured:
+        return f"已挑出 {selected_count} 檔 Fugle 優先追蹤候選，但尚未設定 API Key，只能保留名單。"
+    if not enabled:
+        return f"已挑出 {selected_count} 檔 Fugle 優先追蹤候選，但 FUGLE_ENABLED 尚未啟用，仍無五檔 / 逐筆確認。"
+    parts = [f"已挑出 {selected_count} 檔給 Fugle 即時確認"]
+    if confirmable:
+        parts.append(f"{confirmable} 檔可作進場前確認")
+    if high_risk:
+        parts.append(f"{high_risk} 檔只作追價風險降溫觀察")
+    return "，".join(parts) + "。"
+
+
+def _fugle_priority_next_action(pool: dict, *, confirmable: int) -> str:
+    selected_count = int(pool.get("selected_count") or 0)
+    configured = bool(pool.get("configured"))
+    enabled = bool(pool.get("enabled"))
+    if not selected_count:
+        return "等待全市場掃描或重點觀察層產生接近進場的股票。"
+    if not configured:
+        return "先在 Render 設定 FUGLE_API_KEY，設定後重新部署或刷新。"
+    if not enabled:
+        return "將 FUGLE_ENABLED 設為 true 後重新部署，再刷新重點觀察。"
+    if confirmable:
+        return "逐檔看五檔買賣盤差、委買委賣量變化、大單敲進 / 敲出、最新價墊高與 VWAP。"
+    return "目前名單偏觀察或高風險，先等風險降溫、站回 VWAP、量比放大或突破條件補齊。"
 
 
 def _front_category_summary(

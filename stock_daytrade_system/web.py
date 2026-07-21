@@ -2870,6 +2870,27 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
         const price = payload.price_status_summary || {{}};
         return `<span class="refresh-layer-item"><strong>價格資料品質：</strong>${{escapeHtml(price.status || "-")}}｜live=${{escapeHtml(price.live_count || 0)}}｜delayed=${{escapeHtml(price.delayed_count || 0)}}｜cached=${{escapeHtml(price.cached_count || 0)}}｜missing=${{escapeHtml(price.missing_count || 0)}}｜missing ratio=${{escapeHtml(price.missing_ratio || 0)}}%</span>`;
       }};
+      const fuglePriorityHtml = (payload) => {{
+        const pool = payload.fugle_priority_pool || {{}};
+        const selected = Array.isArray(pool.selected) ? pool.selected : [];
+        const symbols = Array.isArray(pool.selected_symbols) && pool.selected_symbols.length
+          ? pool.selected_symbols.join("、")
+          : selected.map((item) => item.symbol).filter(Boolean).join("、");
+        const enabledText = pool.enabled ? "已啟用" : "未啟用";
+        const configuredText = pool.configured ? "API Key 已設定" : "API Key 未設定";
+        const rows = selected.slice(0, 5).map((item) => {{
+          const label = item.selection_label || item.symbol || "-";
+          const purpose = item.tracking_purpose || item.selection_reason || "-";
+          const next = item.watch_now || item.entry_confirmation_next_step || "-";
+          return `<li><strong>${{escapeHtml(label)}}：</strong>${{escapeHtml(item.symbol || "-")}}｜${{escapeHtml(item.name || "-")}}｜${{escapeHtml(item.entry_status || "-")}}｜${{escapeHtml(purpose)}}｜看：${{escapeHtml(next)}}</li>`;
+        }}).join("");
+        return `
+          <span class="refresh-layer-item refresh-guidance-item"><strong>Fugle 5檔即時追蹤池：</strong>${{escapeHtml(pool.operator_summary || pool.message || "尚無 Fugle 追蹤池資料。")}}｜${{escapeHtml(enabledText)}}｜${{escapeHtml(configuredText)}}｜選中=${{escapeHtml(symbols || "無")}}</span>
+          <div class="warn-mini">下一步：${{escapeHtml(pool.operator_next_action || "等待重點觀察層產生接近進場標的。")}}</div>
+          <div class="warn-mini">安全：${{escapeHtml(pool.strong_buy_safety || "Fugle 只作進場確認，不會改模型或推薦數量。")}}</div>
+          ${{rows ? `<ol class="operator-steps">${{rows}}</ol>` : ""}}
+        `;
+      }};
       const refreshGuidanceHtml = (payload) => {{
         const guidance = payload.refresh_guidance || {{}};
         const severity = guidance.severity || "ok";
@@ -2949,6 +2970,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
               layerHtml(layers.post_close_validation),
               layerHtml(layers.manual_full_refresh),
               priceStatusHtml(payload),
+              fuglePriorityHtml(payload),
               deploymentStatusHtml(payload),
               providerStatusHtml(payload),
               sourceHealthHtml(payload),

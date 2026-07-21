@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from unittest.mock import patch
 
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
 from stock_daytrade_system.refresh_service import (
@@ -160,6 +161,76 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertFalse(payload["can_show_any_strong_long"])
         self.assertIn("這不是做空建議", summary["no_signal_reason"])
         self.assertIn("這不是做空建議", " ".join(payload["operational_health"]["warnings"]))
+
+    def test_status_payload_includes_fugle_priority_pool_from_latest_scores(self):
+        now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
+        captured = "2026-06-25T09:29:00+08:00"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                rows = [
+                    ("2317.TW", "鴻海", "A", "executable", 86, 28, 80, 205, 202, 1.5, 206, 200),
+                    ("2884.TW", "玉山金", "B+", "practice_long", 74, 40, 64, 33, 32.9, 1.0, 33.2, 32.6),
+                    ("3037.TW", "欣興", "C", "high_risk", 90, 78, 62, 180, 165, 4.2, 181, 160),
+                ]
+                for symbol, name, grade, entry_status, bullish, risk, confidence, price, vwap, volume_ratio, trigger, stop in rows:
+                    conn.execute("INSERT INTO symbols (symbol, name, sector) VALUES (?, ?, 'test')", (symbol, name))
+                    conn.execute(
+                        """
+                        INSERT INTO daily_snapshots (
+                          date, symbol, close, change_pct, volume, turnover, volume_ratio,
+                          previous_high, break_prev_high
+                        ) VALUES ('2026-06-25', ?, ?, 2, 1000, 100000, ?, ?, 1)
+                        """,
+                        (symbol, price, volume_ratio, trigger),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO intraday_snapshots (
+                          captured_at, date, symbol, last_price, volume, turnover, vwap,
+                          above_vwap, volume_ratio, opening_range_high, opening_range_low
+                        ) VALUES (?, '2026-06-25', ?, ?, 1000, 100000, ?, 1, ?, ?, ?)
+                        """,
+                        (captured, symbol, price, vwap, volume_ratio, trigger, stop),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO recommendations (
+                          market, date, symbol, first_seen_at, latest_seen_at, grade,
+                          bullish_score, risk_score, entry_status, lifecycle_status,
+                          observed_at, signal_price, trigger_price, stop_loss, target_price
+                        ) VALUES ('TW', '2026-06-25', ?, ?, ?, ?, ?, ?, ?, 'observed', ?, ?, ?, ?, ?)
+                        """,
+                        (symbol, captured, captured, grade, bullish, risk, entry_status, captured, price, trigger, stop, trigger),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO long_scores (
+                          captured_at, date, symbol, bullish_score, risk_score, grade,
+                          reasons, risk_reasons, confidence_score, confidence_level,
+                          adjusted_entry_status
+                        ) VALUES (?, '2026-06-25', ?, ?, ?, ?, '[]', '[]', ?, 'medium', ?)
+                        """,
+                        (captured, symbol, bullish, risk, grade, confidence, entry_status),
+                    )
+                upsert_refresh_state(conn, layer="watchlist", status="success", stale_after_seconds=300, started_at=now, success_at=now, symbols_count=3)
+                upsert_refresh_state(conn, layer="positions", status="success", stale_after_seconds=300, started_at=now, success_at=now, symbols_count=0)
+            coordinator = RefreshCoordinator(project, reports)
+
+            with patch.dict("os.environ", {"FUGLE_ENABLED": "0", "FUGLE_API_KEY": "demo-key"}, clear=False):
+                payload = coordinator.status_payload(now=now)
+
+        pool = payload["fugle_priority_pool"]
+        self.assertEqual(pool["source"], "latest_long_scores")
+        self.assertTrue(pool["configured"])
+        self.assertFalse(pool["enabled"])
+        self.assertEqual(pool["selected_count"], 3)
+        self.assertEqual(pool["selected_symbols"][0], "2317.TW")
+        self.assertIn("FUGLE_ENABLED 尚未啟用", pool["operator_summary"])
+        self.assertIn("不會直接產生強烈買多", pool["strong_buy_safety"])
+        self.assertEqual(pool["confirmable_count"], 2)
+        self.assertEqual(pool["high_risk_observation_count"], 1)
 
     def test_status_payload_includes_limit_up_operational_summary(self):
         now = datetime(2026, 6, 25, 9, 35, tzinfo=ZoneInfo("Asia/Taipei"))
