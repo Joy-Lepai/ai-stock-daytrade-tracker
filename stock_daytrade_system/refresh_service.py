@@ -1250,7 +1250,7 @@ def _required_refresh_layers_for_mode(mode: str) -> list[str]:
     if mode == "intraday":
         return ["watchlist", "positions"]
     if mode == "pre_open_prepare":
-        return ["full_market", "watchlist"]
+        return ["full_market"]
     if mode == "post_close_review":
         return ["full_market", "post_close_validation"]
     if mode == "closed_review":

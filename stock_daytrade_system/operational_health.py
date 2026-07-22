@@ -20,22 +20,49 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     limit_up_summary = _as_dict(status_payload.get("limit_up_operational_summary"))
     required_stale_layers = _list(status_payload.get("required_stale_layers"))
     stale_layers = _list(status_payload.get("stale_layers"))
+    review_candidates = _as_dict(status_payload.get("review_observation_candidates"))
+    has_review_candidates = (
+        str(review_candidates.get("status") or "") == "ok"
+        and (_int(review_candidates.get("count")) > 0 or bool(review_candidates.get("items")))
+    )
+    review_snapshot_mode = market_mode in REVIEW_MODES and has_review_candidates
+    non_blocking_review_layers: list[str] = []
+    blocking_required_layers = list(required_stale_layers)
+    if review_snapshot_mode and market_mode == "pre_open_prepare":
+        non_blocking_review_layers = [
+            layer for layer in blocking_required_layers if layer in {"watchlist", "positions"}
+        ]
+        blocking_required_layers = [
+            layer for layer in blocking_required_layers if layer not in {"watchlist", "positions"}
+        ]
     blockers: list[str] = []
     warnings: list[str] = []
 
     if market_mode == "stale_data":
         blockers.append("資料模式為異常或過期，暫停即時做多判斷。")
 
-    if required_stale_layers:
-        blockers.append("必要刷新層過期：" + "、".join(_layer_label(layer) for layer in required_stale_layers))
+    if blocking_required_layers:
+        blockers.append("必要刷新層過期：" + "、".join(_layer_label(layer) for layer in blocking_required_layers))
+    if non_blocking_review_layers:
+        warnings.append(
+            "盤前尚未更新"
+            + "、".join(_layer_label(layer) for layer in non_blocking_review_layers)
+            + "；目前只能使用上一交易日快照整理觀察清單。"
+        )
 
     if refresh_guidance.get("severity") == "block" or refresh_summary.get("severity") == "block":
         message = str(refresh_guidance.get("summary") or refresh_summary.get("message") or "刷新狀態阻擋使用。")
-        blockers.append(message)
+        if review_snapshot_mode and not blocking_required_layers:
+            warnings.append(message)
+        else:
+            blockers.append(message)
 
     price_label = str(price_status.get("status") or "")
     if price_label in BLOCKING_PRICE_STATUSES:
-        blockers.append(f"資料品質為{price_label}，不適合做盤中判斷。")
+        if review_snapshot_mode:
+            warnings.append("尚無盤中 VWAP / 量比 / 即時價格，只能做下個交易日觀察。")
+        else:
+            blockers.append(f"資料品質為{price_label}，不適合做盤中判斷。")
 
     live_count = _int(price_status.get("live_count"))
     missing_ratio = _float(price_status.get("missing_ratio"))
@@ -46,7 +73,10 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     if market_mode in INTRADAY_MODES and live_count <= 0:
         blockers.append("盤中沒有可用即時價格，暫停即時做多判斷。")
     if missing_ratio >= 0.5:
-        blockers.append("超過一半股票資料不足，應先修資料源或重跑刷新。")
+        if review_snapshot_mode:
+            warnings.append("盤前快照缺少盤中欄位，開盤後需重新刷新 live、VWAP 與量比。")
+        else:
+            blockers.append("超過一半股票資料不足，應先修資料源或重跑刷新。")
     elif missing_count:
         warnings.append(f"有 {missing_count} 檔資料不足，該些股票只能觀察。")
     if cached_count:
@@ -57,7 +87,7 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
     if bool(status_payload.get("data_source_degraded")):
         warnings.append("部分資料源降級或失敗，請看資料源健康度。")
 
-    if stale_layers and not required_stale_layers:
+    if stale_layers and not blocking_required_layers:
         warnings.append("有非必要刷新層過期：" + "、".join(_layer_label(layer) for layer in stale_layers))
 
     allow_intraday_signal = bool(status_payload.get("allow_intraday_signal"))
@@ -78,10 +108,10 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
             warnings.append(no_signal_reason)
 
     status = "blocked" if blockers else "warning" if warnings else "ok"
-    next_action = _next_action(status, refresh_guidance, required_stale_layers, market_mode)
+    next_action = _next_action(status, refresh_guidance, blocking_required_layers, market_mode)
     summary = _summary(status, market_mode, blockers, warnings)
     watch_readiness = _watch_readiness(status, market_mode)
-    refresh_plan = _refresh_plan(required_stale_layers, refresh_summary, next_action)
+    refresh_plan = _refresh_plan(blocking_required_layers, refresh_summary, next_action)
     operator_steps = _operator_steps(
         status=status,
         market_mode=market_mode,
@@ -151,7 +181,11 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "next_action": next_action,
         "market_mode": market_mode,
         "market_mode_label": status_payload.get("market_mode_label") or "",
-        "data_quality_status": price_label or "未知",
+        "data_quality_status": _data_quality_label_for_mode(
+            price_label=price_label,
+            market_mode=market_mode,
+            has_review_candidates=has_review_candidates,
+        ),
         "front_category_summary": front_category,
         "limit_up_operational_summary": limit_up_summary,
         "live_count": live_count,
@@ -159,12 +193,21 @@ def build_operational_health(status_payload: dict[str, Any]) -> dict[str, Any]:
         "cached_count": cached_count,
         "missing_count": missing_count,
         "missing_ratio": missing_ratio,
-        "required_stale_layers": required_stale_layers,
+        "required_stale_layers": blocking_required_layers,
+        "non_blocking_review_layers": non_blocking_review_layers,
         "stale_layers": stale_layers,
         "allow_intraday_signal": allow_intraday_signal,
         "can_show_strong_long": can_show_strong and not blockers,
         "can_use_dashboard": status != "blocked",
     }
+
+
+def _data_quality_label_for_mode(*, price_label: str, market_mode: str, has_review_candidates: bool) -> str:
+    if has_review_candidates and market_mode == "pre_open_prepare":
+        return "盤前觀察：使用官方日行情快照"
+    if has_review_candidates and market_mode in REVIEW_MODES:
+        return "復盤觀察：使用上一交易日資料"
+    return price_label or "未知"
 
 
 def _operator_decision(

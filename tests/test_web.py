@@ -700,6 +700,51 @@ class WebTests(unittest.TestCase):
         self.assertIn("現在不能判斷盤中可以做多", html)
         self.assertIn("Fugle 指定追蹤：6919.TW", html)
 
+    def test_missing_dashboard_page_shows_pre_open_observation_cards(self):
+        html = render_missing_dashboard_page(
+            {
+                "status": "warning",
+                "market_mode": "pre_open_prepare",
+                "market_mode_label": "開盤前準備模式",
+                "data_quality_status": "盤前觀察：使用官方日行情快照",
+                "summary": "目前只能做下個交易日觀察。",
+                "refresh_plan": ["/refresh_watchlist"],
+                "do_now": ["08:55 先看下個交易日觀察清單。"],
+                "do_not_do": ["不要把觀察股當成即時買多。"],
+                "buy_signal_diagnosis": {
+                    "headline": "現在不能判斷盤中可以做多，但有 2 檔可列入下個交易日觀察。",
+                    "primary_reason": "目前是開盤前準備模式，不提供即時做多判斷。",
+                    "counts": {"strong_buy": 0, "buy": 0, "watch": 0, "live": 0},
+                    "review_observation_candidates": {
+                        "status": "ok",
+                        "count": 2,
+                        "message": "開盤後仍需重新確認 live、VWAP、量比與進場雷達。",
+                        "items": [
+                            {
+                                "symbol": "3037.TW",
+                                "name": "欣興",
+                                "price": 825,
+                                "change_pct": 10,
+                                "turnover": 15329025836,
+                                "label": "觀察",
+                                "reason": "官方日行情啟動快照：缺 VWAP、量比與盤中 K 線。",
+                                "next_step": "開盤後重新確認 VWAP、量比、突破與資料 live。",
+                            }
+                        ],
+                    },
+                },
+                "deployment": {"runtime_commit": "abc123"},
+                "db": {"data_date": "2026-07-23", "latest_data_at": "2026-07-23T08:50:00+08:00"},
+            }
+        )
+
+        self.assertIn("盤前觀察模式：已整理下個交易日觀察清單", html)
+        self.assertIn("下個交易日先看這些", html)
+        self.assertIn("3037.TW", html)
+        self.assertIn("欣興", html)
+        self.assertIn("不是即時買多", html)
+        self.assertIn("開盤後重新確認 VWAP", html)
+
     def test_paper_dashboard_page_has_required_sections(self):
         html = render_paper_dashboard_page()
 

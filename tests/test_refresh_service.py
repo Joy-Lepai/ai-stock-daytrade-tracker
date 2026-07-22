@@ -554,7 +554,7 @@ class RefreshServiceTests(unittest.TestCase):
             payload = coordinator.status_payload(now=now)
 
         self.assertEqual(payload["market_mode"], "pre_open_prepare")
-        self.assertEqual(payload["required_refresh_layers"], ["full_market", "watchlist"])
+        self.assertEqual(payload["required_refresh_layers"], ["full_market"])
         self.assertFalse(payload["any_stale"])
         self.assertIn("positions", payload["stale_layers"])
         self.assertNotIn("positions", payload["required_stale_layers"])

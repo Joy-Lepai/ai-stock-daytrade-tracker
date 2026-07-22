@@ -884,9 +884,27 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
     do_now = [str(item) for item in (health.get("do_now") or health.get("operator_steps") or []) if str(item)]
     do_not = [str(item) for item in (health.get("do_not_do") or []) if str(item)]
     buy_diagnosis = health.get("buy_signal_diagnosis") if isinstance(health.get("buy_signal_diagnosis"), dict) else {}
+    review_candidates = (
+        buy_diagnosis.get("review_observation_candidates")
+        if isinstance(buy_diagnosis.get("review_observation_candidates"), dict)
+        else {}
+    )
+    has_review_candidates = bool(review_candidates.get("items")) or int(review_candidates.get("count") or 0) > 0
+    is_pre_open_observation = str(health.get("market_mode") or "") == "pre_open_prepare" and has_review_candidates
     scheduler = health.get("web_scheduler") if isinstance(health.get("web_scheduler"), dict) else {}
     deployment = health.get("deployment") if isinstance(health.get("deployment"), dict) else {}
     db = health.get("db") if isinstance(health.get("db"), dict) else {}
+    top_notice = (
+        """
+        <strong>盤前觀察模式：已整理下個交易日觀察清單</strong><br>
+        目前使用官方日行情快照與上一交易日資料。尚未有今日盤中 VWAP、量比與突破確認，因此不提供即時買多判斷；開盤後請重新刷新重點觀察。
+        """
+        if is_pre_open_observation
+        else """
+        <strong>Dashboard 尚未產生追蹤器資料</strong><br>
+        這通常發生在 Render 剛部署、資料庫尚未刷新、或報表檔尚未建立。網站本身已啟動，請先依下方順序刷新資料。
+        """
+    )
     forms = "".join(
         f'<form method="post" action="{_escape(endpoint)}"><button type="submit">{_escape(_operator_refresh_label(endpoint))}</button></form>'
         for endpoint in refresh_plan[:3]
@@ -896,8 +914,7 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
       <section class="decision-center">
         <h1>台股做多當沖追蹤器</h1>
         <section class="warn">
-          <strong>Dashboard 尚未產生追蹤器資料</strong><br>
-          這通常發生在 Render 剛部署、資料庫尚未刷新、或報表檔尚未建立。網站本身已啟動，請先依下方順序刷新資料。
+          {top_notice}
         </section>
         <div class="summary">
           {_shell_metric('狀態', health.get('status') or 'unknown')}
@@ -910,6 +927,7 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
           {_shell_metric('最新資料時間', db.get('latest_data_at') or '-')}
         </div>
         {_missing_dashboard_buy_signal_panel(buy_diagnosis)}
+        {_missing_dashboard_review_candidate_cards(review_candidates)}
         <div class="decision-grid">
           <section class="decision-panel">
             <h3>現在先做</h3>
@@ -976,6 +994,80 @@ def _missing_dashboard_buy_signal_panel(diagnosis: dict[str, Any]) -> str:
           </section>
         </section>
     """
+
+
+def _missing_dashboard_review_candidate_cards(review_candidates: dict[str, Any]) -> str:
+    items = review_candidates.get("items") if isinstance(review_candidates, dict) else []
+    if not isinstance(items, list) or not items:
+        return ""
+    cards = []
+    for item in items[:10]:
+        if not isinstance(item, dict):
+            continue
+        title = "｜".join(
+            part
+            for part in [str(item.get("symbol") or "").strip(), str(item.get("name") or "").strip()]
+            if part
+        )
+        price = item.get("price")
+        change_pct = item.get("change_pct")
+        turnover = item.get("turnover")
+        reason = item.get("reason") or item.get("not_selected_reason") or "開盤後需重新確認 VWAP、量比與突破。"
+        next_step = item.get("next_step") or "開盤後重新確認 live、VWAP、量比與進場雷達。"
+        cards.append(
+            f"""
+            <article class="stock-card">
+              <h3>{_escape(title or '-')}</h3>
+              <p class="muted">{_escape(item.get('label') or '觀察')}｜不是即時買多</p>
+              <div class="summary">
+                {_shell_metric('收盤價/參考價', _format_shell_value(price))}
+                {_shell_metric('漲幅', _format_percent_label(change_pct))}
+                {_shell_metric('成交金額', _format_turnover_label(turnover))}
+              </div>
+              <p><strong>為何先看：</strong>{_escape(str(reason))}</p>
+              <p><strong>開盤後下一步：</strong>{_escape(str(next_step))}</p>
+            </article>
+            """
+        )
+    return f"""
+        <section class="decision-center">
+          <h2>下個交易日先看這些</h2>
+          <p class="muted">{_escape(review_candidates.get('message') or '這些是盤前觀察清單，不是即時買多。')}</p>
+          <div class="stock-grid">{''.join(cards)}</div>
+        </section>
+    """
+
+
+def _format_shell_value(value: Any) -> str:
+    try:
+        if value is None or value == "":
+            return "-"
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_percent_label(value: Any) -> str:
+    try:
+        if value is None or value == "":
+            return "-"
+        return f"{float(value):+.2f}%"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _format_turnover_label(value: Any) -> str:
+    try:
+        if value is None or value == "":
+            return "-"
+        amount = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if amount >= 100_000_000:
+        return f"{amount / 100_000_000:.1f} 億"
+    if amount >= 10_000:
+        return f"{amount / 10_000:.0f} 萬"
+    return f"{amount:.0f}"
 
 
 def _shell_metric(label: str, value: Any) -> str:

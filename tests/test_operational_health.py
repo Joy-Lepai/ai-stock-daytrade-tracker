@@ -219,6 +219,49 @@ class OperationalHealthTests(unittest.TestCase):
         self.assertIn("08:55", do_now)
         self.assertIn("資料轉 live 再看進場雷達", do_now)
 
+    def test_pre_open_review_candidates_are_usable_without_watchlist_live_data(self):
+        payload = {
+            "market_mode": "pre_open_prepare",
+            "market_mode_label": "開盤前準備模式",
+            "allow_intraday_signal": False,
+            "price_status_summary": {
+                "status": "嚴重缺漏",
+                "live_count": 0,
+                "missing_count": 80,
+                "missing_ratio": 100,
+            },
+            "required_stale_layers": ["watchlist"],
+            "stale_layers": ["watchlist", "positions"],
+            "refresh_guidance": {
+                "severity": "warn",
+                "summary": "重點觀察資料已過期，盤中不要依此進場；請先更新重點觀察。",
+                "action_label": "更新重點觀察",
+                "action_endpoint": "/refresh_watchlist",
+            },
+            "refresh_operation_summary": {
+                "severity": "block",
+                "message": "必要資料層需處理：重點觀察。先更新後再判斷。",
+            },
+            "review_observation_candidates": {
+                "status": "ok",
+                "count": 2,
+                "items": [
+                    {"symbol": "3037.TW", "name": "欣興"},
+                    {"symbol": "3374.TWO", "name": "精材"},
+                ],
+            },
+        }
+
+        health = build_operational_health(payload)
+
+        self.assertEqual(health["status"], "warning")
+        self.assertTrue(health["can_use_dashboard"])
+        self.assertFalse(health["can_show_strong_long"])
+        self.assertEqual(health["required_stale_layers"], [])
+        self.assertIn("盤前觀察", health["data_quality_status"])
+        self.assertIn("下個交易日觀察", " ".join(health["warnings"]))
+        self.assertIn("watchlist", health["non_blocking_review_layers"])
+
     def test_refresh_plan_includes_post_close_and_manual_refresh_layers(self):
         payload = {
             "market_mode": "closed_review",
