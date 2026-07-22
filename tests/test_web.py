@@ -27,6 +27,7 @@ from stock_daytrade_system.web import (
     render_paper_dashboard_page,
     render_shell,
     render_tw_advisor_page,
+    render_us_dashboard_page,
 )
 from stock_daytrade_system.db import connect
 from http import HTTPStatus
@@ -64,6 +65,14 @@ class WebTests(unittest.TestCase):
                 app = WebApp(None, report_dir=Path(directory))
 
         self.assertFalse(app.scheduler_enabled)
+
+    def test_us_dashboard_has_operator_focus_first_screen(self):
+        html = render_us_dashboard_page()
+
+        self.assertIn("us-operator-focus", html)
+        self.assertIn("現在先看哪檔？", html)
+        self.assertIn("優先盯盤清單", html)
+        self.assertIn("不是下單建議", html)
 
     def test_extracts_body_from_html(self):
         self.assertEqual(_extract_body("<html><body><main>ok</main></body></html>"), "<main>ok</main>")

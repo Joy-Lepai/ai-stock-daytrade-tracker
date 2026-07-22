@@ -2545,6 +2545,7 @@ def render_us_dashboard_page(show_logout: bool = False) -> str:
     </header>
     <section class="notice">本系統僅供資料整理與策略回測，不構成投資建議，也不保證獲利。</section>
     <section id="us-error" class="warn" hidden>資料暫時無法更新。</section>
+    <section id="us-operator-focus" class="decision-center"></section>
     <section id="us-decision-center" class="decision-center"></section>
     <section id="us-signal-center" class="decision-center"></section>
     <section class="summary" id="us-summary"></section>
@@ -3326,6 +3327,20 @@ def us_dashboard_css() -> str:
     .grade-C { color:#9a3412; background:#fff7ed; border-color:#fed7aa; }
     .grade-D { color:#475467; background:#f2f4f7; }
     .notes { white-space:normal; min-width:220px; color:var(--muted); }
+    .operator-focus-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+    .operator-focus-head h2 { margin:0; }
+    .operator-focus-answer { font-size:18px; font-weight:850; color:#101828; }
+    .operator-focus-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; margin-top:12px; }
+    .operator-focus-card { border:1px solid var(--line); border-radius:8px; padding:12px; background:#fff; }
+    .operator-focus-card.primary { border-color:#bbf7d0; background:#f0fdf4; }
+    .operator-focus-card.practice { border-color:#bfdbfe; background:#eff6ff; }
+    .operator-focus-card.waiting { border-color:#fed7aa; background:#fff7ed; }
+    .operator-focus-tag { display:inline-block; margin-bottom:6px; padding:2px 8px; border-radius:999px; background:#eef2f6; color:#344054; font-size:12px; font-weight:800; }
+    .operator-focus-card.primary .operator-focus-tag { background:#dcfce7; color:#067647; }
+    .operator-focus-card.practice .operator-focus-tag { background:#dbeafe; color:#175cd3; }
+    .operator-focus-card.waiting .operator-focus-tag { background:#ffedd5; color:#9a3412; }
+    .operator-focus-title { font-weight:850; font-size:16px; margin-bottom:4px; }
+    .operator-focus-line { color:#475467; font-size:13px; white-space:normal; }
     @media (max-width:760px) { .us-page { padding-left:14px; padding-right:14px; } .us-header { flex-direction:column; } }
     """
 
@@ -3475,11 +3490,69 @@ def us_dashboard_script() -> str:
           row("recommendations count", text(debug.recommendations_count)),
           row("data source status", escapeHtml(debug.data_source_status)),
         ].join("");
+        renderOperatorFocus(payload);
         renderDecisionCenter(payload.decision_center || {});
         renderSignalCenter((payload.decision_center || {}).signal_center || {});
         renderCandidates(payload.candidates || []);
         renderBPlusTriggers(payload.b_plus_triggers || []);
         window.StockNotificationModule?.observeSignals(payload.b_plus_triggers || []);
+      }
+
+      function renderOperatorFocus(payload) {
+        const center = (payload.decision_center || {}).signal_center || {};
+        const summary = payload.summary || {};
+        const market = payload.market || {};
+        const executable = Array.isArray(center.executable) ? center.executable : [];
+        const practice = Array.isArray(center.practice_long) ? center.practice_long : [];
+        const waiting = [
+          ...(Array.isArray(center.b_plus) ? center.b_plus : []),
+          ...(Array.isArray(center.waiting) ? center.waiting : []),
+        ];
+        const focusItems = [
+          ...executable.slice(0, 3).map((item) => ({ item, kind: "primary", tag: "優先盯盤", next: item.next_step || "先確認停損距離與追價風險" })),
+          ...practice.slice(0, Math.max(0, 5 - executable.length)).map((item) => ({ item, kind: "practice", tag: "練習買多", next: item.next_step || "只用虛擬交易累積樣本，不是正式訊號" })),
+          ...waiting.slice(0, Math.max(0, 5 - executable.length - practice.length)).map((item) => ({ item, kind: "waiting", tag: "等待確認", next: item.next_step || "等待量能、VWAP 或突破確認" })),
+        ].slice(0, 5);
+        let answer = "目前沒有美股可進場雷達通過標的。";
+        let sub = "先看等待確認與風險原因，不要為了交易而交易。";
+        if (executable.length > 0) {
+          const names = executable.slice(0, 3).map((item) => `${item.symbol}｜${item.name_zh || item.name_en || ""}`).join("、");
+          answer = `現在先看：${names}`;
+          sub = `有 ${executable.length} 檔進場雷達通過；仍需確認 VWAP、停損距離與追價風險，這不是保證獲利。`;
+        } else if (practice.length > 0) {
+          const names = practice.slice(0, 3).map((item) => `${item.symbol}｜${item.name_zh || item.name_en || ""}`).join("、");
+          answer = `沒有正式進場訊號；可練習觀察：${names}`;
+          sub = "練習買多只適合虛擬交易與樣本累積，不是正式可執行訊號。";
+        } else if (waiting.length > 0) {
+          answer = "目前只有等待確認標的。";
+          sub = "主要還差量能、VWAP 或突破條件；等條件成立再看。";
+        }
+        const cards = focusItems.length
+          ? focusItems.map(({ item, kind, tag, next }) => operatorFocusCard(item, kind, tag, next)).join("")
+          : `<div class="operator-focus-card waiting"><span class="operator-focus-tag">沒有訊號</span><div class="operator-focus-title">目前沒有可盯盤標的</div><div class="operator-focus-line">市場：${escapeHtml(market.status_text || "-")}｜資料候選 ${summary.candidate_count || 0} 檔。</div></div>`;
+        $("us-operator-focus").innerHTML = `<div class="operator-focus-head">
+          <div>
+            <h2>現在先看哪檔？</h2>
+            <div class="operator-focus-answer">${escapeHtml(answer)}</div>
+            <p class="muted">${escapeHtml(sub)}</p>
+          </div>
+          <div class="session-pill">進場雷達 ${summary.executable || 0}｜練習 ${summary.practice_long || 0}｜觀察 ${summary.trade_watch || 0}</div>
+        </div>
+        <div class="operator-focus-grid">${cards}</div>
+        <section class="notice">這裡是「優先盯盤清單」，不是下單建議；請搭配停損、部位計算與虛擬交易驗證。</section>`;
+      }
+
+      function operatorFocusCard(item, kind, tag, next) {
+        const label = `${escapeHtml(item.symbol)}｜${escapeHtml(item.name_zh || "")}${item.name_en ? `｜${escapeHtml(item.name_en)}` : ""}`;
+        const metrics = `現價 ${number(item.current_price)}｜VWAP ${number(item.vwap)}｜量比 ${number(item.volume_ratio)}x｜停損 ${number(item.stop_loss)}`;
+        return `<div class="operator-focus-card ${kind}">
+          <span class="operator-focus-tag">${escapeHtml(tag)}</span>
+          <div class="operator-focus-title">${label}${positionSizeTag(item.trigger_price || item.current_price || item.latest_price, item.stop_loss)}</div>
+          <div class="operator-focus-line">${escapeHtml(item.trade_bias_label || item.entry_status || "-")}｜${escapeHtml(item.grade || "-")}｜${escapeHtml(item.confidence_level || "-")}</div>
+          <div class="operator-focus-line">${escapeHtml(metrics)}</div>
+          <div class="operator-focus-line">原因：${escapeHtml(item.trade_bias_reason || item.reason || "-")}</div>
+          <div class="operator-focus-line"><strong>下一步：</strong>${escapeHtml(next)}</div>
+        </div>`;
       }
 
       function renderDecisionCenter(data) {
