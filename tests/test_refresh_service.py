@@ -636,6 +636,34 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(payload["layers"]["watchlist"]["status"], "skipped")
         self.assertEqual(payload["layers"]["watchlist"]["error"], "another_refresh_running")
 
+    def test_same_layer_already_running_preserves_running_state(self):
+        now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
+        started = datetime(2026, 6, 25, 9, 29, tzinfo=ZoneInfo("Asia/Taipei"))
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                upsert_refresh_state(
+                    conn,
+                    layer="watchlist",
+                    status="running",
+                    started_at=started,
+                    stale_after_seconds=300,
+                )
+            coordinator = RefreshCoordinator(project, reports)
+            coordinator._locks["watchlist"].acquire()
+            try:
+                result = coordinator.refresh_watchlist()
+            finally:
+                coordinator._locks["watchlist"].release()
+
+            payload = coordinator.status_payload(now=now)
+
+        self.assertEqual(result.status, "skipped")
+        self.assertEqual(result.error, "already_running")
+        self.assertEqual(payload["layers"]["watchlist"]["status"], "running")
+        self.assertEqual(payload["layers"]["watchlist"]["running_age_seconds"], 60.0)
+
     def test_skipped_layer_keeps_fresh_previous_success_usable(self):
         now = datetime(2026, 6, 25, 9, 30, tzinfo=ZoneInfo("Asia/Taipei"))
         fresh = datetime(2026, 6, 25, 9, 29, tzinfo=ZoneInfo("Asia/Taipei"))

@@ -267,7 +267,6 @@ class RefreshCoordinator:
     def _run_tracked_layer(self, layer: str, runner: Callable[[datetime], tuple[int, str]]) -> RefreshResult:
         lock = self._locks[layer]
         if not lock.acquire(blocking=False):
-            self._write_state(layer, status="skipped", error="already_running")
             return RefreshResult(layer, "skipped", "同一層刷新正在執行中，已略過本次請求。", 0.0, error="already_running")
         if not self._global_refresh_lock.acquire(blocking=False):
             lock.release()
