@@ -559,6 +559,7 @@ def render_tracker_html(
   </header>
   <main>
     {_market_mode_panel(long_summary, report_time)}
+    {_buy_signal_diagnosis_panel(long_summary, report_time)}
     {_today_playbook_panel(long_summary, report_time)}
     {_next_session_unified_watch_panel(long_summary, report_time)}
     {_review_mode_sections(long_summary, report_time)}
@@ -842,6 +843,78 @@ def _market_mode_panel(summary: Optional[LongModelSummary], report_time: datetim
         '</div>'
         f'<div class="notice"><strong>主要原因</strong><br>{escape(reason)}</div>'
         f'{details}'
+        '</section>'
+    )
+
+
+def _buy_signal_diagnosis_panel(summary: Optional[LongModelSummary], report_time: datetime) -> str:
+    diagnostics = summary.diagnostics if summary else {}
+    health = (diagnostics.get("data_health") or {}) if diagnostics else {}
+    checklist = summary.recommendation_checklist if summary else {}
+    mode = _dashboard_market_mode(summary, report_time)
+    front_context = _front_context(summary, mode)
+    front = front_trade_counts(list(summary.candidates) if summary else [], **front_context)
+    front_counts = front["counts"]
+    strong_funnel = diagnostics.get("strong_long_funnel") or {}
+    fugle_pool = diagnostics.get("fugle_priority_pool") or {}
+
+    strong = int(strong_funnel.get("strong_long_candidate_count", front_counts.get("強烈買多", 0)) or 0)
+    buy = int(front_counts.get("買多", 0) or 0)
+    watch = int(front_counts.get("觀察", 0) or 0)
+    bearish = int(front_counts.get("看空", 0) or 0)
+    executable = int(strong_funnel.get("executable_count", checklist.get("executable", 0) or 0) or 0)
+    selected_symbols = [
+        str(symbol)
+        for symbol in (fugle_pool.get("selected_symbols") or [])
+        if str(symbol)
+    ]
+    mode_name = str(mode.get("mode") or "")
+    health_status = str(health.get("status") or health.get("live_state_label") or "")
+    allow_intraday = bool(mode.get("allow_intraday_signal"))
+
+    if mode_name != "intraday" or not allow_intraday:
+        headline = "現在不能判斷盤中可以做多"
+        primary_reason = "目前不是盤中即時模式；盤前、盤後或休市只能做復盤與下個交易日觀察。"
+        next_step = "開盤後等資料轉 live，再看 VWAP、量比、突破與進場雷達。"
+    elif health_status in {"異常", "嚴重缺漏"}:
+        headline = "現在不能判斷可以做多，先修資料"
+        primary_reason = f"資料健康度為 {health_status}，不可當作盤中進場依據。"
+        next_step = "先更新全市場與重點觀察，確認資料來源恢復。"
+    elif strong > 0:
+        headline = f"目前有 {strong} 檔強烈買多候選"
+        primary_reason = f"其中 {executable} 檔進場雷達通過；仍要逐檔確認停損距離、五檔、逐筆與部位風控。"
+        next_step = "先打開強烈買多股票的個股作戰卡，不追 high_risk。"
+    elif buy > 0:
+        headline = f"目前有 {buy} 檔買多觀察"
+        primary_reason = "方向偏多，但仍差量能、突破、停損距離或進場雷達確認。"
+        next_step = "等待最大卡關條件補齊，例如量比放大、突破觸發價或價格站穩 VWAP。"
+    else:
+        headline = "現在沒有可做多標的"
+        primary_reason = _strong_long_blocker_summary(strong_funnel)
+        next_step = "先看觀察股的最大卡關與下一步；沒有訊號就空手，不為了交易而交易。"
+
+    fugle_text = "、".join(selected_symbols) if selected_symbols else "目前沒有配置 Fugle 即時追蹤名額"
+    rows = (
+        '<div class="decision-grid">'
+        f'<div class="decision-panel"><strong>目前答案</strong><p class="muted">{escape(headline)}</p></div>'
+        f'<div class="decision-panel"><strong>最大原因</strong><p class="muted">{escape(primary_reason)}</p></div>'
+        f'<div class="decision-panel"><strong>下一步</strong><p class="muted">{escape(next_step)}</p></div>'
+        f'<div class="decision-panel"><strong>Fugle 追蹤</strong><p class="muted">{escape(fugle_text)}</p></div>'
+        '</div>'
+    )
+    return (
+        '<section class="decision-center">'
+        '<h2>買多訊號診斷</h2>'
+        '<div class="summary">'
+        f'{_metric("強烈買多", strong)}'
+        f'{_metric("進場雷達通過", executable)}'
+        f'{_metric("買多", buy)}'
+        f'{_metric("觀察", watch)}'
+        f'{_metric("看空", bearish)}'
+        f'{_metric_text("資料狀態", health_status or "未知")}'
+        '</div>'
+        f'{rows}'
+        '<section class="notice">這張卡只解釋目前能不能判斷做多；不會放寬 A / B+ / B 條件，也不會把 high_risk 包裝成買多。</section>'
         '</section>'
     )
 

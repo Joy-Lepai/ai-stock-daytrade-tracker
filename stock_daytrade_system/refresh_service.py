@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from stock_daytrade_system.app_version import deployment_status
 from stock_daytrade_system.b_plus_trigger_tracker import build_b_plus_trigger_tracker
+from stock_daytrade_system.buy_signal_diagnosis import build_buy_signal_diagnosis
 from stock_daytrade_system.config import WatchSymbol, load_config
 from stock_daytrade_system.data_freshness import evaluate_data_freshness
 from stock_daytrade_system.db import (
@@ -244,6 +245,7 @@ class RefreshCoordinator:
             "reason_if_blocked": strong_long_block_reason,
             "strong_long_block_reason": strong_long_block_reason,
         }
+        payload["buy_signal_diagnosis"] = build_buy_signal_diagnosis(payload)
         payload["operational_health"] = build_operational_health(payload)
         return payload
 
