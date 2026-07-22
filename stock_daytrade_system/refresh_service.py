@@ -131,6 +131,7 @@ class RefreshCoordinator:
             price_status = _price_status_summary(conn, now=now)
             front_category_items = _latest_front_category_items(conn)
             limit_up_summary = _limit_up_operational_summary(conn)
+            review_observation_candidates = _review_observation_candidates(conn)
             fugle_priority_pool = _fugle_priority_pool_status(
                 conn,
                 front_category_items,
@@ -224,6 +225,7 @@ class RefreshCoordinator:
             "price_status_summary": price_status,
             "front_category_summary": front_category_summary,
             "limit_up_operational_summary": limit_up_summary,
+            "review_observation_candidates": review_observation_candidates,
             "fugle_priority_pool": fugle_priority_pool,
             "live_count": price_status["live_count"],
             "delayed_count": price_status["delayed_count"],
@@ -988,6 +990,140 @@ def _limit_up_operational_summary(conn) -> dict:
         **phase,
         "source": "tw_full_market_snapshots",
     }
+
+
+def _review_observation_candidates(conn, *, limit: int = 10) -> dict:
+    """Return actionable review-only candidates from the latest usable full-market snapshot."""
+    captured_row = conn.execute(
+        """
+        SELECT captured_at, date, COUNT(*) AS usable_count
+        FROM tw_full_market_snapshots
+        WHERE price IS NOT NULL
+          AND COALESCE(data_status, '') NOT IN ('data_missing', 'missing')
+          AND COALESCE(reason_code, '') NOT IN ('data_missing', 'yahoo_intraday_failed')
+        GROUP BY captured_at, date
+        HAVING usable_count > 0
+        ORDER BY date DESC, captured_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if not captured_row:
+        return {
+            "status": "no_usable_snapshot",
+            "message": "目前沒有可用的上一交易日快照，無法整理下個交易日觀察清單。",
+            "items": [],
+            "source": "tw_full_market_snapshots",
+        }
+
+    captured_at = captured_row["captured_at"]
+    rows = conn.execute(
+        """
+        SELECT symbol, name, date, captured_at, price, change_pct, turnover,
+               volume_ratio, vwap, above_vwap, break_prev_high, break_5d_high,
+               ai_grade, entry_status, trade_bias, reason_code, not_selected_reason,
+               source_scope
+        FROM tw_full_market_snapshots
+        WHERE captured_at = ?
+          AND price IS NOT NULL
+          AND COALESCE(data_status, '') NOT IN ('data_missing', 'missing')
+          AND COALESCE(reason_code, '') NOT IN ('data_missing', 'yahoo_intraday_failed')
+        ORDER BY
+          CASE
+            WHEN ai_grade = 'A' THEN 1
+            WHEN ai_grade = 'B+' THEN 2
+            WHEN ai_grade = 'B' THEN 3
+            WHEN entry_status IN ('wait_breakout', 'wait_volume', 'wait_vwap', 'wait_pullback') THEN 4
+            WHEN entry_status = 'high_risk' THEN 5
+            ELSE 6
+          END,
+          COALESCE(change_pct, 0) DESC,
+          COALESCE(turnover, 0) DESC
+        LIMIT ?
+        """,
+        (captured_at, limit),
+    ).fetchall()
+    items = [_review_observation_item(dict(row), rank=index + 1) for index, row in enumerate(rows)]
+    return {
+        "status": "ok" if items else "empty",
+        "message": "以下是上一交易日整理出的下個交易日觀察清單；開盤後仍需重新確認 live、VWAP、量比與進場雷達。",
+        "date": captured_row["date"],
+        "captured_at": captured_at,
+        "count": len(items),
+        "items": items,
+        "source": "tw_full_market_snapshots",
+    }
+
+
+def _review_observation_item(row: dict, *, rank: int) -> dict:
+    status = str(row.get("entry_status") or "")
+    reason_code = str(row.get("reason_code") or "")
+    reason_text = str(row.get("not_selected_reason") or "")
+    grade = str(row.get("ai_grade") or "-")
+    if grade in {"A", "B+", "B"}:
+        label = "已進模型觀察"
+        next_step = "開盤後先確認是否維持 VWAP 上方、量比是否延續，再看進場雷達。"
+    elif status.startswith("wait_"):
+        label = "等待確認"
+        next_step = _wait_status_next_step(status)
+    elif status == "high_risk" or "追價" in reason_text or reason_code == "high_chase_risk":
+        label = "高風險觀察"
+        next_step = "不要追第一根，等待拉回 VWAP 附近、停損距離縮小或進場雷達轉強。"
+    elif status == "avoid":
+        label = "暫不做多"
+        next_step = "只看是否重新站回 VWAP 並解除多方失效。"
+    else:
+        label = "觀察"
+        next_step = "開盤後重新確認 VWAP、量比、突破與資料 live。"
+    reason = reason_text or _reason_from_row(row)
+    return {
+        "rank": rank,
+        "symbol": str(row.get("symbol") or ""),
+        "name": str(row.get("name") or row.get("symbol") or ""),
+        "date": row.get("date"),
+        "captured_at": row.get("captured_at"),
+        "price": row.get("price"),
+        "change_pct": row.get("change_pct"),
+        "turnover": row.get("turnover"),
+        "volume_ratio": row.get("volume_ratio"),
+        "above_vwap": bool(row.get("above_vwap")),
+        "break_prev_high": bool(row.get("break_prev_high")),
+        "break_5d_high": bool(row.get("break_5d_high")),
+        "ai_grade": grade,
+        "entry_status": status or "-",
+        "trade_bias": row.get("trade_bias") or "watch",
+        "source_scope": row.get("source_scope") or "-",
+        "reason_code": reason_code or "-",
+        "label": label,
+        "reason": reason,
+        "next_step": next_step,
+        "safety_note": "這是下個交易日觀察，不是盤中即時買多；開盤後必須重新確認。"
+    }
+
+
+def _wait_status_next_step(status: str) -> str:
+    return {
+        "wait_vwap": "下一步等站回 VWAP 並維持，否則只觀察。",
+        "wait_volume": "下一步等量比放大，短線資金未進場前不追。",
+        "wait_breakout": "下一步等突破觸發價或昨日高點，不提前追價。",
+        "wait_pullback": "下一步等拉回 VWAP 附近不破，再重新評估。",
+    }.get(status, "下一步等缺口條件補齊。")
+
+
+def _reason_from_row(row: dict) -> str:
+    parts: list[str] = []
+    if row.get("above_vwap"):
+        parts.append("站上 VWAP")
+    if row.get("break_prev_high"):
+        parts.append("突破昨日高點")
+    if row.get("break_5d_high"):
+        parts.append("突破 5 日高點")
+    volume_ratio = row.get("volume_ratio")
+    if volume_ratio is not None:
+        try:
+            parts.append(f"量比 {float(volume_ratio):.2f}")
+        except (TypeError, ValueError):
+            pass
+    return "、".join(parts) if parts else "等待開盤後重新確認條件。"
 
 
 def _limit_up_operator_action(entry_status: str, reason_code: str) -> str:

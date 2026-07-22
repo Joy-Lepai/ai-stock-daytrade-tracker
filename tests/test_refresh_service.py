@@ -271,6 +271,55 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertIn("追價風險觀察", summary["top_watchlist"][0]["action"])
         self.assertIn("不要把 high_risk 當成買多", summary["top_watchlist"][0]["avoid"])
 
+    def test_status_payload_includes_review_observation_candidates_from_snapshots(self):
+        now = datetime(2026, 6, 25, 14, 10, tzinfo=ZoneInfo("Asia/Taipei"))
+        captured = "2026-06-25T13:35:00+08:00"
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            with connect(default_db_path(project)) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, price, change_pct, volume,
+                      turnover, volume_ratio, vwap, above_vwap, break_prev_high,
+                      break_5d_high, entered_candidate_pool, entered_ai_candidates,
+                      ai_grade, entry_status, trade_bias, not_selected_reason,
+                      reason_code, data_status, created_at
+                    ) VALUES (?, '2026-06-25', '8150.TW', '南茂', 58.5, 9.8, 1000,
+                      100000, 4.2, 56, 1, 1, 1, 1, 0,
+                      'C', 'high_risk', 'watch', '強勢但追價風險高',
+                      'high_chase_risk', 'ok', ?)
+                    """,
+                    (captured, captured),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO tw_full_market_snapshots (
+                      captured_at, date, symbol, name, price, change_pct, volume,
+                      turnover, volume_ratio, vwap, above_vwap, break_prev_high,
+                      break_5d_high, entered_candidate_pool, entered_ai_candidates,
+                      ai_grade, entry_status, trade_bias, not_selected_reason,
+                      reason_code, data_status, created_at
+                    ) VALUES (?, '2026-06-25', '2886.TW', '兆豐金', NULL, NULL, NULL,
+                      NULL, NULL, NULL, 0, 0, 0, 0, 0,
+                      '-', 'data_missing', 'watch', '資料抓取失敗',
+                      'data_missing', 'data_missing', ?)
+                    """,
+                    (captured, captured),
+                )
+            coordinator = RefreshCoordinator(project, reports)
+
+            payload = coordinator.status_payload(now=now)
+
+        review = payload["review_observation_candidates"]
+        self.assertEqual(review["status"], "ok")
+        self.assertEqual(review["items"][0]["symbol"], "8150.TW")
+        self.assertEqual(review["items"][0]["label"], "高風險觀察")
+        self.assertIn("不是盤中即時買多", review["items"][0]["safety_note"])
+        self.assertNotIn("2886.TW", " ".join(item["symbol"] for item in review["items"]))
+        self.assertIn("8150.TW", payload["buy_signal_diagnosis"]["what_to_watch_now"][0])
+
     def test_manual_full_refresh_marks_dependent_layers_success(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

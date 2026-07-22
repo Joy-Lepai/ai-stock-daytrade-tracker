@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-BUY_SIGNAL_DIAGNOSIS_VERSION = "buy_signal_diagnosis_v1_plain_answer_2026-07-22"
+BUY_SIGNAL_DIAGNOSIS_VERSION = "buy_signal_diagnosis_v2_review_watchlist_2026-07-22"
 
 REVIEW_MODES = {"closed_review", "post_close_review", "pre_open_prepare"}
 
@@ -20,6 +20,8 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
     refresh_summary = _as_dict(status_payload.get("refresh_operation_summary"))
     refresh_guidance = _as_dict(status_payload.get("refresh_guidance"))
     fugle_pool = _as_dict(status_payload.get("fugle_priority_pool"))
+    review_candidates_payload = _as_dict(status_payload.get("review_observation_candidates"))
+    review_candidates = [item for item in _list(review_candidates_payload.get("items")) if isinstance(item, dict)]
     required_stale_layers = _list(status_payload.get("required_stale_layers"))
     stale_layers = _list(status_payload.get("stale_layers"))
 
@@ -61,7 +63,10 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
         primary_reason = str(front_summary.get("no_signal_reason") or "候選股尚未通過 VWAP、量比、突破、風險與信心條件。")
     elif market_mode in REVIEW_MODES:
         state = "review_only"
-        headline = "現在不能判斷盤中可以做多，只能復盤與準備觀察清單。"
+        if review_candidates:
+            headline = f"現在不能判斷盤中可以做多，但有 {len(review_candidates)} 檔可列入下個交易日觀察。"
+        else:
+            headline = "現在不能判斷盤中可以做多，只能復盤與準備觀察清單。"
         primary_reason = blockers[0] if blockers else "目前不是盤中即時模式。"
     else:
         state = "data_blocked"
@@ -77,6 +82,7 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
         required_stale_layers=required_stale_layers,
         refresh_guidance=refresh_guidance,
         selected_symbols=selected_symbols,
+        review_candidates=review_candidates,
     )
     watch_now = _watch_now(
         state=state,
@@ -88,6 +94,7 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
         delayed_count=delayed_count,
         cached_count=cached_count,
         missing_count=missing_count,
+        review_candidates=review_candidates,
     )
 
     return {
@@ -114,6 +121,13 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
         "refresh_blockers": required_stale_layers,
         "stale_layers": stale_layers,
         "selected_fugle_symbols": selected_symbols,
+        "review_observation_candidates": {
+            "status": review_candidates_payload.get("status") or ("ok" if review_candidates else "empty"),
+            "date": review_candidates_payload.get("date"),
+            "count": len(review_candidates),
+            "items": review_candidates[:5],
+            "message": review_candidates_payload.get("message") or "",
+        },
         "what_to_watch_now": watch_now,
         "next_steps": next_steps,
         "do_not_do": _do_not_do(state, delayed_count, cached_count, missing_count),
@@ -121,7 +135,15 @@ def build_buy_signal_diagnosis(status_payload: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _next_steps(*, state: str, market_mode: str, required_stale_layers: list[str], refresh_guidance: dict[str, Any], selected_symbols: list[str]) -> list[str]:
+def _next_steps(
+    *,
+    state: str,
+    market_mode: str,
+    required_stale_layers: list[str],
+    refresh_guidance: dict[str, Any],
+    selected_symbols: list[str],
+    review_candidates: list[dict[str, Any]],
+) -> list[str]:
     if required_stale_layers:
         return [
             "先執行刷新：" + " → ".join(_layer_endpoint(layer) for layer in required_stale_layers),
@@ -147,11 +169,19 @@ def _next_steps(*, state: str, market_mode: str, required_stale_layers: list[str
             "沒有訊號就空手，不為了交易而交易。",
         ]
     if market_mode in REVIEW_MODES:
-        return [
-            "先看上一交易日復盤與下個交易日觀察清單。",
-            "開盤後等資料轉 live，再看 VWAP、量比、突破與進場雷達。",
-            "盤前或盤後不顯示即時強烈買多。",
-        ]
+        steps = []
+        if review_candidates:
+            symbols = "、".join(_candidate_label(item) for item in review_candidates[:5])
+            steps.append(f"先把下個交易日觀察股打開：{symbols}。")
+        else:
+            steps.append("先看上一交易日復盤與下個交易日觀察清單。")
+        steps.extend(
+            [
+                "開盤後等資料轉 live，再看 VWAP、量比、突破與進場雷達。",
+                "盤前或盤後不顯示即時強烈買多。",
+            ]
+        )
+        return steps
     endpoint = str(refresh_guidance.get("action_endpoint") or "/refresh_full_market")
     return [
         f"先執行 {endpoint}。",
@@ -160,8 +190,27 @@ def _next_steps(*, state: str, market_mode: str, required_stale_layers: list[str
     ]
 
 
-def _watch_now(*, state: str, strong_count: int, buy_count: int, watch_count: int, selected_symbols: list[str], live_count: int, delayed_count: int, cached_count: int, missing_count: int) -> list[str]:
+def _watch_now(
+    *,
+    state: str,
+    strong_count: int,
+    buy_count: int,
+    watch_count: int,
+    selected_symbols: list[str],
+    live_count: int,
+    delayed_count: int,
+    cached_count: int,
+    missing_count: int,
+    review_candidates: list[dict[str, Any]],
+) -> list[str]:
     items: list[str] = []
+    if review_candidates and state == "review_only":
+        top = []
+        for item in review_candidates[:5]:
+            label = _candidate_label(item)
+            reason = str(item.get("label") or item.get("reason") or "觀察")
+            top.append(f"{label}（{reason}）")
+        items.append("下個交易日先看：" + "、".join(top))
     if selected_symbols:
         items.append("Fugle 指定追蹤：" + "、".join(selected_symbols[:5]))
     if strong_count:
@@ -175,6 +224,12 @@ def _watch_now(*, state: str, strong_count: int, buy_count: int, watch_count: in
     if not items:
         items.append("目前沒有可用候選資料；先確認刷新是否完成。")
     return items
+
+
+def _candidate_label(item: dict[str, Any]) -> str:
+    symbol = str(item.get("symbol") or "")
+    name = str(item.get("name") or "")
+    return f"{symbol}｜{name}".strip("｜")
 
 
 def _do_not_do(state: str, delayed_count: int, cached_count: int, missing_count: int) -> list[str]:

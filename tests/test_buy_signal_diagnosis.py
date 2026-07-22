@@ -15,16 +15,31 @@ class BuySignalDiagnosisTests(unittest.TestCase):
             "price_status_summary": {"status": "資料不足"},
             "front_category_summary": {"counts": {}, "total": 0},
             "fugle_priority_pool": {"selected_symbols": ["6919.TW"]},
+            "review_observation_candidates": {
+                "status": "ok",
+                "date": "2026-07-21",
+                "items": [
+                    {
+                        "symbol": "8150.TW",
+                        "name": "南茂",
+                        "label": "高風險觀察",
+                        "reason": "前日急拉但追價風險高",
+                        "next_step": "等待拉回 VWAP 附近。",
+                    }
+                ],
+            },
         }
 
         diagnosis = build_buy_signal_diagnosis(payload)
 
         self.assertEqual(diagnosis["state"], "review_only")
         self.assertFalse(diagnosis["can_answer_intraday_buy"])
-        self.assertIn("不能判斷盤中可以做多", diagnosis["headline"])
+        self.assertIn("有 1 檔可列入下個交易日觀察", diagnosis["headline"])
         self.assertIn("全市場掃描", diagnosis["primary_reason"])
-        self.assertIn("6919.TW", diagnosis["what_to_watch_now"][0])
+        self.assertIn("8150.TW", diagnosis["what_to_watch_now"][0])
+        self.assertIn("6919.TW", " ".join(diagnosis["what_to_watch_now"]))
         self.assertIn("/refresh_full_market", diagnosis["next_steps"][0])
+        self.assertEqual(diagnosis["review_observation_candidates"]["items"][0]["symbol"], "8150.TW")
 
     def test_intraday_no_signal_explains_waiting_conditions(self):
         payload = {
