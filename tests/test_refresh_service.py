@@ -8,9 +8,11 @@ from unittest.mock import patch
 from stock_daytrade_system.db import connect, default_db_path, upsert_last_known_price, upsert_refresh_state
 from stock_daytrade_system.refresh_service import (
     DEFAULT_TRACKER_TIMEOUT_SECONDS,
+    REFRESH_LAYER_RUNNING_STUCK_SECONDS,
     RefreshCoordinator,
     _front_category_summary,
     _layer_has_usable_fresh_success,
+    _layer_status,
     _refresh_operation_summary,
     _status_allows_strong_long,
 )
@@ -27,6 +29,31 @@ class RefreshServiceTests(unittest.TestCase):
 
         self.assertEqual(DEFAULT_TRACKER_TIMEOUT_SECONDS, 180)
         self.assertEqual(coordinator.tracker_timeout_seconds, 180)
+        self.assertEqual(REFRESH_LAYER_RUNNING_STUCK_SECONDS["full_market"], 240)
+
+    def test_running_full_market_marks_stuck_before_generic_stale_window(self):
+        now = datetime(2026, 7, 22, 9, 5, tzinfo=ZoneInfo("Asia/Taipei"))
+        started = datetime(2026, 7, 22, 9, 0, tzinfo=ZoneInfo("Asia/Taipei"))
+
+        layer = _layer_status(
+            {
+                "layer": "full_market",
+                "last_started_at": started.isoformat(timespec="seconds"),
+                "last_success_at": None,
+                "duration_seconds": None,
+                "status": "running",
+                "symbols_count": 0,
+                "error": "",
+                "stale_after_seconds": 900,
+            },
+            now,
+        )
+
+        self.assertEqual(layer["status"], "stuck")
+        self.assertTrue(layer["is_running_stuck"])
+        self.assertEqual(layer["stale_label"], "刷新可能卡住")
+        self.assertEqual(layer["error"], "running_exceeded_240s")
+        self.assertLess(layer["running_stuck_after_seconds"], layer["stale_after_seconds"])
 
     def test_status_payload_returns_market_mode_without_triggering_scan(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -608,6 +635,26 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(summary["severity"], "block")
         self.assertFalse(summary["can_use_dashboard"])
         self.assertIn("資料異常", summary["message"])
+
+    def test_refresh_operation_summary_reports_required_stuck_layer(self):
+        layers = {
+            "full_market": {"status": "stuck", "is_stale": True},
+            "watchlist": {"status": "success", "is_stale": False},
+            "positions": {"status": "success", "is_stale": False},
+        }
+
+        summary = _refresh_operation_summary(
+            layers,
+            required_layers=["full_market"],
+            required_stale_layers=["full_market"],
+            market_mode={"mode": "post_close_review"},
+        )
+
+        self.assertEqual(summary["severity"], "block")
+        self.assertFalse(summary["can_use_dashboard"])
+        self.assertEqual(summary["required_stuck_layers"], ["full_market"])
+        self.assertEqual(summary["stuck_layer_labels"], ["全市場掃描"])
+        self.assertIn("刷新可能卡住", summary["message"])
 
     def test_strong_long_status_requires_fresh_required_layers_and_usable_price_quality(self):
         market_mode = {"mode": "intraday", "allow_strong_long": True}

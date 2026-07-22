@@ -51,6 +51,14 @@ REFRESH_LAYER_STALE_SECONDS = {
 
 DEFAULT_TRACKER_TIMEOUT_SECONDS = 180
 
+REFRESH_LAYER_RUNNING_STUCK_SECONDS = {
+    "full_market": DEFAULT_TRACKER_TIMEOUT_SECONDS + 60,
+    "manual_full_refresh": DEFAULT_TRACKER_TIMEOUT_SECONDS + 60,
+    "watchlist": 2 * 60,
+    "positions": 60,
+    "post_close_validation": 2 * 60,
+}
+
 _REFRESH_LAYER_LABELS = {
     "full_market": "全市場掃描",
     "watchlist": "重點觀察",
@@ -564,33 +572,44 @@ def _empty_layer_status(layer: str, now: datetime) -> dict:
         "stale_label": "尚未更新",
         "next_due_at": None,
         "seconds_until_stale": None,
+        "running_age_seconds": None,
+        "running_stuck_after_seconds": REFRESH_LAYER_RUNNING_STUCK_SECONDS.get(layer),
+        "is_running_stuck": False,
     }
 
 
 def _layer_status(row: dict, now: datetime) -> dict:
+    layer = str(row["layer"])
     stale_after = int(row.get("stale_after_seconds") or 300)
     last_success = _parse_datetime(row.get("last_success_at"))
     last_started = _parse_datetime(row.get("last_started_at"))
     age_seconds = (now - last_success).total_seconds() if last_success else None
     running_age = (now - last_started).total_seconds() if last_started and row.get("status") == "running" else None
-    running_stuck = running_age is not None and running_age > stale_after
+    running_stuck_after = int(REFRESH_LAYER_RUNNING_STUCK_SECONDS.get(layer) or stale_after)
+    running_stuck = running_age is not None and running_age > running_stuck_after
     is_stale = age_seconds is None or age_seconds > stale_after or row.get("status") == "failed" or running_stuck
     status = "stale" if is_stale and row.get("status") == "success" else row.get("status")
     if running_stuck:
-        status = "stale"
+        status = "stuck"
     due_fields = _next_due_fields(last_success, now, stale_after)
+    error = row.get("error") or ""
+    if running_stuck and not error:
+        error = f"running_exceeded_{running_stuck_after}s"
     return {
-        "layer": row["layer"],
+        "layer": layer,
         "last_started_at": row.get("last_started_at"),
         "last_success_at": row.get("last_success_at"),
         "duration_seconds": row.get("duration_seconds"),
         "status": status,
         "symbols_count": int(row.get("symbols_count") or 0),
-        "error": row.get("error") or "",
+        "error": error,
         "stale_after_seconds": stale_after,
         "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
         "is_stale": is_stale,
-        "stale_label": "已過期" if is_stale else "正常",
+        "stale_label": "刷新可能卡住" if running_stuck else ("已過期" if is_stale else "正常"),
+        "running_age_seconds": round(running_age, 1) if running_age is not None else None,
+        "running_stuck_after_seconds": running_stuck_after,
+        "is_running_stuck": running_stuck,
         **due_fields,
     }
 
@@ -1294,15 +1313,20 @@ def _refresh_operation_summary(
     market_mode: dict,
 ) -> dict:
     running_layers = [layer for layer, item in layers.items() if item.get("status") == "running"]
+    stuck_layers = [layer for layer, item in layers.items() if item.get("status") == "stuck"]
     failed_layers = [layer for layer, item in layers.items() if item.get("status") == "failed"]
     skipped_layers = [layer for layer, item in layers.items() if item.get("status") == "skipped"]
     required_failed = [layer for layer in required_layers if layer in failed_layers]
+    required_stuck = [layer for layer in required_layers if layer in stuck_layers]
     required_running = [layer for layer in required_layers if layer in running_layers]
     required_skipped = [layer for layer in required_layers if layer in skipped_layers]
-    blocking_layers = list(dict.fromkeys(required_stale_layers + required_failed))
+    blocking_layers = list(dict.fromkeys(required_stale_layers + required_failed + required_stuck))
     can_use_dashboard = not blocking_layers and str(market_mode.get("mode") or "") != "stale_data"
 
-    if blocking_layers:
+    if required_stuck:
+        message = f"必要資料層刷新可能卡住：{_layer_labels(required_stuck)}。請重試或查看資料源錯誤。"
+        severity = "block"
+    elif blocking_layers:
         message = f"必要資料層需處理：{_layer_labels(blocking_layers)}。先更新後再判斷。"
         severity = "block"
     elif str(market_mode.get("mode") or "") == "stale_data":
@@ -1326,12 +1350,15 @@ def _refresh_operation_summary(
         "message": message,
         "can_use_dashboard": can_use_dashboard,
         "running_layers": running_layers,
+        "stuck_layers": stuck_layers,
         "failed_layers": failed_layers,
         "skipped_layers": skipped_layers,
         "required_running_layers": required_running,
+        "required_stuck_layers": required_stuck,
         "required_skipped_layers": required_skipped,
         "blocking_layers": blocking_layers,
         "running_layer_labels": _layer_label_list(running_layers),
+        "stuck_layer_labels": _layer_label_list(stuck_layers),
         "failed_layer_labels": _layer_label_list(failed_layers),
         "skipped_layer_labels": _layer_label_list(skipped_layers),
         "blocking_layer_labels": _layer_label_list(blocking_layers),
