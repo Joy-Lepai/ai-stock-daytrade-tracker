@@ -904,6 +904,72 @@ class WebTests(unittest.TestCase):
             self.assertEqual(third, ["watchlist", "positions"])
             self.assertEqual(calls, ["full_market", "watchlist", "positions", "watchlist", "positions"])
 
+    def test_startup_bootstrap_refreshes_when_no_usable_snapshot(self):
+        import tempfile
+        from pathlib import Path
+
+        tw = ZoneInfo("Asia/Taipei")
+        with tempfile.TemporaryDirectory() as directory:
+            app = WebApp(None, report_dir=Path(directory))
+            calls = []
+
+            class FakeResult:
+                def __init__(self, message):
+                    self.message = message
+
+            class FakeCoordinator:
+                def status_payload(self, now=None):
+                    return {
+                        "market_mode": "post_close_review",
+                        "review_observation_candidates": {"status": "no_usable_snapshot"},
+                        "layers": {"full_market": {"status": "idle", "symbols_count": 0}},
+                    }
+
+                def refresh_full_market(self):
+                    calls.append("full_market")
+                    return FakeResult("full market ok")
+
+                def refresh_post_close_validation(self):
+                    calls.append("post_close_validation")
+                    return FakeResult("post close ok")
+
+            app.refresh_coordinator = FakeCoordinator()
+
+            executed = app._run_startup_bootstrap_once(datetime(2026, 6, 17, 22, 0, tzinfo=tw))
+            second = app._run_startup_bootstrap_once(datetime(2026, 6, 17, 22, 1, tzinfo=tw))
+
+            self.assertEqual(executed, ["full_market", "post_close_validation"])
+            self.assertEqual(second, [])
+            self.assertEqual(calls, ["full_market", "post_close_validation"])
+            self.assertEqual(app.last_scheduled_refresh_status, "post close ok")
+
+    def test_startup_bootstrap_skips_when_snapshot_exists(self):
+        import tempfile
+        from pathlib import Path
+
+        tw = ZoneInfo("Asia/Taipei")
+        with tempfile.TemporaryDirectory() as directory:
+            app = WebApp(None, report_dir=Path(directory))
+            calls = []
+
+            class FakeCoordinator:
+                def status_payload(self, now=None):
+                    return {
+                        "market_mode": "post_close_review",
+                        "review_observation_candidates": {"status": "ok", "items": [{"symbol": "2330.TW"}]},
+                        "layers": {"full_market": {"status": "success", "symbols_count": 120}},
+                    }
+
+                def refresh_full_market(self):
+                    calls.append("full_market")
+
+            app.refresh_coordinator = FakeCoordinator()
+
+            executed = app._run_startup_bootstrap_once(datetime(2026, 6, 17, 22, 0, tzinfo=tw))
+
+            self.assertEqual(executed, [])
+            self.assertEqual(calls, [])
+
     def test_dashboard_shell_polls_refresh_status_without_auto_refresh(self):
         html = render_shell("<main>ok</main>", active_file="today.html")
 

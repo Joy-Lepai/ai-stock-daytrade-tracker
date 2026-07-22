@@ -49,6 +49,7 @@ DEFAULT_REPORT_DIR = PROJECT_ROOT / "reports"
 SESSION_COOKIE = "ai_stock_session"
 TRACKER_REFRESH_TIMEOUT_SECONDS = int(os.getenv("STOCK_TRACKER_REFRESH_TIMEOUT_SECONDS", "180"))
 WEB_SCHEDULER_POLL_SECONDS = int(os.getenv("STOCK_WEB_SCHEDULER_POLL_SECONDS", "30"))
+WEB_SCHEDULER_BOOTSTRAP_REFRESH = os.getenv("STOCK_WEB_SCHEDULER_BOOTSTRAP_REFRESH", "1").lower() not in {"0", "false", "no"}
 TW_PREMARKET_REFRESH_SECONDS = int(os.getenv("STOCK_TW_PREMARKET_REFRESH_SECONDS", "1800"))
 TW_INTRADAY_REFRESH_SECONDS = int(os.getenv("STOCK_TW_INTRADAY_REFRESH_SECONDS", "900"))
 TW_WATCHLIST_REFRESH_SECONDS = int(os.getenv("STOCK_TW_WATCHLIST_REFRESH_SECONDS", "300"))
@@ -76,6 +77,7 @@ class WebApp:
         self.last_scheduled_refresh_at: Optional[datetime] = None
         self.last_scheduled_refresh_at_by_layer: Dict[str, datetime] = {}
         self.last_scheduled_refresh_status = "尚未執行"
+        self.startup_bootstrap_completed = False
 
     def create_session(self, username: str) -> str:
         token = secrets.token_urlsafe(32)
@@ -101,10 +103,44 @@ class WebApp:
         startup_delay = max(WEB_SCHEDULER_STARTUP_DELAY_SECONDS, 0)
         if startup_delay:
             time_module.sleep(startup_delay)
+        if WEB_SCHEDULER_BOOTSTRAP_REFRESH:
+            self._run_startup_bootstrap_once(datetime.now(ZoneInfo("Asia/Taipei")))
         while True:
             now = datetime.now(ZoneInfo("Asia/Taipei"))
             self._run_scheduled_refresh_once(now)
             time_module.sleep(max(WEB_SCHEDULER_POLL_SECONDS, 5))
+
+    def _run_startup_bootstrap_once(self, now: datetime) -> list[str]:
+        if self.startup_bootstrap_completed:
+            return []
+        self.startup_bootstrap_completed = True
+        try:
+            status = self.refresh_coordinator.status_payload(now=now)
+        except Exception as exc:
+            self.last_scheduled_refresh_status = f"啟動資料檢查失敗：{exc}"
+            return []
+        review_status = str(((status.get("review_observation_candidates") or {}).get("status")) or "")
+        layers = status.get("layers") if isinstance(status.get("layers"), dict) else {}
+        full_market = layers.get("full_market") if isinstance(layers.get("full_market"), dict) else {}
+        needs_snapshot = review_status in {"no_usable_snapshot", "empty"} or (
+            str(full_market.get("status") or "") in {"idle", "failed", "stale"}
+            and int(full_market.get("symbols_count") or 0) <= 0
+        )
+        if not needs_snapshot:
+            return []
+        executed: list[str] = []
+        full_result = self._run_scheduled_layer("full_market")
+        self.last_scheduled_refresh_at = now
+        self.last_scheduled_refresh_at_by_layer["full_market"] = now
+        self.last_scheduled_refresh_status = full_result.message or "啟動全市場刷新完成"
+        executed.append("full_market")
+        mode = str(status.get("market_mode") or "")
+        if mode == "post_close_review":
+            post_result = self._run_scheduled_layer("post_close_validation")
+            self.last_scheduled_refresh_at_by_layer["post_close_validation"] = now
+            self.last_scheduled_refresh_status = post_result.message or "啟動盤後驗證完成"
+            executed.append("post_close_validation")
+        return executed
 
     def _run_scheduled_refresh_once(self, now: datetime) -> list[str]:
         executed: list[str] = []
