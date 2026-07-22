@@ -47,6 +47,24 @@ class WebTests(unittest.TestCase):
         self.assertIn("STOCK_BOOTSTRAP_TRACKER_ON_STARTUP", config)
         self.assertIn('value: "0"', config)
 
+    def test_web_scheduler_defaults_enabled_for_render_self_recovery(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict("os.environ", {}, clear=True):
+                app = WebApp(None, report_dir=Path(directory))
+
+        self.assertTrue(app.scheduler_enabled)
+
+    def test_web_scheduler_can_be_explicitly_disabled(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict("os.environ", {"STOCK_ENABLE_WEB_SCHEDULER": "0"}, clear=True):
+                app = WebApp(None, report_dir=Path(directory))
+
+        self.assertFalse(app.scheduler_enabled)
+
     def test_extracts_body_from_html(self):
         self.assertEqual(_extract_body("<html><body><main>ok</main></body></html>"), "<main>ok</main>")
 

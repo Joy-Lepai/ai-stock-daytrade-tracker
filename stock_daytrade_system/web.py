@@ -70,7 +70,7 @@ class WebApp:
             report_dir,
             tracker_timeout_seconds=TRACKER_REFRESH_TIMEOUT_SECONDS,
         )
-        self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "0").lower() not in {"0", "false", "no"}
+        self.scheduler_enabled = os.getenv("STOCK_ENABLE_WEB_SCHEDULER", "1").lower() not in {"0", "false", "no"}
         self.scheduler_thread: Optional[threading.Thread] = None
         self.background_refresh_threads: Dict[str, threading.Thread] = {}
         self.background_refresh_lock = threading.Lock()
