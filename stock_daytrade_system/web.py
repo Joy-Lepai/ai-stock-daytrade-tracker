@@ -736,6 +736,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "data_quality_status": health.get("data_quality_status") or (refresh_payload.get("price_status_summary") or {}).get("status") or "",
         "price_status_summary": refresh_payload.get("price_status_summary") or {},
         "front_category_summary": health.get("front_category_summary") or refresh_payload.get("front_category_summary") or {},
+        "buy_signal_diagnosis": refresh_payload.get("buy_signal_diagnosis") or {},
         "limit_up_operational_summary": health.get("limit_up_operational_summary")
         or refresh_payload.get("limit_up_operational_summary")
         or {},
@@ -787,6 +788,7 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
     blockers = [str(item) for item in (health.get("blockers") or []) if str(item)]
     do_now = [str(item) for item in (health.get("do_now") or health.get("operator_steps") or []) if str(item)]
     do_not = [str(item) for item in (health.get("do_not_do") or []) if str(item)]
+    buy_diagnosis = health.get("buy_signal_diagnosis") if isinstance(health.get("buy_signal_diagnosis"), dict) else {}
     deployment = health.get("deployment") if isinstance(health.get("deployment"), dict) else {}
     db = health.get("db") if isinstance(health.get("db"), dict) else {}
     forms = "".join(
@@ -805,10 +807,12 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
           {_shell_metric('狀態', health.get('status') or 'unknown')}
           {_shell_metric('目前模式', health.get('market_mode_label') or health.get('market_mode') or '-')}
           {_shell_metric('資料品質', health.get('data_quality_status') or '-')}
+          {_shell_metric('買多診斷', buy_diagnosis.get('headline') or '尚未產生')}
           {_shell_metric('Runtime commit', deployment.get('runtime_commit') or '-')}
           {_shell_metric('資料日期', db.get('data_date') or '-')}
           {_shell_metric('最新資料時間', db.get('latest_data_at') or '-')}
         </div>
+        {_missing_dashboard_buy_signal_panel(buy_diagnosis)}
         <div class="decision-grid">
           <section class="decision-panel">
             <h3>現在先做</h3>
@@ -833,6 +837,47 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
         </section>
       </section>
     </main>
+    """
+
+
+def _missing_dashboard_buy_signal_panel(diagnosis: dict[str, Any]) -> str:
+    if not diagnosis:
+        return ""
+    next_steps = [str(item) for item in (diagnosis.get("next_steps") or []) if str(item)]
+    watch_now = [str(item) for item in (diagnosis.get("what_to_watch_now") or []) if str(item)]
+    do_not = [str(item) for item in (diagnosis.get("do_not_do") or []) if str(item)]
+    counts = diagnosis.get("counts") if isinstance(diagnosis.get("counts"), dict) else {}
+    return f"""
+        <section class="decision-center">
+          <h2>買多訊號診斷</h2>
+          <div class="summary">
+            {_shell_metric('強烈買多', counts.get('strong_buy', 0))}
+            {_shell_metric('買多', counts.get('buy', 0))}
+            {_shell_metric('觀察', counts.get('watch', 0))}
+            {_shell_metric('live 價格', counts.get('live', 0))}
+          </div>
+          <div class="decision-grid">
+            <section class="decision-panel">
+              <h3>目前答案</h3>
+              <p class="muted">{_escape(diagnosis.get('headline') or '尚未產生買多診斷。')}</p>
+            </section>
+            <section class="decision-panel">
+              <h3>最大原因</h3>
+              <p class="muted">{_escape(diagnosis.get('primary_reason') or '資料尚未準備好。')}</p>
+            </section>
+            <section class="decision-panel">
+              <h3>下一步</h3>
+              {_shell_list(next_steps or ['先完成資料刷新，再重新檢查買多訊號。'])}
+            </section>
+            <section class="decision-panel">
+              <h3>現在可觀察</h3>
+              {_shell_list(watch_now or ['目前沒有可用候選資料。'])}
+            </section>
+          </div>
+          <section class="notice">
+            <strong>不要做：</strong>{_escape(' / '.join(do_not or ['資料未恢復前，不判斷即時買多。']))}
+          </section>
+        </section>
     """
 
 

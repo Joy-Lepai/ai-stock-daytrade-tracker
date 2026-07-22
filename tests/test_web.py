@@ -649,6 +649,14 @@ class WebTests(unittest.TestCase):
                 "do_now": ["依刷新計畫執行：/refresh_full_market → /refresh_watchlist"],
                 "do_not_do": ["不要把候選股當成即時買多。"],
                 "blockers": ["尚未產生 tracker HTML。"],
+                "buy_signal_diagnosis": {
+                    "headline": "現在不能判斷盤中可以做多，只能復盤與準備觀察清單。",
+                    "primary_reason": "目前是盤後復盤模式，不提供即時做多判斷。",
+                    "counts": {"strong_buy": 0, "buy": 0, "watch": 0, "live": 0},
+                    "what_to_watch_now": ["Fugle 指定追蹤：6919.TW"],
+                    "next_steps": ["先執行刷新：/refresh_full_market → /refresh_post_close_validation"],
+                    "do_not_do": ["不要在非盤中或資料未恢復時判斷即時做多。"],
+                },
                 "deployment": {"runtime_commit": "abc123"},
                 "db": {"data_date": "", "latest_data_at": ""},
             }
@@ -661,6 +669,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("更新重點觀察", html)
         self.assertIn("尚未產生 tracker HTML", html)
         self.assertIn("不顯示強烈買多", html)
+        self.assertIn("買多訊號診斷", html)
+        self.assertIn("現在不能判斷盤中可以做多", html)
+        self.assertIn("Fugle 指定追蹤：6919.TW", html)
 
     def test_paper_dashboard_page_has_required_sections(self):
         html = render_paper_dashboard_page()
