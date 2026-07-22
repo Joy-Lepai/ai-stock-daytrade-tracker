@@ -13,9 +13,11 @@ from stock_daytrade_system.refresh_service import (
     _front_category_summary,
     _layer_has_usable_fresh_success,
     _layer_status,
+    _official_quote_bootstrap_snapshot_row,
     _refresh_operation_summary,
     _status_allows_strong_long,
 )
+from stock_daytrade_system.tw_full_market import FullMarketQuote
 from stock_daytrade_system.resilience import GLOBAL_HEALTH, record_source_health
 
 
@@ -54,6 +56,91 @@ class RefreshServiceTests(unittest.TestCase):
         self.assertEqual(layer["stale_label"], "刷新可能卡住")
         self.assertEqual(layer["error"], "running_exceeded_240s")
         self.assertLess(layer["running_stuck_after_seconds"], layer["stale_after_seconds"])
+
+    def test_official_quote_bootstrap_snapshot_is_observation_only(self):
+        row = _official_quote_bootstrap_snapshot_row(
+            FullMarketQuote(
+                symbol="8150.TW",
+                code="8150",
+                name="南茂",
+                market="TWSE",
+                sector="半導體",
+                is_common_stock=True,
+                is_etf=False,
+                is_warrant=False,
+                is_preferred=False,
+                is_daytrade_eligible=None,
+                price=72.5,
+                change=4.5,
+                change_pct=6.62,
+                volume=5_000_000,
+                turnover=360_000_000,
+                high=72.5,
+                low=68.0,
+                close=72.5,
+                trade_date="20260722",
+                source="TWSE STOCK_DAY_ALL",
+                source_reasons=("今日漲幅大於3%", "成交金額前段"),
+            )
+        )
+
+        self.assertEqual(row["symbol"], "8150.TW")
+        self.assertEqual(row["entry_status"], "review_observation")
+        self.assertEqual(row["trade_bias"], "watch")
+        self.assertEqual(row["reason_code"], "official_quote_bootstrap")
+        self.assertIsNone(row["vwap"])
+        self.assertFalse(row["above_vwap"])
+        self.assertIn("不作為即時買多", row["not_selected_reason"])
+
+    def test_bootstrap_review_snapshot_writes_full_market_snapshot(self):
+        quote = FullMarketQuote(
+            symbol="8150.TW",
+            code="8150",
+            name="南茂",
+            market="TWSE",
+            sector="半導體",
+            is_common_stock=True,
+            is_etf=False,
+            is_warrant=False,
+            is_preferred=False,
+            is_daytrade_eligible=None,
+            price=72.5,
+            change=4.5,
+            change_pct=6.62,
+            volume=5_000_000,
+            turnover=360_000_000,
+            high=72.5,
+            low=68.0,
+            close=72.5,
+            trade_date="20260722",
+            source="TWSE STOCK_DAY_ALL",
+            source_reasons=("今日漲幅大於3%", "成交金額前段"),
+        )
+
+        class FakeFullMarketResult:
+            candidate_quotes = [quote]
+
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            reports = project / "reports"
+            coordinator = RefreshCoordinator(project, reports)
+            with patch("stock_daytrade_system.refresh_service.build_tw_full_market_pool", return_value=FakeFullMarketResult()):
+                result = coordinator.refresh_bootstrap_review_snapshot()
+            with connect(default_db_path(project)) as conn:
+                snapshot = conn.execute(
+                    "SELECT symbol, entry_status, trade_bias, reason_code, price FROM tw_full_market_snapshots"
+                ).fetchone()
+                state = conn.execute("SELECT layer, status, symbols_count FROM refresh_state WHERE layer = 'full_market'").fetchone()
+
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.symbols_count, 1)
+        self.assertEqual(snapshot["symbol"], "8150.TW")
+        self.assertEqual(snapshot["entry_status"], "review_observation")
+        self.assertEqual(snapshot["trade_bias"], "watch")
+        self.assertEqual(snapshot["reason_code"], "official_quote_bootstrap")
+        self.assertEqual(snapshot["price"], 72.5)
+        self.assertEqual(state["status"], "success")
+        self.assertEqual(state["symbols_count"], 1)
 
     def test_status_payload_returns_market_mode_without_triggering_scan(self):
         with tempfile.TemporaryDirectory() as directory:

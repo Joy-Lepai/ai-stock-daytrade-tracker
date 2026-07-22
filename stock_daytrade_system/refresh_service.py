@@ -20,6 +20,7 @@ from stock_daytrade_system.db import (
     default_db_path,
     refresh_state_rows,
     save_long_candidates,
+    save_tw_full_market_snapshots,
     update_backtests,
     upsert_refresh_state,
 )
@@ -39,6 +40,7 @@ from stock_daytrade_system.scoring import score_market_bias
 from stock_daytrade_system.sectors import rank_sector_strength
 from stock_daytrade_system.signal_guard import SIGNAL_GUARD_VERSION
 from stock_daytrade_system.strategy_validation import update_tw_scan_result_verification
+from stock_daytrade_system.tw_full_market import FullMarketQuote, build_tw_full_market_pool
 
 
 REFRESH_LAYER_STALE_SECONDS = {
@@ -119,6 +121,9 @@ class RefreshCoordinator:
 
     def refresh_full_market(self) -> RefreshResult:
         return self._run_tracked_layer("full_market", lambda started_at: self._run_full_tracker("full_market"))
+
+    def refresh_bootstrap_review_snapshot(self) -> RefreshResult:
+        return self._run_tracked_layer("full_market", self._run_bootstrap_review_snapshot)
 
     def refresh_watchlist(self) -> RefreshResult:
         return self._run_tracked_layer("watchlist", self._run_watchlist_refresh)
@@ -324,6 +329,15 @@ class RefreshCoordinator:
         self._mark_full_tracker_dependent_layers(layer, symbols_count)
         return symbols_count, "完整 tracker 已刷新。"
 
+    def _run_bootstrap_review_snapshot(self, started_at: datetime) -> tuple[int, str]:
+        result = build_tw_full_market_pool(self.project_root, now=started_at, max_candidates=80)
+        rows = [_official_quote_bootstrap_snapshot_row(item) for item in result.candidate_quotes]
+        with connect(default_db_path(self.project_root)) as conn:
+            save_tw_full_market_snapshots(conn, started_at, rows)
+        if not rows:
+            return 0, "官方日行情啟動快照未取得候選；仍需完整刷新。"
+        return len(rows), f"官方日行情啟動快照完成，建立 {len(rows)} 檔下個交易日觀察候選。"
+
     def _run_watchlist_refresh(self, started_at: datetime) -> tuple[int, str]:
         config = load_config(self.config_path)
         symbols = _watchlist_refresh_symbols(default_db_path(self.project_root), config.manual_symbols)
@@ -486,6 +500,32 @@ def _latest_snapshot_count(db_path: Path) -> int:
             """
         ).fetchone()
     return int(row["total"] or 0) if row else 0
+
+
+def _official_quote_bootstrap_snapshot_row(item: FullMarketQuote) -> dict:
+    return {
+        "symbol": item.symbol,
+        "name": item.name,
+        "market_type": item.market,
+        "source_scope": "official_quote_bootstrap",
+        "latest_price": item.price,
+        "change_pct": item.change_pct,
+        "volume": item.volume,
+        "turnover": item.turnover,
+        "volume_ratio": None,
+        "vwap": None,
+        "above_vwap": False,
+        "break_prev_high": False,
+        "break_5d_high": False,
+        "ai_grade": "-",
+        "entry_status": "review_observation",
+        "trade_bias": "watch",
+        "not_selected_reason": "官方日行情啟動快照：缺 VWAP、量比與盤中 K 線，只供下個交易日觀察，不作為即時買多。",
+        "reason_code": "official_quote_bootstrap",
+        "data_error": "",
+        "latest_at": item.trade_date,
+        "source_reasons": list(item.source_reasons or ("官方日行情異動候選",)),
+    }
 
 
 def _latest_data_meta(conn) -> dict:

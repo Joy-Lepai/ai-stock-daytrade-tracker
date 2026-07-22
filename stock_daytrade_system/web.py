@@ -129,10 +129,10 @@ class WebApp:
         if not needs_snapshot:
             return []
         executed: list[str] = []
-        full_result = self._run_scheduled_layer("full_market")
+        full_result = self.refresh_coordinator.refresh_bootstrap_review_snapshot()
         self.last_scheduled_refresh_at = now
         self.last_scheduled_refresh_at_by_layer["full_market"] = now
-        self.last_scheduled_refresh_status = full_result.message or "啟動全市場刷新完成"
+        self.last_scheduled_refresh_status = full_result.message or "啟動官方日行情快照完成"
         executed.append("full_market")
         mode = str(status.get("market_mode") or "")
         if mode == "post_close_review":

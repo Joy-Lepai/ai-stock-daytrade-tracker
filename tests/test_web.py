@@ -943,9 +943,9 @@ class WebTests(unittest.TestCase):
                         "layers": {"full_market": {"status": "idle", "symbols_count": 0}},
                     }
 
-                def refresh_full_market(self):
-                    calls.append("full_market")
-                    return FakeResult("full market ok")
+                def refresh_bootstrap_review_snapshot(self):
+                    calls.append("bootstrap_review_snapshot")
+                    return FakeResult("bootstrap snapshot ok")
 
                 def refresh_post_close_validation(self):
                     calls.append("post_close_validation")
@@ -958,7 +958,7 @@ class WebTests(unittest.TestCase):
 
             self.assertEqual(executed, ["full_market", "post_close_validation"])
             self.assertEqual(second, [])
-            self.assertEqual(calls, ["full_market", "post_close_validation"])
+            self.assertEqual(calls, ["bootstrap_review_snapshot", "post_close_validation"])
             self.assertEqual(app.last_scheduled_refresh_status, "post close ok")
 
     def test_startup_bootstrap_skips_when_snapshot_exists(self):
