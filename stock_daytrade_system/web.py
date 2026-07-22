@@ -2947,6 +2947,33 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           : "";
         return `<span class="refresh-layer-item refresh-guidance-item"><strong>建議動作：</strong><span class="${{cls}}">${{action}}</span>｜${{escapeHtml(guidance.summary || "必要資料層正常。")}}${{endpointHint}}${{actionButton}}</span>`;
       }};
+      const buySignalDiagnosisHtml = (payload) => {{
+        const diagnosis = payload.buy_signal_diagnosis || {{}};
+        if (!diagnosis.headline && !diagnosis.primary_reason) {{
+          return '<span class="refresh-layer-item refresh-guidance-item"><strong>買多訊號診斷：</strong>尚未取得診斷資料。</span>';
+        }}
+        const counts = diagnosis.counts || {{}};
+        const nextSteps = Array.isArray(diagnosis.next_steps) ? diagnosis.next_steps.slice(0, 3) : [];
+        const watchNow = Array.isArray(diagnosis.what_to_watch_now) ? diagnosis.what_to_watch_now.slice(0, 3) : [];
+        const doNot = Array.isArray(diagnosis.do_not_do) ? diagnosis.do_not_do.slice(0, 3) : [];
+        const cls = diagnosis.can_show_strong_buy ? "health-ok" : diagnosis.can_answer_intraday_buy ? "health-warn" : "health-bad";
+        const nextHtml = nextSteps.length
+          ? `<ol class="operator-steps">${{nextSteps.map((step) => `<li>${{escapeHtml(step)}}</li>`).join("")}}</ol>`
+          : "";
+        const watchHtml = watchNow.length
+          ? `<div class="warn-mini">現在可看：${{watchNow.map((item) => escapeHtml(item)).join(" / ")}}</div>`
+          : "";
+        const doNotHtml = doNot.length
+          ? `<div class="warn-mini">不要做：${{doNot.map((item) => escapeHtml(item)).join(" / ")}}</div>`
+          : "";
+        return `
+          <span class="refresh-layer-item refresh-guidance-item"><strong>買多訊號診斷：</strong><span class="${{cls}}">${{escapeHtml(diagnosis.headline || "-")}}</span>｜${{escapeHtml(diagnosis.primary_reason || "-")}}</span>
+          <div class="warn-mini">統計：強烈買多=${{escapeHtml(counts.strong_buy || 0)}}｜買多=${{escapeHtml(counts.buy || 0)}}｜觀察=${{escapeHtml(counts.watch || 0)}}｜live=${{escapeHtml(counts.live || 0)}}</div>
+          ${{watchHtml}}
+          ${{nextHtml}}
+          ${{doNotHtml}}
+        `;
+      }};
       const operationalHealthHtml = (payload) => {{
         const health = payload.operational_health || {{}};
         const briefing = health.operator_briefing || {{}};
@@ -3001,10 +3028,13 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           const payload = await response.json();
           const layers = payload.layers || {{}};
           const health = payload.operational_health || {{}};
-          status.textContent = `營運健康：${{health.status || "-"}}｜看盤：${{health.watch_readiness || "-"}}｜模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜必要資料層：${{payload.any_stale ? "需更新" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
+          const diagnosis = payload.buy_signal_diagnosis || {{}};
+          const diagnosisLabel = diagnosis.headline || `營運健康：${{health.status || "-"}}`;
+          status.textContent = `${{diagnosisLabel}}｜看盤：${{health.watch_readiness || "-"}}｜模式：${{payload.market_mode_label || payload.market_mode || "-"}}｜必要資料層：${{payload.any_stale ? "需更新" : "正常"}}｜強烈買多：${{payload.allow_strong_long ? "允許" : "禁止"}}`;
           if (panel) {{
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
+              buySignalDiagnosisHtml(payload),
               operationalHealthHtml(payload),
               operationSummaryHtml(payload),
               refreshGuidanceHtml(payload),
