@@ -8,7 +8,7 @@ from typing import Any, Iterable, Optional
 from stock_daytrade_system.tw_symbols import normalize_tw_stock_symbol
 
 
-FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v2_selection_explain_2026-06-26"
+FUGLE_PRIORITY_POOL_VERSION = "fugle_priority_pool_v3_pinned_placeholders_2026-07-22"
 DEFAULT_FUGLE_BASIC_SUBSCRIPTIONS = 5
 DEFAULT_FUGLE_BASIC_REST_CALLS_PER_MINUTE = 60
 
@@ -67,6 +67,11 @@ def build_fugle_priority_pool(
         )
         for item in candidates
     ]
+    scored_symbols = {item.symbol for item in scored}
+    scored.extend(
+        _score_candidate(_pinned_placeholder(symbol), None, pinned=True)
+        for symbol in sorted(pinned - scored_symbols)
+    )
     scored = [item for item in scored if item.priority_score > 0]
     scored.sort(key=lambda item: (-item.priority_score, item.risk_score, item.symbol))
     selected = scored[:limit]
@@ -175,6 +180,8 @@ def _selection_reason(item: FuglePriorityItem) -> str:
 def _watch_now(item: FuglePriorityItem) -> str:
     if item.entry_status == "high_risk":
         return "看是否拉回 VWAP 附近、停損距離縮小，且大單敲出減少。"
+    if item.entry_status == "manual_watch":
+        return "先用 Fugle 看最新價、五檔與逐筆；再進 /tw/advisor 補 VWAP、量比與模型判斷。"
     if item.entry_status == "wait_vwap":
         return "看是否站回 VWAP 並維持，委買量是否補強。"
     if item.entry_status == "wait_volume":
@@ -197,6 +204,8 @@ def _promotion_condition(item: FuglePriorityItem) -> str:
         return "接近或突破觸發價，且前 5 檔有標的失效時可升入。"
     if item.entry_status == "high_risk":
         return "追價風險降溫、停損距離縮小後才考慮升入。"
+    if item.entry_status == "manual_watch":
+        return "使用者指定追蹤，會保留名額；若出現模型候選且名額不足，需手動調整指定清單。"
     return "順位分超過第 5 檔，或前 5 檔條件失效時可升入。"
 
 
@@ -313,6 +322,9 @@ def _score_candidate(item: Any, trigger: Optional[dict], *, pinned: bool = False
     elif entry_status == "high_risk":
         priority += 220
         reasons.append("高風險只追蹤風險變化，不列為進場")
+    elif entry_status == "manual_watch":
+        priority += 260
+        reasons.append("使用者指定單檔追蹤")
     elif entry_status == "avoid":
         priority = priority if pinned else 0
         reasons.append("avoid 僅作指定觀察，不作進場")
@@ -381,7 +393,27 @@ def _tracking_purpose(entry_status: str, grade: str, readiness: str) -> str:
         return "確認是否突破觸發價"
     if entry_status == "high_risk":
         return "只追蹤風險降溫，不作進場"
+    if entry_status == "manual_watch":
+        return "使用者指定觀察，不作進場"
     return f"{grade or '觀察'} 重點追蹤"
+
+
+def _pinned_placeholder(symbol: str) -> dict:
+    return {
+        "symbol": symbol,
+        "name": symbol,
+        "grade": "觀察",
+        "entry_status": "manual_watch",
+        "trade_bias": "watch",
+        "risk_score": 100.0,
+        "bullish_score": 0.0,
+        "confidence_score": 0.0,
+        "volume_ratio": None,
+        "last_price": None,
+        "vwap": None,
+        "trigger_price": None,
+        "stop_loss": None,
+    }
 
 
 def _near_level(price: Optional[float], level: Optional[float], *, pct: float) -> bool:

@@ -110,6 +110,25 @@ class FuglePriorityPoolTests(unittest.TestCase):
         self.assertEqual(payload["selected"][0]["symbol"], "8936.TWO")
         self.assertIn("使用者指定即時追蹤", payload["selected"][0]["priority_reason"])
 
+    def test_pinned_symbol_is_tracked_even_without_model_candidate(self):
+        payload = build_fugle_priority_pool(
+            [],
+            pinned_symbols=["6919.tw"],
+            max_symbols=5,
+            enabled=True,
+            configured=True,
+        )
+
+        self.assertEqual(payload["selected_count"], 1)
+        selected = payload["selected"][0]
+        self.assertEqual(selected["symbol"], "6919.TW")
+        self.assertEqual(selected["entry_status"], "manual_watch")
+        self.assertEqual(selected["tracking_purpose"], "使用者指定觀察，不作進場")
+        self.assertFalse(selected["can_use_for_entry_confirmation"])
+        self.assertIn("先用 Fugle 看最新價", selected["watch_now"])
+        self.assertIn("使用者指定即時追蹤", selected["priority_reason"])
+        self.assertIn("不會改 A / B+ / B 條件", " ".join(payload["selection_policy"]))
+
 
 if __name__ == "__main__":
     unittest.main()
