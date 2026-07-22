@@ -200,6 +200,43 @@ class WebApp:
         elif layer == "post_close_validation":
             coordinator.refresh_post_close_validation()
 
+    def refresh_status_payload(self, now: Optional[datetime] = None) -> dict[str, Any]:
+        payload = self.refresh_coordinator.status_payload(now=now)
+        payload["web_scheduler"] = self.scheduler_status_payload()
+        return payload
+
+    def scheduler_status_payload(self) -> dict[str, Any]:
+        running_layers = [
+            layer
+            for layer, thread in self.background_refresh_threads.items()
+            if thread and thread.is_alive()
+        ]
+        return {
+            "enabled": self.scheduler_enabled,
+            "thread_alive": bool(self.scheduler_thread and self.scheduler_thread.is_alive()),
+            "bootstrap_refresh_enabled": WEB_SCHEDULER_BOOTSTRAP_REFRESH,
+            "bootstrap_completed": self.startup_bootstrap_completed,
+            "startup_delay_seconds": WEB_SCHEDULER_STARTUP_DELAY_SECONDS,
+            "poll_seconds": WEB_SCHEDULER_POLL_SECONDS,
+            "last_scheduled_refresh_at": self.last_scheduled_refresh_at.isoformat(timespec="seconds")
+            if self.last_scheduled_refresh_at
+            else None,
+            "last_scheduled_refresh_status": self.last_scheduled_refresh_status,
+            "last_scheduled_refresh_at_by_layer": {
+                layer: value.isoformat(timespec="seconds")
+                for layer, value in self.last_scheduled_refresh_at_by_layer.items()
+            },
+            "background_running_layers": running_layers,
+            "can_self_recover_empty_dashboard": bool(self.scheduler_enabled and WEB_SCHEDULER_BOOTSTRAP_REFRESH),
+            "diagnosis": _web_scheduler_diagnosis(
+                enabled=self.scheduler_enabled,
+                thread_alive=bool(self.scheduler_thread and self.scheduler_thread.is_alive()),
+                bootstrap_enabled=WEB_SCHEDULER_BOOTSTRAP_REFRESH,
+                bootstrap_completed=self.startup_bootstrap_completed,
+                running_layers=running_layers,
+            ),
+        }
+
 
 def serve(
     host: str = "127.0.0.1",
@@ -231,7 +268,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             self._send_json(build_liveness_payload())
             return
         if path == "/readyz":
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             health_payload = build_health_payload(refresh_payload, system_payload)
             self._send_json(health_payload, readiness_http_status(health_payload))
@@ -253,7 +290,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             self._send_html(self._dashboard_html(force_refresh="final" in query))
             return
         if path == "/operator":
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_html(render_operator_page(build_operator_runbook_payload(refresh_payload, system_payload), show_logout=self.web_app.require_auth))
             return
@@ -354,23 +391,23 @@ class StockWebHandler(BaseHTTPRequestHandler):
                 self._send_json(build_paper_performance(conn))
             return
         if path == "/api/refresh/status":
-            self._send_json(self.web_app.refresh_coordinator.status_payload())
+            self._send_json(self.web_app.refresh_status_payload())
             return
         if path == "/api/system/version":
             self._send_json(build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir))
             return
         if path == "/api/health":
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_json(build_health_payload(refresh_payload, system_payload))
             return
         if path == "/api/operator/decision":
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_json(build_operator_decision_payload(refresh_payload, system_payload))
             return
         if path == "/api/operator/runbook":
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             self._send_json(build_operator_runbook_payload(refresh_payload, system_payload))
             return
@@ -525,7 +562,7 @@ class StockWebHandler(BaseHTTPRequestHandler):
             refresh_error = result.error if result.status == "failed" else ""
             latest = latest_tracker_file(self.web_app.report_dir)
         if latest is None:
-            refresh_payload = self.web_app.refresh_coordinator.status_payload()
+            refresh_payload = self.web_app.refresh_status_payload()
             system_payload = build_system_version_payload(PROJECT_ROOT, self.web_app.report_dir)
             health_payload = build_health_payload(refresh_payload, system_payload)
             return render_shell(
@@ -733,6 +770,27 @@ def build_liveness_payload() -> dict[str, Any]:
     }
 
 
+def _web_scheduler_diagnosis(
+    *,
+    enabled: bool,
+    thread_alive: bool,
+    bootstrap_enabled: bool,
+    bootstrap_completed: bool,
+    running_layers: list[str],
+) -> str:
+    if running_layers:
+        return "背景刷新執行中：" + "、".join(running_layers)
+    if not enabled:
+        return "Web 內建排程未啟用；需要 GitHub Actions 或手動刷新。"
+    if not thread_alive:
+        return "Web 內建排程已設定但執行緒尚未啟動或已停止。"
+    if bootstrap_enabled and not bootstrap_completed:
+        return "Web 內建排程已啟動，正在等待啟動自救刷新檢查。"
+    if bootstrap_enabled and bootstrap_completed:
+        return "Web 內建排程已啟動，啟動自救刷新檢查已完成。"
+    return "Web 內建排程已啟動；啟動自救刷新未啟用。"
+
+
 def readiness_http_status(health_payload: dict[str, Any]) -> HTTPStatus:
     return HTTPStatus.SERVICE_UNAVAILABLE if health_payload.get("status") == "blocked" else HTTPStatus.OK
 
@@ -773,6 +831,7 @@ def build_health_payload(refresh_payload: dict[str, Any], system_payload: dict[s
         "price_status_summary": refresh_payload.get("price_status_summary") or {},
         "front_category_summary": health.get("front_category_summary") or refresh_payload.get("front_category_summary") or {},
         "buy_signal_diagnosis": refresh_payload.get("buy_signal_diagnosis") or {},
+        "web_scheduler": refresh_payload.get("web_scheduler") or {},
         "limit_up_operational_summary": health.get("limit_up_operational_summary")
         or refresh_payload.get("limit_up_operational_summary")
         or {},
@@ -825,6 +884,7 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
     do_now = [str(item) for item in (health.get("do_now") or health.get("operator_steps") or []) if str(item)]
     do_not = [str(item) for item in (health.get("do_not_do") or []) if str(item)]
     buy_diagnosis = health.get("buy_signal_diagnosis") if isinstance(health.get("buy_signal_diagnosis"), dict) else {}
+    scheduler = health.get("web_scheduler") if isinstance(health.get("web_scheduler"), dict) else {}
     deployment = health.get("deployment") if isinstance(health.get("deployment"), dict) else {}
     db = health.get("db") if isinstance(health.get("db"), dict) else {}
     forms = "".join(
@@ -844,6 +904,7 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
           {_shell_metric('目前模式', health.get('market_mode_label') or health.get('market_mode') or '-')}
           {_shell_metric('資料品質', health.get('data_quality_status') or '-')}
           {_shell_metric('買多診斷', buy_diagnosis.get('headline') or '尚未產生')}
+          {_shell_metric('自動刷新', scheduler.get('diagnosis') or '-')}
           {_shell_metric('Runtime commit', deployment.get('runtime_commit') or '-')}
           {_shell_metric('資料日期', db.get('data_date') or '-')}
           {_shell_metric('最新資料時間', db.get('latest_data_at') or '-')}
@@ -3010,6 +3071,17 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
           ${{doNotHtml}}
         `;
       }};
+      const webSchedulerHtml = (payload) => {{
+        const scheduler = payload.web_scheduler || {{}};
+        if (!Object.keys(scheduler).length) {{
+          return '<span class="refresh-layer-item"><strong>自動刷新：</strong>尚未取得 Web 排程狀態。</span>';
+        }}
+        const cls = scheduler.enabled && scheduler.thread_alive ? "health-ok" : scheduler.enabled ? "health-warn" : "health-bad";
+        const running = Array.isArray(scheduler.background_running_layers) && scheduler.background_running_layers.length
+          ? `｜背景執行中：${{scheduler.background_running_layers.map((item) => escapeHtml(item)).join("、")}}`
+          : "";
+        return `<span class="refresh-layer-item"><strong>自動刷新：</strong><span class="${{cls}}">${{escapeHtml(scheduler.diagnosis || "-")}}</span>｜啟用=${{scheduler.enabled ? "是" : "否"}}｜執行緒=${{scheduler.thread_alive ? "正常" : "未啟動"}}｜啟動自救=${{scheduler.bootstrap_refresh_enabled ? (scheduler.bootstrap_completed ? "已完成" : "等待檢查") : "關閉"}}｜最後：${{escapeHtml(scheduler.last_scheduled_refresh_status || "-")}}${{running}}</span>`;
+      }};
       const operationalHealthHtml = (payload) => {{
         const health = payload.operational_health || {{}};
         const briefing = health.operator_briefing || {{}};
@@ -3071,6 +3143,7 @@ def render_shell(content: str, active_file: Optional[str], extra_css: str = "", 
             panel.innerHTML = [
               `<span class="refresh-layer-item"><strong>市場模式：</strong>${{escapeHtml(payload.market_mode_label || payload.market_mode || "-")}}｜market_mode=${{escapeHtml(payload.market_mode || "-")}}｜是否交易日=${{payload.is_trading_day ? "是" : "否"}}｜是否休市日=${{payload.is_holiday ? "是" : "否"}}｜last_trading_date=${{escapeHtml(payload.last_trading_date || "-")}}｜資料日 ${{escapeHtml(payload.data_date || "-")}}｜${{escapeHtml(payload.review_mode_message || "")}}</span>`,
               buySignalDiagnosisHtml(payload),
+              webSchedulerHtml(payload),
               operationalHealthHtml(payload),
               operationSummaryHtml(payload),
               refreshGuidanceHtml(payload),

@@ -970,6 +970,25 @@ class WebTests(unittest.TestCase):
             self.assertEqual(executed, [])
             self.assertEqual(calls, [])
 
+    def test_refresh_status_payload_includes_web_scheduler_status(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            app = WebApp(None, report_dir=Path(directory))
+
+            class FakeCoordinator:
+                def status_payload(self, now=None):
+                    return {"api_status": "ok"}
+
+            app.refresh_coordinator = FakeCoordinator()
+            payload = app.refresh_status_payload()
+
+            self.assertIn("web_scheduler", payload)
+            self.assertIn("diagnosis", payload["web_scheduler"])
+            self.assertIn("enabled", payload["web_scheduler"])
+            self.assertIn("bootstrap_refresh_enabled", payload["web_scheduler"])
+
     def test_dashboard_shell_polls_refresh_status_without_auto_refresh(self):
         html = render_shell("<main>ok</main>", active_file="today.html")
 
@@ -997,6 +1016,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("buy_signal_diagnosis", html)
         self.assertIn("買多訊號診斷", html)
         self.assertIn("diagnosis.headline", html)
+        self.assertIn("web_scheduler", html)
+        self.assertIn("自動刷新", html)
+        self.assertIn("scheduler.diagnosis", html)
         self.assertIn("operator_steps", html)
         self.assertIn("operator-steps", html)
         self.assertIn("/api/notification/signals", html)
