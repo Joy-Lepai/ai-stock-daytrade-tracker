@@ -738,7 +738,7 @@ class WebTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("盤前觀察模式：已整理下個交易日觀察清單", html)
+        self.assertIn("觀察清單模式：已整理下個交易日先看標的", html)
         self.assertIn("下個交易日先看這些", html)
         self.assertIn("3037.TW", html)
         self.assertIn("欣興", html)

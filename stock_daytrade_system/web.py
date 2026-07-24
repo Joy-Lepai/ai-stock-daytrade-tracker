@@ -890,16 +890,21 @@ def render_missing_dashboard_page(health: dict[str, Any]) -> str:
         else {}
     )
     has_review_candidates = bool(review_candidates.get("items")) or int(review_candidates.get("count") or 0) > 0
-    is_pre_open_observation = str(health.get("market_mode") or "") == "pre_open_prepare" and has_review_candidates
+    is_review_observation = has_review_candidates and str(health.get("market_mode") or "") in {
+        "pre_open_prepare",
+        "closed_review",
+        "post_close_review",
+        "",
+    }
     scheduler = health.get("web_scheduler") if isinstance(health.get("web_scheduler"), dict) else {}
     deployment = health.get("deployment") if isinstance(health.get("deployment"), dict) else {}
     db = health.get("db") if isinstance(health.get("db"), dict) else {}
     top_notice = (
         """
-        <strong>盤前觀察模式：已整理下個交易日觀察清單</strong><br>
+        <strong>觀察清單模式：已整理下個交易日先看標的</strong><br>
         目前使用官方日行情快照與上一交易日資料。尚未有今日盤中 VWAP、量比與突破確認，因此不提供即時買多判斷；開盤後請重新刷新重點觀察。
         """
-        if is_pre_open_observation
+        if is_review_observation
         else """
         <strong>Dashboard 尚未產生追蹤器資料</strong><br>
         這通常發生在 Render 剛部署、資料庫尚未刷新、或報表檔尚未建立。網站本身已啟動，請先依下方順序刷新資料。
